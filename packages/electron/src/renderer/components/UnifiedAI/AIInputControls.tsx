@@ -38,6 +38,7 @@ interface AIInputControlsProps
     | 'thinkingMode'
     | 'onLaunchActionInNewSession'
     | 'tokenUsage'
+    | 'sessionId'
   > {
   modelPickerOpenRequest: number;
   focusInput: () => void;
@@ -45,6 +46,7 @@ interface AIInputControlsProps
 }
 
 export function AIInputControls({
+  sessionId,
   onModeChange,
   provider,
   mode,
@@ -197,6 +199,7 @@ export function AIInputControls({
       )}
       {/* Show token usage for all providers - displays "--" if no data yet */}
       <ContextUsageDisplay
+        sessionId={sessionId}
         provider={currentProvider ?? provider}
         inputTokens={tokenUsage?.inputTokens || 0}
         outputTokens={tokenUsage?.outputTokens || 0}

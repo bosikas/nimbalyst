@@ -1536,6 +1536,7 @@ export const AIInput = forwardRef<AIInputRef, AIInputProps>(
         {/* Inline controls row - hidden in memory mode */}
         {!isMemoryMode && (onModeChange || onModelChange || readOnlyModel || workspacePath || (tokenUsage && provider === 'claude-code')) && (
           <AIInputControls
+            sessionId={sessionId}
             onModeChange={onModeChange}
             provider={provider}
             mode={mode}

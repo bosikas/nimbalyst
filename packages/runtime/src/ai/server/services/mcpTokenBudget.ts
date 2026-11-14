@@ -53,7 +53,7 @@ export function measureToolList(tools: MeasurableToolSchema[]): { bytes: number;
   const serialized = JSON.stringify(
     tools.map((t) => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })),
   );
-  const bytes = serialized.length;
+  const bytes = new TextEncoder().encode(serialized).byteLength;
   return { bytes, estTokens: estimateTokensForString(serialized) };
 }
 

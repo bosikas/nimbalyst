@@ -23,6 +23,8 @@ interface ToolGroupBudget {
   loadPolicy: 'eager' | 'deferred' | 'conditional' | 'external';
   toolCount: number;
   estTokens: number | null;
+  schemaBytes: number | null;
+  inclusionReason: string;
   enabled: boolean;
   lockedOn: boolean;
 }
@@ -147,7 +149,8 @@ export function ToolsMcpPanel({
               </span>
             )}
           </div>
-          <div className="tool-group-desc text-xs text-[var(--nim-text-muted)] truncate">{description}</div>
+          <div className="tool-group-desc text-xs text-[var(--nim-text-muted)] truncate" title={group.inclusionReason}>{description}</div>
+          <div className="text-[10px] text-[var(--nim-text-faint)]">{group.schemaBytes == null ? 'Schema bytes unavailable' : `${group.schemaBytes.toLocaleString()} UTF-8 schema bytes`} · estimate, not native usage</div>
         </div>
         <div className="tool-group-meta flex items-center gap-2.5 shrink-0">
           {group.toolCount > 0 && (
@@ -189,7 +192,7 @@ export function ToolsMcpPanel({
     <div className="tools-mcp-panel max-w-[720px]">
       <h2 className="text-lg font-semibold text-[var(--nim-text)] mb-1">Tools &amp; MCP</h2>
       <p className="text-[13px] text-[var(--nim-text-muted)] mb-5">
-        See what the agent&apos;s tools cost in context tokens and control which groups it can load.
+        Inspect configured capabilities, measured schema text bytes and rough token estimates. These are not measurements of a native session&apos;s loaded context.
       </p>
 
       {error && (
@@ -200,11 +203,9 @@ export function ToolsMcpPanel({
         <div className="baseline-card flex items-start gap-3 py-3 px-4 mb-6 bg-[var(--nim-bg-secondary)] border border-[var(--nim-border)] rounded-lg">
           <MaterialSymbol icon="info" size={18} className="text-[var(--nim-text-muted)] mt-0.5 shrink-0" />
           <div className="text-[13px] text-[var(--nim-text)] leading-relaxed">
-            Every session starts with only the Core tools loaded
-            (<span className="tabular-nums font-medium">{formatTokens(snapshot.eagerEstTokens)} tokens</span>).
-            All other groups stay out of the context window until the agent actually needs them,
-            so their costs below are only paid on demand. The live breakdown for a running session
-            is on the token meter in the AI panel.
+            Required Core interaction schemas estimate
+            {' '}<span className="tabular-nums font-medium">{formatTokens(snapshot.eagerEstTokens)} tokens</span>.
+            {' '}Other groups remain discoverable. Load-policy badges describe Nimbalyst&apos;s configured topology; the native client and model determine actual exposure. Estimates use roughly four text characters per token and do not partition the provider-reported usage in the AI panel.
           </div>
         </div>
       )}
@@ -239,7 +240,7 @@ export function ToolsMcpPanel({
       )}
 
       <div className="footer-note text-[11.5px] text-[var(--nim-text-faint)]">
-        Changes apply to your next message — no restart needed.
+        For selective Codex loading, set <code>omit_tools_from: [&quot;direct&quot;]</code> on a server in your existing .mcp.json configuration. A supported native client keeps its tools in discovery instead of the initial direct surface. Omit the field or use [] for native defaults. Core tools stay accessible; hiding discovery surfaces is rejected. Use a fresh Codex thread after changing native exposure; existing thread history is unchanged. No app restart is needed.
       </div>
     </div>
   );

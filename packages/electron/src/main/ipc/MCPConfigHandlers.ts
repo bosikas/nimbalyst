@@ -11,6 +11,7 @@ import {
   triggerMcpRemoteOAuth,
 } from '../services/MCPRemoteOAuth';
 import { getToolBudgetSnapshot } from '../mcp/toolBudgetService';
+import { getSessionContextInspection } from '../mcp/sessionContextInspection';
 import { hasEnterpriseManagedMcpConfig } from '@nimbalyst/runtime/ai/server/providers/claudeCode/enterpriseMcpConfig';
 import { getWindowIdForWindow, resolveActiveWorkspacePathForWindowId } from '../window/windowState';
 
@@ -30,6 +31,11 @@ function senderWorkspacePath(event: { sender: WebContents }): string | undefined
 }
 
 export function registerMCPConfigHandlers() {
+  safeHandle('mcp-config:get-context-inspection', async (event, sessionId: string) => {
+    const workspacePath = senderWorkspacePath(event);
+    if (!workspacePath || typeof sessionId !== 'string') throw new Error('An active workspace and session are required.');
+    return getSessionContextInspection(sessionId, workspacePath);
+  });
   safeHandle('mcp-config:read-user', async () => {
     try {
       return await mcpConfigService.readUserMCPConfig();

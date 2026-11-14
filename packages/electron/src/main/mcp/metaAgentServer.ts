@@ -1,4 +1,5 @@
 import type { OrchestrationMessageKind } from '@nimbalyst/runtime/ai/server/types';
+import { HANDOFF_BRIEF_SCHEMA, type HandoffBrief } from '../services/sessionHandoff';
 /**
  * Meta-agent (child-session orchestration) tool surface — `create_session`,
  * `spawn_session`, `send_prompt`, `list_queued_prompts`, `respond_to_prompt`,
@@ -28,6 +29,7 @@ type CreateSessionArgs = {
 };
 
 type SpawnSessionArgs = {
+  handoff?: HandoffBrief;
   title?: string;
   prompt: string;
   useWorktree?: boolean;
@@ -275,8 +277,9 @@ export const META_AGENT_TOOL_DEFS: Array<{
         besideCaller: {
           type: "boolean",
           description:
-            "Default false. Set true when handing this same work to a successor session: it is placed beside you (under your parent, or at the top level) instead of nested under you, so a chain of handoffs stays flat. It shares your worktree.",
+            "Default false. Place beside you in the same checkout. For fresh continuation with reporting=none, requires a reviewed handoff from prepare_session_handoff. Source remains intact; coordinate its stop before successor edits.",
         },
+        handoff: HANDOFF_BRIEF_SCHEMA,
         useWorktree: {
           type: "boolean",
           description:

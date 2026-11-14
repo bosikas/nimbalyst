@@ -111,7 +111,9 @@ function contextFitsHead(head: CoalescibleQueuedPrompt, row: CoalescibleQueuedPr
 }
 
 function canMerge(prompt: CoalescibleQueuedPrompt): boolean {
-  return authorOf(prompt) !== null && !isSlashCommand(prompt);
+  // Keep the durable handoff state's provenance tied to exactly its seed;
+  // mixing in a later human request would prevent safe flattening next time.
+  return !prompt.documentContext?.sessionHandoffId && authorOf(prompt) !== null && !isSlashCommand(prompt);
 }
 
 /**

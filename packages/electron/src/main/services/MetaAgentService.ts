@@ -2,6 +2,8 @@ import type { OrchestrationMessageKind } from '@nimbalyst/runtime/ai/server/type
 import path from 'path';
 import { BrowserWindow } from 'electron';
 import { createUnderParentOrBeside } from './sessionHierarchy';
+import type { HandoffBrief, RetainedHandoffState } from './sessionHandoff';
+import { prepareReviewedHandoff } from './sessionHandoffService';
 import { randomUUID } from 'crypto';
 import { safeHandle } from '../utils/ipcRegistry';
 import { SessionManager } from '@nimbalyst/runtime/ai/server';
@@ -136,6 +138,7 @@ function normalizeStoredChildModelIdentifier(
 }
 
 interface SpawnSessionArgs {
+  handoff?: HandoffBrief;
   title?: string;
   prompt: string;
   useWorktree?: boolean;
@@ -453,7 +456,7 @@ export class MetaAgentService {
     args: CreateChildSessionArgs
   ): Promise<string> {
     const childReporting = resolveChildReporting(args.reporting);
-    const result = await this.createChildSessionInternal(metaSessionId, workspaceId, { ...args, childReporting });
+    const result = await this.createChildSessionInternal(metaSessionId, workspaceId, { ...args, continuationHandoff: undefined, childReporting });
     return JSON.stringify({ ...result, reporting: childReporting }, null, 2);
   }
 
@@ -461,6 +464,8 @@ export class MetaAgentService {
     metaSessionId: string,
     workspaceId: string,
     args: CreateChildSessionArgs & {
+      /** Host-created only; never accept a caller's unvalidated retained state. */
+      continuationHandoff?: RetainedHandoffState;
       parentSessionIdOverride?: string | null;
       /** Written on the row before the first prompt is queued; see childReporting.ts. */
       childReporting: ChildReporting;
@@ -671,6 +676,7 @@ export class MetaAgentService {
       // notify a parent that asked not to be told. A child of an extension-owned
       // session inherits the owner (never the directive).
       const childMetadata: Record<string, unknown> = {
+        ...(args.continuationHandoff ? { continuationHandoff: args.continuationHandoff } : {}),
         ...inheritedOwnership(callerMetadata),
         ...(childToolScope ? { toolScope: childToolScope } : {}),
         ...(childEffortLevel ? { effortLevel: childEffortLevel } : {}),
@@ -704,11 +710,15 @@ export class MetaAgentService {
           actor: 'agent',
           origin: 'session-orchestration',
           originSessionId: metaSessionId,
+          ...(args.continuationHandoff ? { originMessageId: args.continuationHandoff.id } : {}),
         };
         if (shouldBypassExecution) {
           await this.persistSyntheticInputMessage(sessionId, initialPrompt, promptProvenance);
         } else {
-          await this.aiService.queuePromptForSession(sessionId, initialPrompt, undefined, { promptProvenance });
+          await this.aiService.queuePromptForSession(sessionId, initialPrompt, undefined, {
+            promptProvenance,
+            ...(args.continuationHandoff ? { sessionHandoffId: args.continuationHandoff.id } : {}),
+          });
         }
       }
 
@@ -786,9 +796,20 @@ export class MetaAgentService {
     const effectiveModel =
       args.model ?? (args.inheritModel ? parent.model ?? undefined : undefined);
 
+    if (args.handoff && (!args.besideCaller || isolated || args.useWorktree || reporting !== 'none')) {
+      throw new Error('A reviewed handoff requires besideCaller=true, reporting="none", the shared checkout and no isolation.');
+    }
+    if (args.besideCaller && reporting === 'none' && !args.handoff) {
+      throw new Error('Fresh-session continuation requires a reviewed handoff. First call prepare_session_handoff.');
+    }
+    const continuation = args.handoff
+      ? await prepareReviewedHandoff(parentSessionId, workspaceKey, args.handoff, args.prompt)
+      : undefined;
+
     const childResult = await this.createChildSessionInternal(parentSessionId, workspaceKey, {
       title: args.title,
-      prompt: args.prompt,
+      prompt: continuation?.prompt ?? args.prompt,
+      continuationHandoff: continuation?.state,
       useWorktree: !!args.useWorktree,
       worktreeId: inheritedWorktreeId,
       model: effectiveModel,

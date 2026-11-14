@@ -32,6 +32,8 @@ import { PermissionMode, TrustChecker, PermissionPatternSaver, PermissionPattern
 import { CodexSdkModuleLike, loadCodexSdkModule } from './codex/codexSdkLoader';
 import { resolvePackagedCodexBinaryPath } from './codex/codexBinaryPath';
 import { buildCodexContextDelivery } from './codex/codexContextDelivery';
+import { measureCodexContext, recordCodexContext } from './codex/codexContextInspection';
+import { codexToolExposure } from './codex/codexToolExposure';
 import { buildCodexSystemPrompt } from './codex/codexSystemPrompt';
 import { McpConfigService } from '../services/McpConfigService';
 import { getMcpConfigService } from '../services/mcpServerConfig';
@@ -1300,6 +1302,9 @@ export class OpenAICodexProvider extends BaseAgentProvider {
       const delivery = this.transport === 'app-server'
         ? await buildCodexContextDelivery(prompt, documentContext)
         : { content: prompt };
+      if (sessionId && this.transport === 'app-server') {
+        recordCodexContext(sessionId, measureCodexContext(systemPrompt, delivery, Object.keys(mcpServers).length, attachments?.length ?? 0));
+      }
       // Send message using protocol -- adapter parses all events
       for await (const event of this.protocol.sendMessage(session, {
         ...delivery,
@@ -2124,7 +2129,7 @@ export class OpenAICodexProvider extends BaseAgentProvider {
       const converted = this.convertServerConfigToCodex(serverConfig as Record<string, unknown>);
       if (converted) {
         const codexServerName = this.toCodexServerName(serverName, usedServerNames);
-        codexMcpServers[codexServerName] = converted;
+        codexMcpServers[codexServerName] = { ...converted, ...codexToolExposure(serverName, serverConfig as Record<string, unknown>) };
       }
     }
 

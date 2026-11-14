@@ -5,6 +5,7 @@ import { MaterialSymbol } from '@nimbalyst/runtime/ui/icons/MaterialSymbol';
 import { agentCapabilitiesForProviderType } from '@nimbalyst/runtime/ai/server/agentCapabilities';
 import { getHelpContent } from '../../help';
 import { openSettingsCommandAtom } from '../../store';
+import { ContextInspectionDetails } from './ContextInspectionDetails';
 
 const CATEGORY_COLORS = [
   'var(--nim-primary)',
@@ -17,6 +18,7 @@ const CATEGORY_COLORS = [
 ];
 
 interface ContextUsageDisplayProps {
+  sessionId?: string;
   provider?: string | null;
   inputTokens: number;       // Cumulative uncached input tokens (for tooltip breakdown)
   outputTokens: number;      // Cumulative output tokens (for tooltip breakdown)
@@ -50,6 +52,7 @@ interface FormattedCategory extends TokenUsageCategory {
  * - No data yet: "--"
  */
 export function ContextUsageDisplay({
+  sessionId,
   provider,
   inputTokens,
   outputTokens,
@@ -274,7 +277,7 @@ export function ContextUsageDisplay({
 
       {shouldShowTooltip && (
         <div
-          className="context-usage-tooltip absolute right-0 bottom-[calc(100%+8px)] w-[280px] max-w-[calc(100vw-32px)] p-3 rounded-[10px] bg-[var(--nim-bg)] border border-[var(--nim-border)] shadow-[0_12px_32px_rgba(0,0,0,0.35)] z-10 text-[var(--nim-text)] overflow-hidden box-border"
+          className="context-usage-tooltip absolute right-0 bottom-[calc(100%+8px)] w-[280px] max-w-[calc(100vw-32px)] max-h-[70vh] p-3 rounded-[10px] bg-[var(--nim-bg)] border border-[var(--nim-border)] shadow-[0_12px_32px_rgba(0,0,0,0.35)] z-10 text-[var(--nim-text)] overflow-y-auto box-border"
           id={tooltipId}
           role="tooltip"
         >
@@ -388,11 +391,13 @@ export function ContextUsageDisplay({
             </>
           )}
 
+          {provider === 'openai-codex' && sessionId && <ContextInspectionDetails sessionId={sessionId} />}
+
           {/* Fixed tool floor + jump to the Tools & MCP panel */}
           <div className="tooltip-tools-footer flex justify-between items-center gap-2 pt-2 mt-2 border-t border-[var(--nim-border)] text-[11px]">
             <span className="tooltip-baseline text-[var(--nim-text-muted)]">
               {toolBaselineTokens !== null
-                ? `Always-loaded tools: ~${toolBaselineTokens.toLocaleString()} tokens`
+                ? `Core schema estimate: ~${toolBaselineTokens.toLocaleString()} tokens`
                 : 'Other tool groups load on demand'}
             </span>
             <button

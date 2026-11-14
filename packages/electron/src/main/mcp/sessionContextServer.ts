@@ -492,6 +492,16 @@ async function handleScheduleWakeup(args: {
 /** Tool schemas exposed by the session-context surface. */
 export const SESSION_CONTEXT_TOOL_SCHEMAS = [
   {
+    name: 'prepare_session_handoff',
+    description: 'Prepare a fresh-session continuation: measured, bounded human-request review manifest and durable full evidence file. No session is created. Review every human request, retain active decisions, ownership, instructions and evidence, then use spawn_session with besideCaller and handoff. Original transcript stays intact; pending approvals must be resolved at source.',
+    inputSchema: { type: 'object', properties: {}, required: [] },
+  },
+  {
+    name: 'get_session_context_inspection',
+    description: 'Inspect context provenance: last prepared Codex request text bytes and inclusion reasons, provider-reported usage, configured tool-schema bytes/estimates. Native history, instructions and loaded schemas can be opaque; local measurements do not partition native tokens. Bounded output with full file when needed.',
+    inputSchema: { type: 'object', properties: { sessionId: { type: 'string' } }, required: [] },
+  },
+  {
     name: "get_session_summary",
     description:
       "Get a bounded summary of an AI session: title, original and recent human prompts, last agent response, edited files, and pending questions. Default output omits synthetic inbox/history expansion. At most 24,000 UTF-8 bytes and 100 lines; omitted details are saved to a full-output file. Set includeDetails for expanded output within the same ceiling. Use this to understand what happened in a specific session. If no sessionId is provided, summarizes the current session.",
@@ -680,6 +690,16 @@ export async function dispatchSessionContextTool(
 
   try {
     switch (toolName) {
+      case 'prepare_session_handoff': {
+        const { prepareSessionHandoff } = await import('../services/sessionHandoffService');
+        return { content: [{ type: 'text', text: await prepareSessionHandoff(aiSessionId, workspaceId) }], isError: false };
+      }
+      case 'get_session_context_inspection': {
+        const { getSessionContextInspection } = await import('./sessionContextInspection');
+        const { boundSessionOutput } = await import('./sessionOutput');
+        const result = await getSessionContextInspection(args?.sessionId || aiSessionId, workspaceId);
+        return { content: [{ type: 'text', text: await boundSessionOutput(JSON.stringify(result, null, 2)) }], isError: false };
+      }
       case "get_session_summary": {
         const result = await handleGetSessionSummary(
           args?.sessionId as string | undefined,

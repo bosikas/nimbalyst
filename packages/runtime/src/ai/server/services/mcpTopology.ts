@@ -126,6 +126,8 @@ export const CORE_ALWAYS_LOAD_TOOLS: readonly string[] = [
  * orchestration + file/content. Host, but rarely needed → never eager.
  */
 export const HOST_TOOLS: readonly string[] = [
+  'prepare_session_handoff',
+  'get_session_context_inspection',
   // App config (was nimbalyst-settings)
   'settings_get_overview',
   'appearance_set_theme',

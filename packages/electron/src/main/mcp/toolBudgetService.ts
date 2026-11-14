@@ -20,10 +20,9 @@ import {
   MCP_HOST,
   CORE_ALWAYS_LOAD_TOOLS,
   extensionServerConfigKey,
-  measureToolList,
   type McpLoadPolicy,
-  type MeasurableToolSchema,
-} from '@nimbalyst/runtime/ai/server';
+} from '@nimbalyst/runtime/ai/server/services/mcpTopology';
+import { measureToolList, type MeasurableToolSchema } from '@nimbalyst/runtime/ai/server/services/mcpTokenBudget';
 import {
   getAvailableExtensionTools,
   getAvailableBackendTools,
@@ -50,14 +49,17 @@ export interface ToolGroupBudget {
   /** Human label for the row ("Core", "Trackers", extension display name, …). */
   displayName: string;
   source: ToolGroupSource;
-  /** Eager pays the always-on budget; deferred/conditional cost nothing until surfaced. */
+  /** Configured topology; native clients/models determine actual exposure. */
   loadPolicy: McpLoadPolicy | 'external';
   toolCount: number;
   /** Estimated tokens when this group's ListTools is surfaced; null when unknown (user servers). */
   estTokens: number | null;
+  /** Measured serialized schema text, NOT native prompt tokens or wire bytes. */
+  schemaBytes: number | null;
+  inclusionReason: string;
   /**
-   * For groups with per-tool eagerness (core): the tokens actually charged to
-   * every session — only the `_meta['anthropic/alwaysLoad']` subset. Absent
+   * For groups with per-tool eagerness (core): estimate for the required
+   * `_meta['anthropic/alwaysLoad']` subset. Not a native usage measurement. Absent
    * when the whole group shares one load policy.
    */
   alwaysLoadEstTokens?: number;
@@ -137,7 +139,7 @@ export async function getToolBudgetSnapshot(workspacePath?: string): Promise<Too
     if (entry.configKey === MCP_HOST && settingsKilled) {
       tools = tools.filter((t) => !settingsToolNames.has(t.name));
     }
-    const { estTokens } = measureToolList(tools);
+    const { estTokens, bytes: schemaBytes } = measureToolList(tools);
     const enabled = entry.configKey === MCP_TRACKERS ? trackersEnabled : true;
     // Core eagerness is per-tool: only the always-load subset hits every
     // session's prompt; the rest of core defers behind tool search.
@@ -152,6 +154,10 @@ export async function getToolBudgetSnapshot(workspacePath?: string): Promise<Too
       loadPolicy: entry.loadPolicy,
       toolCount: tools.length,
       estTokens,
+      schemaBytes,
+      inclusionReason: entry.configKey === MCP_CORE
+        ? 'Required interaction tools; lower-frequency core tools remain discoverable. Native clients decide actual exposure.'
+        : 'Configured first-party capability; available through native discovery when enabled. Not proof its schemas are in current model context.',
       ...(alwaysLoadEstTokens !== undefined && { alwaysLoadEstTokens }),
       enabled,
       lockedOn: entry.configKey === MCP_CORE,
@@ -173,7 +179,7 @@ export async function getToolBudgetSnapshot(workspacePath?: string): Promise<Too
     byExtension.set(shortName, entry);
   }
   for (const [shortName, { displayName, tools }] of [...byExtension.entries()].sort(([a], [b]) => a.localeCompare(b))) {
-    const { estTokens } = measureToolList(tools);
+    const { estTokens, bytes: schemaBytes } = measureToolList(tools);
     groups.push({
       configKey: extensionServerConfigKey(shortName),
       displayName,
@@ -181,6 +187,8 @@ export async function getToolBudgetSnapshot(workspacePath?: string): Promise<Too
       loadPolicy: 'deferred',
       toolCount: tools.length,
       estTokens,
+      schemaBytes,
+      inclusionReason: 'An active extension registered these tools. Schemas remain available for discovery; native clients decide when to load them.',
       enabled: true, // disabled extensions contribute no tools, so they never appear here
       lockedOn: false,
     });
@@ -198,6 +206,8 @@ export async function getToolBudgetSnapshot(workspacePath?: string): Promise<Too
         loadPolicy: 'external',
         toolCount: 0,
         estTokens: null,
+        schemaBytes: null,
+        inclusionReason: 'User-configured external server; schemas, native exposure and token costs are not measured here.',
         enabled: serverConfig.disabled !== true,
         lockedOn: false,
       });

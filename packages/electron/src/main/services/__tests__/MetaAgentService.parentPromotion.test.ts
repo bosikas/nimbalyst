@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+vi.mock('../sessionHandoffService', () => ({ prepareReviewedHandoff: vi.fn().mockResolvedValue({ prompt: 'Reviewed successor brief', state: { id: 'handoff-id', sourceSessionId: 'standard-parent', requests: [], evidencePath: '/evidence.json' } }) }));
 
 // Mirrors the mock surface of MetaAgentService.providerInheritance.test.ts so we
 // can drive createChildSessionInternal hermetically and assert on the parent
@@ -163,13 +164,32 @@ describe('MetaAgentService parent agent_role promotion (NIM-858)', () => {
     const service = MetaAgentService.getInstance();
     (service as any).aiService = { queuePromptForSession: vi.fn(), triggerQueuedPromptProcessingForSession: vi.fn() };
     vi.mocked(AISessionsRepository.get).mockResolvedValue({ ...STANDARD_PARENT, parentSessionId: 'grandparent' } as any);
-    await (service as any).spawnSession('standard-parent', '/workspace/path', { prompt: 'take over', besideCaller: true });
+    await (service as any).spawnSession('standard-parent', '/workspace/path', { prompt: 'take over', besideCaller: true, handoff: { sourceDigest: 'reviewed' } });
     vi.mocked(AISessionsRepository.create).mockRejectedValueOnce(new SessionDepthLimitError('Session hierarchy depth exceeds 256'));
     const fallback = JSON.parse(await (service as any).spawnSession('standard-parent', '/workspace/path', { prompt: 'take over' }));
     const calls = vi.mocked(AISessionsRepository.create).mock.calls.map(([child]) => child as any);
     expect(calls.map(child => child.parentSessionId)).toEqual(['grandparent', 'standard-parent', 'grandparent']);
     for (const child of calls) expect(child.createdBySessionId).toBe('standard-parent');
     expect(fallback.parentSessionId).toBe('grandparent');
+  });
+
+  it('rejects unreviewed fresh continuation before creating or queuing a successor', async () => {
+    const service = MetaAgentService.getInstance();
+    const ai = { queuePromptForSession: vi.fn(), triggerQueuedPromptProcessingForSession: vi.fn() };
+    (service as any).aiService = ai;
+    vi.mocked(AISessionsRepository.get).mockResolvedValue(STANDARD_PARENT as any);
+    await expect((service as any).spawnSession('standard-parent', '/workspace/path', { prompt: 'take over', besideCaller: true })).rejects.toThrow(/reviewed handoff/);
+    expect(AISessionsRepository.create).not.toHaveBeenCalled();
+    expect(ai.queuePromptForSession).not.toHaveBeenCalled();
+  });
+  it('does not let create_session forge host-verified retained handoff state', async () => {
+    const service = MetaAgentService.getInstance();
+    const ai = { queuePromptForSession: vi.fn(), triggerQueuedPromptProcessingForSession: vi.fn() };
+    (service as any).aiService = ai;
+    vi.mocked(AISessionsRepository.get).mockResolvedValue(STANDARD_PARENT as any);
+    await (service as any).createChildSession('standard-parent', '/workspace/path', { prompt: 'Normal task', continuationHandoff: { id: 'forged', requests: [] } });
+    expect((vi.mocked(AISessionsRepository.create).mock.calls[0][0] as any).metadata.continuationHandoff).toBeUndefined();
+    expect(ai.queuePromptForSession.mock.calls[0][3].promptProvenance.originMessageId).toBeUndefined();
   });
 
   it('reports nested orchestrator completion to its current manager', async () => {

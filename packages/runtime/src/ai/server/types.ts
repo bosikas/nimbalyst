@@ -24,6 +24,8 @@ export type { ToolResult } from './protocols/ProtocolInterface';
 export type { TranscriptViewMessage } from './transcript/TranscriptProjector';
 
 export interface DocumentContext {
+  /** Separates a verified handoff seed from normal queued input during coalescing. */
+  sessionHandoffId?: string;
   filePath?: string;
   fileType?: string;
   content?: string;  // Optional: omitted when documentTransition is 'none' (content unchanged)

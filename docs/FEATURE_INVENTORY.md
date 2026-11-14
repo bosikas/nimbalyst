@@ -122,6 +122,8 @@ Twelve built-in provider lanes, plus any agent an extension contributes. Every l
 - Model-aware reasoning effort selector, including Ultra for supported Codex models
 - Model selector (per-session or per-workstream)
 - Context window usage display with pace tracking
+- Codex context inspector in the token meter: measured UTF-8 bytes and inclusion reasons for the last Nimbalyst-prepared request, separate from provider-reported tokens; native instructions, history, compaction and loaded-tool categories are explicitly opaque. Available after a Codex turn in the current app process
+- Reviewed fresh-session handoffs through `prepare_session_handoff` and `spawn_session`: account for every human/unknown-provenance request and potentially active machine instruction, retain decisions, ownership, pending instructions and evidence links, and save a durable review ledger without replaying the full transcript. Reject stale/incomplete reviews and unresolved source approvals; source execution and queued work are not automatically stopped or transferred
 - Optional context-usage bar under each session-list row (session list menu, **Show context usage**, off by default; providers that report a context window only)
 - Files-edited sidebar with per-session scope
 - Pending review banner (approve/reject AI changes)
@@ -521,6 +523,7 @@ Companion app; pairs with a desktop over encrypted sync. Voice mode is not inclu
 - Account: signed-in accounts, sync-account selection, active zero-knowledge mobile-sync profile, paired devices, and account-attributed shared links
 - Project: sharing/organization attachment, project access, AI provider overrides, agent permissions, tracker config, GitHub, and extensions
 - Tools & Token Cost panel: per-tool-group estimated context-token cost and load policy (eager / on-demand / conditional) across built-in, extension, and user MCP servers; trackers toggle inline; reachable from the AI panel's token meter ("Manage tools")
+- Native selective Codex tool loading through existing MCP server configuration (`omit_tools_from: ["direct"]`): keep capabilities registered in native discovery while reducing the initial direct surface where supported. Required Core access is protected; changes apply to fresh Codex threads. The Tools panel distinguishes measured UTF-8 schema bytes and rough estimates from actual native usage
 - Claude Code: custom executable path, environment variables, effort slider, plan mode, auto-commit, extended context
 - Multi-account support (add/remove/reconnect accounts, per-project binding, explicit share/team account defaults)
 - Release channel selection (stable / beta / alpha)
