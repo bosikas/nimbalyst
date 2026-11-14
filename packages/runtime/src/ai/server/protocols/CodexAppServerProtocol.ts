@@ -547,6 +547,18 @@ export class CodexAppServerProtocol implements AgentProtocol {
       const configHint = describeCodexConfigError(rawError);
       throw new Error(`[CodexAppServer] initialize failed: ${rawError}${configHint ? `\n\n${configHint}` : ''}`);
     }
+    // A cold app-server starts with an empty account-plugin cache. Capturing a
+    // thread's host skills before discovery finishes injects a smaller catalog,
+    // then reinjects the full one on a later turn (including after idle eviction).
+    // Await Codex's authoritative reconciliation, which shares the startup sync
+    // gate. plugin/installed alone can race that sync and expose stale metadata.
+    // Keep older/offline Codex builds usable rather than waiting the RPC default
+    // of five minutes. A failed warmup may still require a later catalog update.
+    try {
+      await client.request('plugin/reconcile', { reason: 'nimbalyst-session-start' }, 5_000);
+    } catch (error) {
+      console.warn('[CODEX][APPSERVER] Installed plugin discovery unavailable; continuing without catalog warmup:', error);
+    }
     this.registerSkillRoots(client, cwd);
     const raw: AppServerSessionRaw = {
       child,

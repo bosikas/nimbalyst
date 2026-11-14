@@ -40,6 +40,7 @@ class FakeChildProcess extends EventEmitter {
   killed = false;
   /** Captures every line the protocol writes to stdin. */
   readonly writtenLines: unknown[] = [];
+  autoDiscoverPlugins = true;
 
   constructor() {
     super();
@@ -54,7 +55,13 @@ class FakeChildProcess extends EventEmitter {
         const line = buffer.slice(0, idx);
         buffer = buffer.slice(idx + 1);
         if (!line.trim()) continue;
-        try { this.writtenLines.push(JSON.parse(line)); }
+        try {
+          const frame = JSON.parse(line);
+          this.writtenLines.push(frame);
+          if (frame.method === 'plugin/reconcile' && this.autoDiscoverPlugins) {
+            queueMicrotask(() => this.emitLine({ id: frame.id, result: { changedPlugins: [], failedRemotePluginIds: [], failedMaterializationRemotePluginIds: [] } }));
+          }
+        }
         catch { this.writtenLines.push({ __unparseable: line }); }
       }
     });
@@ -520,6 +527,59 @@ describe('CodexAppServerProtocol', () => {
     await expect(compactPromise).rejects.toThrow(/compact/i);
 
     protocol.cleanupSession(session);
+  });
+
+  it.each(['start', 'resume'] as const)('waits for installed plugin synchronization before thread/%s captures its skill catalog', async (kind) => {
+    child.autoDiscoverPlugins = false;
+    const protocol = new CodexAppServerProtocol();
+    const pending = kind === 'start'
+      ? protocol.createSession({ workspacePath: '/tmp/ws' })
+      : protocol.resumeSession('existing', { workspacePath: '/tmp/ws' });
+    const init = await nextWrittenMatching(child, 'initialize');
+    child.emitLine({ id: init.id, result: {} });
+
+    const discovery = await nextWrittenMatching(child, 'plugin/reconcile');
+    expect(discovery.params).toEqual({ reason: 'nimbalyst-session-start' });
+    expect(child.writtenLines.some((line: any) => line.method === `thread/${kind}`)).toBe(false);
+    child.emitLine({ id: discovery.id, result: { changedPlugins: [], failedRemotePluginIds: [], failedMaterializationRemotePluginIds: [] } });
+
+    const thread = await nextWrittenMatching(child, `thread/${kind}`);
+    child.emitLine({ id: thread.id, result: { thread: { id: 'existing' } } });
+    protocol.cleanupSession(await pending);
+  });
+
+  it('starts the thread when installed plugin synchronization is unsupported', async () => {
+    child.autoDiscoverPlugins = false;
+    const protocol = new CodexAppServerProtocol();
+    const pending = protocol.createSession({ workspacePath: '/tmp/ws' });
+    const init = await nextWrittenMatching(child, 'initialize');
+    child.emitLine({ id: init.id, result: {} });
+    const discovery = await nextWrittenMatching(child, 'plugin/reconcile');
+    child.emitLine({ id: discovery.id, error: { code: -32601, message: 'Method not found' } });
+    const thread = await nextWrittenMatching(child, 'thread/start');
+    child.emitLine({ id: thread.id, result: { thread: { id: 'existing' } } });
+    protocol.cleanupSession(await pending);
+  });
+
+  it('bounds stalled installed plugin synchronization so a session can still start', async () => {
+    child.autoDiscoverPlugins = false;
+    const protocol = new CodexAppServerProtocol();
+    const pending = protocol.createSession({ workspacePath: '/tmp/ws' });
+    const init = await nextWrittenMatching(child, 'initialize');
+    vi.useFakeTimers();
+    try {
+      child.emitLine({ id: init.id, result: {} });
+      await vi.advanceTimersByTimeAsync(0);
+      expect(child.writtenLines.some((line: any) => line.method === 'plugin/reconcile')).toBe(true);
+      expect(child.writtenLines.some((line: any) => line.method === 'thread/start')).toBe(false);
+      await vi.advanceTimersByTimeAsync(5_000);
+      const thread = child.writtenLines.find((line: any) => line.method === 'thread/start') as any;
+      expect(thread).toBeDefined();
+      child.emitLine({ id: thread.id, result: { thread: { id: 'existing' } } });
+      protocol.cleanupSession(await pending);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   // #1253: AgentWorkflowService already exports Nimbalyst's skills to
