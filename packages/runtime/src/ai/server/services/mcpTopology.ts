@@ -158,13 +158,13 @@ export const HOST_TOOLS: readonly string[] = [
   'spawn_session',
   'send_prompt',
   'list_queued_prompts',
-  'consume_session_inbox',
   'notify_user',
   'respond_to_prompt',
   'get_session_status',
   'get_session_result',
   'list_spawned_sessions',
   'list_worktrees',
+  'consume_session_inbox',
   // NOTE: `applyDiff` / `streamContent` are intentionally NOT declared here.
   // They have live CallTool handlers (httpServer switch) + renderer IPC
   // listeners, but no ListTools schema — they are deliberately unadvertised so

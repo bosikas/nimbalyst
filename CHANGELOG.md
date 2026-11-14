@@ -10,14 +10,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 <!-- New features go here -->
+- The Git panel's branch button switches branches: search local and remote branches (a remote-only branch gets a local tracking branch) or start a new one; uncommitted changes come along, a switch git refuses changes nothing, a running agent session in the checkout asks for confirmation first, and a branch checked out in another worktree offers to open that worktree's session
+- Workstreams: a named group in the session list, shown with a folder icon, that holds sessions as peers without making one of them the parent. Create one from the New menu or with "Move to workstream..." on one or several selected sessions, drag sessions onto it, or start a session while it is selected. A workstream holding a single session shows as a group only on the desktop that created it
+- `nim wiki publish` copies a project's local wiki into a team project for review while the files stay the source: each publish updates the team pages, never overwrites a page someone edited there, and moves pages deleted locally to the team Trash. Reviewers are invited with the new Commenter project role, which reads and comments on that one project but cannot edit pages, and `nim wiki comments` lists their open comments with the local file each belongs to (requires the updated sync server)
 
 ### Changed
 <!-- Changes to existing functionality go here -->
+- Commit proposals can name a folder: it expands to the changed, deleted and new files under it for review, files under it that only another session edited start unchecked, and auto-commit waits for review when any are present
+- New worktrees start from the remote's default branch (such as origin/main) instead of the branch the main checkout is on, and their branches no longer track it; Project Settings > Worktrees can pick the current branch or a specific branch instead
+- The open menu bar island can be resized by dragging its left, right or bottom edge or a bottom corner; the width and the session list's maximum height are kept for the next time it opens
+- The daily cleanup of old tool output now also replaces images in tool results older than the retention window (30 days by default) with a short marker naming the image type and size, and removes the duplicate copy of a tool result that older sessions stored alongside it
+- Team guests now see only the projects they are granted, instead of reading every project like a viewer (requires the updated sync server)
+
+### Fixed
+<!-- Bug fixes go here -->
+- "Create Branch..." in the Git panel's commit menu did nothing; it now opens a form to name the branch
+- In Files mode, the chat's "Context:" label kept naming a file after its tab was closed; it now follows the active tab and disappears when no tab is open
+- Moving a session under another session on desktop, by dragging or with "Move under...", recorded the new parent as its manager; a move now leaves the manager as it was unless the session leaves its manager's tree
+- On the SQLite backend, database backups no longer stop rotating after the database shrinks to under half its previous size while still holding its sessions; a smaller backup is now rejected only when it also holds fewer sessions than the current one
+- The daily cleanup of old tool output could skip past recent rows and never return to them once they aged; it now stops at the first row still inside the retention window and resumes there the next day
+- An agent edit to a shared document next to a comment on part of a bold run or inline code no longer writes broken markdown (such as an extra pair of `**` or backticks), and exporting such a document to a file keeps its formatting intact
+
+### Removed
+<!-- Removed features go here -->
+
+## [0.83.0] - 2026-11-09
+
+
+### Added
+<!-- New features go here -->
+- A file tree subfolder cut off at the 200-entry limit now ends with a row saying how many items are hidden ("51 more items", or "N or more" when skipped symlinks were not checked). The workspace root folder and folders loaded on expand do not show it yet
+- Claude Fable 5.2 is now available in the model picker, with Fable 5.1 and Fable 5 kept as selectable previous-generation options
+
+### Changed
+<!-- Changes to existing functionality go here -->
+- Messages queued while an agent is working, typed by you or sent by other sessions, are now delivered together in one turn, each labeled with its author; slash commands and messages with a different document context still go as their own turn, and Send Now delivers everything that can share a turn in one press
+- On macOS and Linux, processes Nimbalyst starts (agent sessions, MCP servers, CLIs, git) now put the login shell's PATH ahead of the system defaults, so tools from version managers such as mise are found before `/usr/bin` versions, and PATH is deduplicated per folder
 
 ### Fixed
 <!-- Bug fixes go here -->
 - Codex sessions keep a stable skill catalog after idle pauses instead of repeatedly adding plugin skill instructions
 - The weekly history in the Claude and Codex usage popovers now charts the main weekly limit by default instead of a per-model limit such as Fable
+- Nested lists under numbered items are saved indented past the parent's number (3 spaces under `2. `, 4 under `10. `), so other Markdown tools keep them nested, and a nested numbered list under an item numbered 10 starts at 1 instead of 10
+- Creating a local wiki page whose content starts with its own frontmatter now writes one frontmatter block with those fields and type, instead of adding a second block above it
+- A question card (AskUserQuestion or PromptForUserInput) that a PreToolUse hook denies now shows as blocked with the hook's reason, instead of as answered or as a form that can still be submitted
+- The `consume_session_inbox` tool is now listed on the `nimbalyst-host` MCP server, so orchestrating agents can call it as their instructions describe
+- The Agent Sessions search is cleared when you switch workspace in the same window, and a search still running for the previous workspace no longer replaces the new workspace's list or shows its error there
+- A prompt queued after you clear the document no longer merges into a turn with the older document content
+- The session machine picker labels the local machine with its device name, followed by "(this device)", instead of "This Mac" on every platform
+- When a workspace has more than 5,000 uncommitted files, the session list skips matching sessions to those files instead of sending every path to the database in one query. Git status still lists every untracked file, so this does not remove all memory growth in very large workspaces
 
 ### Removed
 <!-- Removed features go here -->
