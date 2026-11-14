@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 <!-- Bug fixes go here -->
+- Moving a project across volumes now links copied worktrees to the copied repository while preserving the original repository and worktrees
 - Codex uses compact integration guidance and tool descriptions, and keeps coordinator messages as agent context instead of human requests
 - "Create Branch..." in the Git panel's commit menu did nothing; it now opens a form to name the branch
 - In Files mode, the chat's "Context:" label kept naming a file after its tab was closed; it now follows the active tab and disappears when no tab is open

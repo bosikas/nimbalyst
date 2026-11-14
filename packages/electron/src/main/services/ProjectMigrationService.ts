@@ -258,7 +258,8 @@ export class ProjectMigrationService {
 
       // Step 2: Move the project directory, then the worktrees folder
       onProgress?.('moving');
-      if ((await moveDirectory(oldPath, newPath)) === 'renamed') {
+      const projectMove = await moveDirectory(oldPath, newPath);
+      if (projectMove === 'renamed') {
         renamed.push({ from: oldPath, to: newPath });
       }
       if (moveWorktreesDir) {
@@ -296,7 +297,7 @@ export class ProjectMigrationService {
       // Step 6: Relink git worktrees. The move itself succeeded; a repair
       // failure is reported as a warning so the user can run it by hand.
       onProgress?.('repairing-worktrees');
-      const warnings = await this.repairWorktrees(newPath);
+      const warnings = await this.repairWorktrees(newPath, projectMove === 'copied' ? oldPath : undefined);
 
       logger.main.info('[ProjectMigration] Project moved successfully to', newPath);
       return { success: true, newPath, ...(warnings.length > 0 ? { warnings } : {}) };
@@ -346,7 +347,7 @@ export class ProjectMigrationService {
    * Point git's worktree links at the moved repository, in both directions.
    * Returns warnings instead of throwing: the files have already moved.
    */
-  private async repairWorktrees(projectPath: string): Promise<string[]> {
+  private async repairWorktrees(projectPath: string, copiedFrom?: string): Promise<string[]> {
     if (!existsSync(path.join(projectPath, '.git'))) {
       return [];
     }
@@ -367,6 +368,13 @@ export class ProjectMigrationService {
       return [];
     }
     try {
+      // A copy's gitfiles still resolve to the live source. Git considers
+      // those valid, so repair alone leaves the copy attached to that repo.
+      if (copiedFrom) {
+        for (const worktreePath of live) {
+          await this.rebaseCopiedWorktreeGitfile(projectPath, copiedFrom, worktreePath);
+        }
+      }
       const git = createGit(projectPath, {}, sanitizeGitRepositoryEnv(process.env));
       await git.raw(['worktree', 'repair', ...live]);
       logger.main.info('[ProjectMigration] Repaired', live.length, 'worktree link(s)');
@@ -377,6 +385,52 @@ export class ProjectMigrationService {
         `Worktrees moved, but relinking them failed. Run "git worktree repair" in ${projectPath}. (${error.message || error})`,
       ];
     }
+  }
+
+  private async rebaseCopiedWorktreeGitfile(projectPath: string, copiedFrom: string, worktreePath: string): Promise<void> {
+    const relativeWorktree = path.relative(worktreesDirFor(projectPath), worktreePath);
+    if (path.isAbsolute(relativeWorktree) || relativeWorktree === '..' || relativeWorktree.startsWith(`..${path.sep}`)) {
+      throw new Error(`Refusing to relink a worktree outside the copied folder: ${worktreePath}`);
+    }
+    const gitfile = path.join(worktreePath, '.git');
+    if (!(await fs.lstat(gitfile)).isFile()) {
+      throw new Error(`Expected a regular worktree gitfile: ${gitfile}`);
+    }
+    const original = await fs.readFile(gitfile, 'utf8');
+    const match = /^gitdir: ([^\r\n]+)\r?\n?$/.exec(original);
+    if (!match) throw new Error(`Invalid worktree gitfile: ${gitfile}`);
+    const sourceAdmin = path.resolve(worktreePath, match[1]);
+    if (path.dirname(sourceAdmin) !== path.join(copiedFrom, '.git', 'worktrees')) {
+      throw new Error(`Worktree does not point to the copied source repository: ${gitfile}`);
+    }
+    const projectGitDir = path.join(projectPath, '.git');
+    if (!(await fs.lstat(projectGitDir)).isDirectory()) {
+      throw new Error(`Expected a copied repository directory, not a gitfile or symlink: ${projectGitDir}`);
+    }
+    const repoGitDir = await fs.realpath(projectGitDir);
+    const admin = path.join(repoGitDir, 'worktrees', path.basename(sourceAdmin));
+    // Never follow copied metadata symlinks back into the live source.
+    if (await fs.realpath(admin) !== admin ||
+        await fs.realpath(path.resolve(admin, (await fs.readFile(path.join(admin, 'commondir'), 'utf8')).trim())) !== repoGitDir) {
+      throw new Error(`Worktree metadata does not belong to the copied repository: ${admin}`);
+    }
+    for (const name of ['gitdir', 'commondir']) {
+      if (!(await fs.lstat(path.join(admin, name))).isFile()) {
+        throw new Error(`Refusing to rewrite linked worktree metadata: ${path.join(admin, name)}`);
+      }
+    }
+    const backlink = await fs.readFile(path.join(admin, 'gitdir'), 'utf8');
+    const sourceGitfile = path.join(worktreesDirFor(copiedFrom), relativeWorktree, '.git');
+    if (path.resolve(admin, backlink.trim()) !== sourceGitfile) {
+      throw new Error(`Copied worktree backlink does not match its source: ${admin}`);
+    }
+    const backup = await fs.mkdtemp(path.join(admin, 'nimbalyst-relocation-'));
+    await fs.writeFile(path.join(backup, 'original-gitfile'), original, { flag: 'wx' });
+    await fs.writeFile(path.join(backup, 'original-gitdir'), backlink, { flag: 'wx' });
+    const replacement = path.join(backup, 'replacement-gitfile');
+    await fs.writeFile(replacement, `gitdir: ${admin}\n`, { flag: 'wx' });
+    logger.main.info('[ProjectMigration] Relinking copied worktree; original metadata saved at', backup);
+    await fs.rename(replacement, gitfile);
   }
 
   /**

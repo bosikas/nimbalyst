@@ -1,3 +1,4 @@
+// @vitest-environment node
 /**
  * Failing-test-first deliverable for NIM-807.
  *
@@ -216,6 +217,9 @@ describe('ProjectMigrationService.moveProject with worktrees (SQLite backend)', 
 
   it('copies across volumes, keeps the originals, and links the copied worktree to the copied repo', async () => {
     const { projectPath, worktreePath } = await makeProjectWithWorktree();
+    const originalGitfile = fs.readFileSync(path.join(worktreePath, '.git'), 'utf8');
+    const originalAdmin = git(worktreePath, 'rev-parse', '--absolute-git-dir');
+    const originalBacklink = fs.readFileSync(path.join(originalAdmin, 'gitdir'), 'utf8');
     crossVolume.sources.add(projectPath);
     crossVolume.sources.add(path.dirname(worktreePath));
     const service = new ProjectMigrationService(db);
@@ -230,5 +234,43 @@ describe('ProjectMigrationService.moveProject with worktrees (SQLite backend)', 
     expect(fs.existsSync(path.join(worktreePath, 'a.txt'))).toBe(true);
     expect(git(newWorktreePath, 'rev-parse', '--git-common-dir')).toBe(path.join(newPath, '.git'));
     expect(git(newPath, 'worktree', 'list', '--porcelain')).toContain(`worktree ${newWorktreePath}`);
+    expect(result.warnings).toBeUndefined();
+    // Repairing the copy must never repoint the still-live source repository.
+    expect(fs.readFileSync(path.join(worktreePath, '.git'), 'utf8')).toBe(originalGitfile);
+    expect(fs.readFileSync(path.join(originalAdmin, 'gitdir'), 'utf8')).toBe(originalBacklink);
+    expect(git(worktreePath, 'rev-parse', '--git-common-dir')).toBe(path.join(projectPath, '.git'));
+    expect(git(projectPath, 'worktree', 'list', '--porcelain')).not.toContain(`worktree ${newWorktreePath}`);
+    fs.writeFileSync(path.join(newWorktreePath, 'a.txt'), 'edited copy');
+    expect(git(newWorktreePath, 'diff', '--', 'a.txt')).toContain('+edited copy');
+    expect(git(worktreePath, 'status', '--porcelain')).toBe('');
+    const copiedAdmin = git(newWorktreePath, 'rev-parse', '--absolute-git-dir');
+    const backup = fs.readdirSync(copiedAdmin).find((name) => name.startsWith('nimbalyst-relocation-'))!;
+    expect(fs.readFileSync(path.join(copiedAdmin, backup, 'original-gitfile'), 'utf8')).toBe(originalGitfile);
+    expect(fs.readFileSync(path.join(copiedAdmin, backup, 'original-gitdir'), 'utf8')).toBe(originalBacklink);
   });
+
+  it.each(['repository gitdir', 'worktree backlink'])(
+    'warns without changing the source when copied %s metadata is a symlink', async (kind) => {
+      const { projectPath, worktreePath } = await makeProjectWithWorktree();
+      const sourceGitfile = fs.readFileSync(path.join(worktreePath, '.git'), 'utf8');
+      const admin = git(worktreePath, 'rev-parse', '--absolute-git-dir');
+      const originalBacklink = fs.readFileSync(path.join(admin, 'gitdir'), 'utf8');
+      const metadata = kind === 'repository gitdir' ? path.join(projectPath, '.git') : path.join(admin, 'gitdir');
+      const external = path.join(tmp, 'metadata-to-preserve');
+      fs.renameSync(metadata, external);
+      fs.symlinkSync(external, metadata);
+      crossVolume.sources.add(projectPath);
+      crossVolume.sources.add(path.dirname(worktreePath));
+      fs.mkdirSync(path.join(tmp, 'dest'));
+      const newPath = path.join(tmp, 'dest', 'proj');
+
+      const result = await new ProjectMigrationService(db).moveProject(projectPath, newPath);
+
+      expect(result.success).toBe(true);
+      expect(result.warnings).toHaveLength(1);
+      expect(fs.readFileSync(path.join(worktreePath, '.git'), 'utf8')).toBe(sourceGitfile);
+      expect(fs.readFileSync(path.join(admin, 'gitdir'), 'utf8')).toBe(originalBacklink);
+      expect(git(projectPath, 'worktree', 'list', '--porcelain')).not.toContain(`worktree ${path.join(tmp, 'dest', 'proj_worktrees')}`);
+    }
+  );
 });

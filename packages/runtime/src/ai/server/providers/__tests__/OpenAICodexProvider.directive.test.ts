@@ -118,9 +118,12 @@ describe('OpenAICodexProvider session-stable system prompt', () => {
     }
 
     expect(systemPrompts).toHaveLength(4);
-    expect(systemPrompts[0]).toContain('do NOT set `name`');
+    expect(systemPrompts[0]).toContain('The name is assigned out-of-band: do not set name.');
+    expect(systemPrompts[0]).not.toContain('Also set name:');
     expect(systemPrompts[1]).toBe(systemPrompts[0]);
-    expect(systemPrompts[2]).toContain('CRITICAL: You MUST call this tool');
+    expect(systemPrompts[2]).toContain('call update_session_meta');
+    expect(systemPrompts[2]).toContain('Also set name:');
+    expect(systemPrompts[2]).not.toContain('The name is assigned out-of-band');
     expect(systemPrompts[3]).toBe(systemPrompts[2]);
   });
 });
