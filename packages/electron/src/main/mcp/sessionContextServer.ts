@@ -16,10 +16,8 @@ import {
   SessionFilesRepository,
 } from "@nimbalyst/runtime";
 import type { SessionMeta } from "@nimbalyst/runtime";
-import {
-  appendPendingPromptSection,
-  collectPendingPromptDescriptionsFromRawRows,
-} from "../services/sessionSummaryPrompt";
+import { handleGetSessionSummary, stripWorkspacePath } from "./sessionSummary";
+export { fetchLastAssistantResponse, type MessageRowDb } from "./sessionSummary";
 import {
   MAX_FILES_EDITED,
   deriveCoachingSignals,
@@ -45,206 +43,6 @@ function formatRelativeTime(timestamp: number): string {
   if (hours < 24) return `${hours}h ago`;
   if (days < 30) return `${days}d ago`;
   return `${Math.floor(days / 30)}mo ago`;
-}
-
-function formatDate(timestamp: number): string {
-  return new Date(timestamp).toLocaleString("en-US", {
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
-/**
- * Strip workspace path prefix from file paths to save context window space.
- * "/Users/person/sources/nimbalyst/packages/foo.ts" -> "packages/foo.ts"
- */
-function stripWorkspacePath(filePath: string, workspacePath: string): string {
-  if (workspacePath && filePath.startsWith(workspacePath)) {
-    const relative = filePath.slice(workspacePath.length);
-    return relative.startsWith("/") ? relative.slice(1) : relative;
-  }
-  return filePath;
-}
-
-// ─── Last-assistant-response aggregation ────────────────────────────
-
-/**
- * Minimal DB surface for the assistant-response aggregator. Keeps the helper
- * testable without dragging the full PGLite/SQLite adapter into the test
- * harness.
- */
-export interface MessageRowDb {
-  query<T = unknown>(sql: string, params?: unknown[]): Promise<{ rows: T[] }>;
-}
-
-/**
- * Assemble the most recent assistant response for a session.
- *
- * Chunked providers (claude-code streaming, codex `agent_message_delta`s)
- * split one assistant turn across many rows. The naive
- * `ORDER BY id DESC LIMIT 1` returns the trailing fragment of the final
- * delta, not the assembled reply. We instead take every assistant row whose
- * id is greater than the most recent user-row id, in ascending order, and
- * join their `searchable_text` values.
- *
- * Returns null when the session has no assistant content yet. Output is
- * capped at 2000 chars to match the existing tool-output contract.
- */
-export async function fetchLastAssistantResponse(
-  db: MessageRowDb,
-  sessionId: string,
-  maxLen: number = 2000,
-): Promise<string | null> {
-  const { rows: lastUserRows } = await db.query<{ id: number }>(
-    `SELECT id FROM ai_agent_messages
-     WHERE session_id = $1 AND message_kind = 'user'
-     ORDER BY id DESC
-     LIMIT 1`,
-    [sessionId]
-  );
-  const lastUserId = lastUserRows.length > 0 ? lastUserRows[0].id : 0;
-  const { rows: assistantRows } = await db.query<{ searchable_text: string | null }>(
-    `SELECT searchable_text FROM ai_agent_messages
-     WHERE session_id = $1 AND message_kind = 'assistant'
-       AND searchable_text IS NOT NULL
-       AND id > $2
-     ORDER BY id ASC`,
-    [sessionId, lastUserId]
-  );
-  const assembled = assistantRows
-    .map((row) => row.searchable_text ?? "")
-    .filter((t) => t.length > 0)
-    .join("\n");
-  if (assembled.length === 0) return null;
-  return assembled.slice(0, maxLen);
-}
-
-// ─── Tool handlers ──────────────────────────────────────────────────
-
-async function handleGetSessionSummary(
-  targetSessionId: string | undefined,
-  currentSessionId: string,
-  workspaceId: string
-): Promise<string> {
-  const sessionId = targetSessionId || currentSessionId;
-
-  const session = await AISessionsRepository.get(sessionId);
-  if (!session) {
-    return `Error: Session ${sessionId} not found`;
-  }
-
-  // Phase 3 of canonical-transcript-deprecation: ai_transcript_events is
-  // going away. The session-context MCP queries now read ai_agent_messages
-  // directly via the message_kind column populated at write time.
-  const { getDatabase } = await import("../database/initialize");
-  const db = getDatabase();
-  const { rows: userRows } = await db.query<any>(
-    `SELECT searchable_text FROM ai_agent_messages
-     WHERE session_id = $1 AND message_kind = 'user'
-       AND searchable_text IS NOT NULL
-     ORDER BY id ASC`,
-    [sessionId]
-  );
-  const userPrompts = userRows.map((row: any) => row.searchable_text || "").filter((t: string) => t.length > 0);
-
-  const lastResponse = await fetchLastAssistantResponse(db, sessionId);
-
-  // Keep actionable interactive prompts at the end of every summary. Raw
-  // prompt rows are filtered in SQL so large sessions do not need to load their
-  // complete transcript just to find an unmatched question.
-  // Synthetic terminal rows (e.g. a question superseded by a new user turn)
-  // carry only the tool_use_id, so they are matched by their row type.
-  const { rows: promptRows } = await db.query<{ content: string }>(
-    `SELECT content FROM ai_agent_messages
-     WHERE session_id = $1
-       AND (hidden = FALSE OR hidden IS NULL)
-       AND (
-         content LIKE '%AskUserQuestion%'
-         OR content LIKE '%PromptForUserInput%'
-         OR content LIKE '%RequestUserInput%'
-         OR content LIKE '%ToolPermission%'
-         OR content LIKE '%ExitPlanMode%'
-         OR content LIKE '%developer_git_commit_proposal%'
-         OR content LIKE '%ask_user_question_response%'
-         OR content LIKE '%request_user_input_response%'
-         OR content LIKE '%permission_response%'
-         OR content LIKE '%git_commit_proposal%'
-         OR content LIKE '%exit_plan_mode_%'
-         OR content LIKE '%nimbalyst_tool_result%'
-       )
-     ORDER BY id ASC`,
-    [sessionId]
-  );
-  const pendingPrompts = collectPendingPromptDescriptionsFromRawRows(promptRows);
-
-  let editedFiles: string[] = [];
-  try {
-    const fileLinks = await SessionFilesRepository.getFilesBySession(
-      sessionId,
-      "edited"
-    );
-    editedFiles = fileLinks.map((f: any) => f.filePath);
-  } catch {
-    // File tracking might not be available for all sessions
-  }
-
-  const lines: string[] = [];
-  lines.push(
-    `Session: "${session.title || "Untitled"}" (${sessionId})`
-  );
-  lines.push(
-    `Provider: ${session.provider}${session.model ? ` | Model: ${session.model}` : ""}`
-  );
-  lines.push(
-    `Created: ${formatDate(session.createdAt)} | Last active: ${formatDate(session.updatedAt)}`
-  );
-
-  if (session.parentSessionId) {
-    const parent = await AISessionsRepository.get(session.parentSessionId);
-    if (parent) {
-      lines.push(`Workstream: "${parent.title || "Untitled"}"`);
-    }
-  }
-
-  const metadata = session.metadata as Record<string, unknown> | undefined;
-  const phase = metadata?.phase as string | undefined;
-  const tags = metadata?.tags as string[] | undefined;
-  if (phase) {
-    lines.push(`Phase: ${phase}`);
-  }
-  if (tags && tags.length > 0) {
-    lines.push(`Tags: ${tags.map(t => `#${t}`).join(", ")}`);
-  }
-
-  lines.push("");
-
-  if (userPrompts.length > 0) {
-    lines.push(`User prompts (${userPrompts.length} turns):`);
-    for (let i = 0; i < userPrompts.length; i++) {
-      const prompt = userPrompts[i];
-      lines.push(`${i + 1}. "${prompt}"`);
-    }
-  } else {
-    lines.push("No user prompts found.");
-  }
-
-  if (lastResponse) {
-    lines.push("");
-    lines.push("Last agent response (truncated):");
-    lines.push(`"${lastResponse}"`);
-  }
-
-  if (editedFiles.length > 0) {
-    lines.push("");
-    lines.push(`Files edited (${editedFiles.length}):`);
-    for (const file of editedFiles) {
-      lines.push(`- ${stripWorkspacePath(file, workspaceId)}`);
-    }
-  }
-
-  return appendPendingPromptSection(lines.join("\n"), pendingPrompts);
 }
 
 /**
@@ -696,7 +494,7 @@ export const SESSION_CONTEXT_TOOL_SCHEMAS = [
   {
     name: "get_session_summary",
     description:
-      "Get a compact summary of an AI session including its title, user prompts, last agent response, files edited, and any pending user question at the end. Use this to understand what happened in a specific session. If no sessionId is provided, summarizes the current session.",
+      "Get a bounded summary of an AI session: title, original and recent human prompts, last agent response, edited files, and pending questions. Default output omits synthetic inbox/history expansion. At most 24,000 UTF-8 bytes and 100 lines; omitted details are saved to a full-output file. Set includeDetails for expanded output within the same ceiling. Use this to understand what happened in a specific session. If no sessionId is provided, summarizes the current session.",
     inputSchema: {
       type: "object",
       properties: {
@@ -704,6 +502,11 @@ export const SESSION_CONTEXT_TOOL_SCHEMAS = [
           type: "string",
           description:
             "ID of the session to summarize. If omitted, summarizes the current session. Use list_recent_sessions to find session IDs.",
+        },
+        includeDetails: {
+          type: "boolean",
+          default: false,
+          description: "Include historical and synthetic prompts and the full last reply. Oversized output is saved to a file with a bounded preview.",
         },
       },
       required: [],
@@ -881,7 +684,8 @@ export async function dispatchSessionContextTool(
         const result = await handleGetSessionSummary(
           args?.sessionId as string | undefined,
           aiSessionId,
-          workspaceId
+          workspaceId,
+          args?.includeDetails === true,
         );
         return {
           content: [{ type: "text", text: result }],

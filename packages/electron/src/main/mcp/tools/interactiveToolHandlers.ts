@@ -4,7 +4,6 @@ import { BrowserWindow, ipcMain } from "electron";
 import { AgentMessagesRepository } from "@nimbalyst/runtime/storage/repositories/AgentMessagesRepository";
 import { AISessionsRepository } from "@nimbalyst/runtime/storage/repositories/AISessionsRepository";
 import { TranscriptMigrationRepository } from "@nimbalyst/runtime/storage/repositories/TranscriptMigrationRepository";
-import { STRUCTURED_INPUT_FIELD_TYPES } from "@nimbalyst/collab-protocol";
 import { getSessionStateManager } from "@nimbalyst/runtime/ai/server/SessionStateManager";
 import { notificationService } from "../../services/NotificationService";
 import { findWindowIdForWorkspacePath } from "../mcpWorkspaceResolver";
@@ -75,138 +74,7 @@ import {
  * sees the question card render but the call never reaches this process, so
  * nothing can answer it. See #1553.
  */
-const ASKS_USER_ONLY = { readOnlyHint: true } as const;
-
-export function getInteractiveToolSchemas(sessionId: string | undefined) {
-  if (!sessionId) return [];
-
-  return [
-    requestUserInputSchema(),
-    {
-      name: "AskUserQuestion",
-      annotations: ASKS_USER_ONLY,
-      description:
-        "Prompt the user with one or more multiple-choice questions and wait for their response. Use for explicit confirmation or disambiguation.",
-      inputSchema: {
-        type: "object",
-        properties: {
-          questions: {
-            type: "array",
-            minItems: 1,
-            description:
-              "Questions to ask; each should offer 2-3 options.",
-            items: {
-              type: "object",
-              properties: {
-                header: {
-                  type: "string",
-                  description:
-                    "Short label shown above the question (12 chars or fewer)",
-                },
-                question: {
-                  type: "string",
-                  description: "The question to show the user",
-                },
-                options: {
-                  type: "array",
-                  minItems: 2,
-                  items: {
-                    type: "object",
-                    properties: {
-                      label: {
-                        type: "string",
-                        description: "User-facing option label",
-                      },
-                      description: {
-                        type: "string",
-                        description: "Short sentence describing this option",
-                      },
-                    },
-                    required: ["label", "description"],
-                  },
-                },
-                multiSelect: {
-                  type: "boolean",
-                  description:
-                    "Whether multiple options can be selected for this question",
-                },
-              },
-              required: ["header", "question", "options"],
-            },
-          },
-        },
-        required: ["questions"],
-      },
-    },
-    {
-      name: "developer_git_commit_proposal",
-      description: `Propose files and commit message for a git commit; the user reviews and adjusts the proposal in an interactive widget before committing.
-
-IMPORTANT: First call get_session_edited_files, cross-reference with git status, and include ALL session-edited files that have uncommitted changes — do not cherry-pick a subset.
-
-A directory path stages every modified, deleted and untracked non-ignored file under it, like \`git add <dir>\`. The user sees the expanded list. Files under the directory edited only by other sessions arrive unchecked; files this session also edited stay checked. Use excludePaths to leave out specific files or subfolders. An ignored directory, a directory with no changes, a nested repository, or more than 2000 files is rejected.
-
-Relative paths target the session's checkout (its worktree when linked). Absolute paths may also target attached repositories. Files outside these roots are rejected. If the work lives in another worktree of the session's repository (listed by \`git worktree list\`), pass that worktree's absolute path as workingDirectory; all files must be in it, and the user always approves that commit by hand.
-
-ONE REPOSITORY PER CALL. A commit cannot span repositories. If the files you are committing live in more than one repository (a workspace can have attached folders that are their own checkouts), call this tool once per repository — each call with only that repository's files and a commit message describing that repository's change. A call whose files span repositories is rejected.
-
-Commit message: type prefix (feat:/fix:/refactor:/docs:/test:/chore:), title states the user-visible outcome, focus on impact and why (not technique), lines under 72 chars, no emojis, dash bullets only for multiple distinct changes. If the commit resolves an issue or tracker item, include its canonical closing reference (e.g. Fixes #123, Closes ABC-123), or a neutral reference line if the closing syntax is unclear.`,
-      inputSchema: {
-        type: "object",
-        properties: {
-          filesToStage: {
-            type: "array",
-            items: {
-              oneOf: [
-                { type: "string" },
-                {
-                  type: "object",
-                  properties: {
-                    path: {
-                      type: "string",
-                      description:
-                        "File path, either relative to the session checkout (its worktree when linked) or absolute. Files in an attached folder are supplied to you as absolute paths; pass them back unchanged.",
-                    },
-                    status: {
-                      type: "string",
-                      enum: ["added", "modified", "deleted"],
-                      description: "Git status of the file",
-                    },
-                  },
-                  required: ["path", "status"],
-                },
-              ],
-            },
-            description:
-              "Array of file or directory paths (strings) or file objects with path and status (added/modified/deleted). A directory expands to the changed, non-ignored files under it.",
-          },
-          excludePaths: {
-            type: "array",
-            items: { type: "string" },
-            description:
-              "Optional. Literal files or directory prefixes (relative to the session checkout, or absolute) to leave out after directories are expanded. No globs.",
-          },
-          commitMessage: {
-            type: "string",
-            description:
-              "Proposed commit message following the guidelines above",
-          },
-          reasoning: {
-            type: "string",
-            description:
-              "Explanation of why these files were selected and why this commit message is appropriate",
-          },
-          workingDirectory: {
-            type: "string",
-            description:
-              "Optional. Absolute path of another worktree of this session's repository (as listed by `git worktree list`) to commit into. Omit to commit in the session checkout.",
-          },
-        },
-        required: ["filesToStage", "commitMessage", "reasoning"],
-      },
-    },
-  ];
-}
+export { getInteractiveToolSchemas } from "./interactiveToolSchemas";
 
 type McpToolResult = {
   content: Array<{ type: string; text: string }>;
@@ -1197,122 +1065,6 @@ function expansionResultNote(target: Awaited<ReturnType<typeof resolveGitCommitP
 // Per-type validation happens in the runtime widget and tool handler, not the
 // schema. Field-type-specific required properties are documented in the
 // description text so the agent gets it right.
-const REQUEST_USER_INPUT_FIELD_SCHEMA = {
-  type: "object",
-  description:
-    "One field in a structured prompt. The `type` discriminator determines which other properties apply. Required-by-type:\n" +
-    "  - multiSelect: items[]; optional minSelected, maxSelected\n" +
-    "  - singleSelect: options[]; optional allowOther\n" +
-    "  - reorder: items[]; optional minItems\n" +
-    "  - editText: initialText; optional format ('markdown'|'plain'), placeholder, minLength, maxLength\n" +
-    "  - confirm: optional defaultValue (boolean); omit it to make the user pick yes or no before they can submit",
-  properties: {
-    type: {
-      type: "string",
-      enum: [...STRUCTURED_INPUT_FIELD_TYPES],
-      description: "Field type discriminator.",
-    },
-    id: {
-      type: "string",
-      description: "Key for this field's answer in the response payload.",
-    },
-    label: { type: "string", description: "Short label shown above the control." },
-    description: { type: "string", description: "Optional longer explanation." },
-
-    // multiSelect / reorder share `items`. multiSelect items use defaultChecked
-    // and badge; reorder items use removable. Extra properties on the wrong
-    // field type are ignored.
-    items: {
-      type: "array",
-      description:
-        "For multiSelect and reorder fields. multiSelect items: { id, title, subtitle?, badge?, defaultChecked? }. reorder items: { id, title, subtitle?, removable? }.",
-      items: {
-        type: "object",
-        properties: {
-          id: { type: "string" },
-          title: { type: "string" },
-          subtitle: { type: "string" },
-          badge: { type: "string", description: "multiSelect only: short badge label." },
-          defaultChecked: { type: "boolean", description: "multiSelect only: pre-check this item." },
-          removable: { type: "boolean", description: "reorder only: show a delete affordance for this item." },
-        },
-        required: ["id", "title"],
-      },
-    },
-
-    // multiSelect bounds.
-    minSelected: { type: "integer", minimum: 0, description: "multiSelect: floor on selections (default 0)." },
-    maxSelected: { type: "integer", minimum: 0, description: "multiSelect: ceiling (default = items.length)." },
-
-    // reorder bound.
-    minItems: { type: "integer", minimum: 0, description: "reorder: floor when items have removable: true (default 0)." },
-
-    // singleSelect.
-    options: {
-      type: "array",
-      description: "For singleSelect: array of { id, label, description? }.",
-      items: {
-        type: "object",
-        properties: {
-          id: { type: "string" },
-          label: { type: "string" },
-          description: { type: "string" },
-        },
-        required: ["id", "label"],
-      },
-    },
-    allowOther: { type: "boolean", description: "singleSelect: show an 'Other' textarea fallback." },
-
-    // editText.
-    initialText: { type: "string", description: "editText: the seed text the user will edit." },
-    format: {
-      type: "string",
-      enum: ["markdown", "plain"],
-      description: "editText: how to interpret initialText and serialize the answer (default 'markdown').",
-    },
-    placeholder: { type: "string", description: "editText: placeholder text when empty." },
-    minLength: { type: "integer", minimum: 0, description: "editText: minimum length to allow submit." },
-    maxLength: { type: "integer", minimum: 1, description: "editText: maximum length." },
-
-    // confirm.
-    defaultValue: {
-      type: "boolean",
-      description:
-        "confirm: pre-select yes or no. Omitted means unanswered -- submit stays blocked until the user picks, so an untouched field can never be read as a deliberate no.",
-    },
-  },
-  required: ["type", "id", "label"],
-};
-
-function requestUserInputSchema() {
-  return {
-    // NOTE: Do NOT rename to anything that snake_cases to `request_user_input` --
-    // that collides with a Codex CLI built-in tool gated to Plan mode and the
-    // agent gets refused with "request_user_input is unavailable in Default mode".
-    name: "PromptForUserInput",
-    annotations: ASKS_USER_ONLY,
-    description: `Ask the user for structured input via a composable widget with typed fields; the answer payload is keyed by field id. The "fields" argument is an ARRAY OF OBJECTS ({ type, id, label, ... }), never an array of strings — per-type required properties are documented on the field schema.
-
-Field types: multiSelect (pick a subset), singleSelect (branching choice), reorder (drag-to-reorder with optional delete), editText (edit a seeded draft), confirm (yes/no).
-
-Prefer this tool over AskUserQuestion when input is richer than a flat list of options (order, removal, freeform edits, or multi-field composition).`,
-    inputSchema: {
-      type: "object",
-      properties: {
-        title: { type: "string", description: "Overall prompt title" },
-        intro: { type: "string", description: "1-2 sentences of context above the fields" },
-        fields: {
-          type: "array",
-          minItems: 1,
-          items: REQUEST_USER_INPUT_FIELD_SCHEMA,
-        },
-        submitLabel: { type: "string", description: 'Submit button label (default "Confirm")' },
-        cancelLabel: { type: "string", description: 'Cancel button label (default "Cancel")' },
-      },
-      required: ["fields"],
-    },
-  };
-}
 
 export {
   getRequestUserInputFallbackResponseChannel,
@@ -1339,7 +1091,7 @@ export async function handleRequestUserInput(
   // Per-type required-shape validation. The MCP input schema is intentionally
   // flat (all per-type properties optional, only type/id/label required) because
   // OpenAI's function-calling schema converter mangles `oneOf` unions and the
-  // agent ends up guessing -- see the comment above REQUEST_USER_INPUT_FIELD_SCHEMA.
+  // agent ends up guessing -- see REQUEST_USER_INPUT_FIELD_SCHEMA in interactiveToolSchemas.ts.
   // That permissiveness means the agent occasionally emits a field like
   // `{ type: "singleSelect", id, label }` with no `options` array, and the
   // widget then throws "Cannot read properties of undefined (reading 'map')"

@@ -115,6 +115,20 @@ describe('deriveCoachingSignals', () => {
     expect(signals.turnCount).toBe(2);
   });
 
+  it.each([false, true])('uses durable authorship before legacy text heuristics (SQLite metadata: %s)', (serialized) => {
+    const meta = (actor: string) => {
+      const value = { promptProvenance: { actor, origin: actor === 'human' ? 'composer' : 'session-orchestration' } };
+      return serialized ? JSON.stringify(value) : value;
+    };
+    const signals = deriveCoachingSignals([
+      userRow('[System: quoted text] keep this actual human request', meta('human')),
+      userRow('A plain coordinator instruction', meta('agent')),
+      userRow('A plain scheduled check', meta('system')),
+    ]);
+    expect(signals.userPrompts).toEqual(['[System: quoted text] keep this actual human request']);
+    expect(signals.turnCount).toBe(1);
+  });
+
   it('skips hidden rows entirely', () => {
     const signals = deriveCoachingSignals([
       row({ message_kind: 'user', searchable_text: 'hidden prompt', hidden: true }),

@@ -1,10 +1,7 @@
 import { app, BrowserWindow } from "electron";
 import { isAbsolute } from "path";
 import { existsSync } from "fs";
-import {
-  AISessionsRepository,
-  SessionFilesRepository,
-} from "@nimbalyst/runtime";
+import { AISessionsRepository } from "@nimbalyst/runtime";
 import { findWindowForFilePath, findWindowIdForWorkspacePath, workspaceToWindowMap, documentStateBySession } from "../mcpWorkspaceResolver";
 import { compressImageIfNeeded } from "../mcpImageCompression";
 import { requestFromRenderer } from "../rendererRequest";
@@ -273,7 +270,7 @@ export function getEditorToolSchemas(sessionId: string | undefined) {
     tools.push({
       name: "get_session_edited_files",
       description:
-        "Get the list of files that were edited during this AI session. Use this when you need to know which files have been modified as part of the current session, for example when preparing a git commit. Returns file paths relative to the workspace.",
+        "Get the list of files that were edited during this AI session. Use this when you need to know which files have been modified as part of the current session, for example when preparing a git commit. Returns unique canonical file paths, including deleted files. Directory aliases are deduplicated; tracked leaf symlinks stay distinct. At most 24,000 UTF-8 bytes and 100 lines; oversized lists are saved to a file. Read the full file before preparing a commit so no changed files are omitted.",
       inputSchema: {
         type: "object",
         properties: {},
@@ -976,63 +973,4 @@ export async function handleCaptureEditorScreenshot(
   }
 }
 
-export async function handleGetSessionEditedFiles(
-  sessionId: string | undefined
-): Promise<McpToolResult> {
-  if (!sessionId) {
-    return {
-      content: [
-        {
-          type: "text",
-          text: "Error: No session ID available. This tool is only available during an active AI session.",
-        },
-      ],
-      isError: true,
-    };
-  }
-
-  try {
-    const files = await SessionFilesRepository.getFilesBySession(
-      sessionId,
-      "edited"
-    );
-    const filePaths = files.map((f) => f.filePath);
-
-    if (filePaths.length === 0) {
-      return {
-        content: [
-          {
-            type: "text",
-            text: "No files have been edited in this session yet.",
-          },
-        ],
-        isError: false,
-      };
-    }
-
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Files edited in this session (${
-            filePaths.length
-          }):\n${filePaths.map((p) => `- ${p}`).join("\n")}`,
-        },
-      ],
-      isError: false,
-    };
-  } catch (error) {
-    console.error("[MCP Server] Failed to get session edited files:", error);
-    return {
-      content: [
-        {
-          type: "text",
-          text: `Error getting session files: ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-        },
-      ],
-      isError: true,
-    };
-  }
-}
+export { handleGetSessionEditedFiles } from "../sessionEditedFiles";

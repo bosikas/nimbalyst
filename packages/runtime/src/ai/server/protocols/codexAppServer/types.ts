@@ -134,6 +134,8 @@ export type UserInputElement =
 export interface TurnStartParams {
   threadId: string;
   input: UserInputElement[];
+  /** Native host tool output. Mutually exclusive with nonempty input. */
+  toolOutput?: { name: string; output: string; retain: boolean };
   /** JSON schema for structured output. Optional. */
   outputSchema?: unknown;
 }

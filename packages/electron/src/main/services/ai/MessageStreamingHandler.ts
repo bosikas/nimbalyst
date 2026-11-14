@@ -1,3 +1,4 @@
+import { turnPromptAuthorship } from "./turnPromptAuthorship";
 import { claimExternalSessionForLocalExecution } from '../externalSessions/ExternalSessionService';
 import { warnIfUnpublished } from '@nimbalyst/runtime/sync/pushOutcome';
 import type { SessionChange } from '@nimbalyst/runtime/sync/types';
@@ -1446,11 +1447,7 @@ export class MessageStreamingHandler {
         // Queued orchestration paths provide their own provenance. A direct
         // ai:sendMessage call is a human composer submission. Older queued
         // rows intentionally remain unclassified rather than being guessed.
-        promptProvenance: documentContext?.promptProvenance ?? (
-          queuedPromptId
-            ? undefined
-            : { actor: 'human', origin: 'composer' }
-        ),
+        ...turnPromptAuthorship(documentContext, queuedPromptId),
       };
 
       // Update MCP document state for Claude Code provider so it knows which tools to show

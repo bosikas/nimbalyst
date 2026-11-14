@@ -1,5 +1,9 @@
+// @vitest-environment node
 import { describe, expect, it, vi } from 'vitest';
-import { fetchLastAssistantResponse, type MessageRowDb } from '../sessionContextServer';
+vi.mock('../../database/initialize', () => ({ getDatabase: vi.fn() }));
+vi.mock('@nimbalyst/runtime/storage/repositories/AISessionsRepository', () => ({ AISessionsRepository: {} }));
+vi.mock('@nimbalyst/runtime/storage/repositories/SessionFilesRepository', () => ({ SessionFilesRepository: {} }));
+import { fetchLastAssistantResponse, type MessageRowDb } from '../sessionSummary';
 
 interface SimRow {
   id: number;

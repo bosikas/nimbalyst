@@ -215,6 +215,60 @@ describe('CodexAppServerProtocol', () => {
     expect(child.writtenLines.some((line: any) => line.method === 'turn/start')).toBe(false);
   });
 
+  it.each([true, false])('delivers coordinator evidence as native tool output instead of a permanent human message (retain: %s)', async (retain) => {
+    const protocol = new CodexAppServerProtocol();
+    const pending = protocol.createSession({ workspacePath: '/tmp/ws' });
+    const init = await nextWrittenMatching(child, 'initialize'); child.emitLine({ id: init.id, result: {} });
+    const start = await nextWrittenMatching(child, 'thread/start'); child.emitLine({ id: start.id, result: { thread: { id: 'thread-coordination' } } });
+    const session = await pending;
+    const events: ProtocolEvent[] = [];
+    const output = { name: 'session_coordination', output: 'Active instruction: no restart', retain };
+    const pump = (async () => { for await (const event of protocol.sendMessage(session, { content: '', toolOutputs: [output] } as any)) events.push(event); })();
+    const turn = await nextWrittenMatching(child, 'turn/start');
+    child.emitLine({ id: turn.id, result: { turn: { id: 'coordination-turn' } } });
+    child.emitLine({ method: 'turn/completed', params: { threadId: 'thread-coordination', turn: { id: 'coordination-turn', status: 'completed' } } });
+    await pump;
+    expect(turn.params).toMatchObject({ input: [], toolOutput: output });
+    protocol.cleanupSession(session);
+  });
+
+  it.each([false, true])('keeps mixed-batch human input separate and surfaces unsupported injection without a user-message fallback (reject: %s)', async (reject) => {
+    const protocol = new CodexAppServerProtocol();
+    const pending = protocol.createSession({ workspacePath: '/tmp/ws' });
+    const init = await nextWrittenMatching(child, 'initialize'); child.emitLine({ id: init.id, result: {} });
+    const start = await nextWrittenMatching(child, 'thread/start'); child.emitLine({ id: start.id, result: { thread: { id: 'mixed-thread' } } });
+    const session = await pending;
+    const events: ProtocolEvent[] = [];
+    const controller = new AbortController();
+    const removeAbortListener = vi.spyOn(controller.signal, 'removeEventListener');
+    const pump = (async () => { for await (const event of protocol.sendMessage(session, {
+      abortSignal: controller.signal,
+      content: 'Actual human instruction: preserve my request.',
+      toolOutputs: [{ name: 'session_coordination', output: 'Nested agent report and active no-restart constraint.', retain: true }],
+    } as any)) events.push(event); })();
+    const injection = await nextWrittenMatching(child, 'thread/inject_items');
+    expect(child.writtenLines.some((line: any) => line.method === 'turn/start')).toBe(false);
+    const items = (injection.params as any).items;
+    expect(items.map((item: any) => item.type)).toEqual(['function_call', 'function_call_output']);
+    expect(items[0].call_id).toBe(items[1].call_id);
+    expect(items[1].output).toContain('active no-restart constraint');
+    if (reject) {
+      child.emitLine({ id: injection.id, error: { code: -32601, message: 'Unsupported thread/inject_items' } });
+      await pump;
+      expect(events).toContainEqual(expect.objectContaining({ type: 'error', error: expect.stringContaining('Unsupported') }));
+      expect(child.writtenLines.some((line: any) => line.method === 'turn/start')).toBe(false);
+      expect(removeAbortListener).toHaveBeenCalledTimes(1);
+    } else {
+      child.emitLine({ id: injection.id, result: {} });
+      const turn = await nextWrittenMatching(child, 'turn/start');
+      child.emitLine({ id: turn.id, result: { turn: { id: 'mixed-turn' } } });
+      child.emitLine({ method: 'turn/completed', params: { threadId: 'mixed-thread', turn: { id: 'mixed-turn', status: 'completed' } } });
+      await pump;
+      expect((turn.params as any).input).toEqual([{ type: 'text', text: 'Actual human instruction: preserve my request.' }]);
+    }
+    protocol.cleanupSession(session);
+  });
+
   it('spawns the codex binary, completes the initialize handshake, and starts a thread', async () => {
     const protocol = new CodexAppServerProtocol();
     const sessionPromise = protocol.createSession({

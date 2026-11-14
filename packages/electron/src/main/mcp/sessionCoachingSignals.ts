@@ -107,6 +107,9 @@ export function isSyntheticPrompt(
   metadata: Record<string, unknown> | string | null,
 ): boolean {
   const meta = parseMetadata(metadata);
+  const actor = (meta?.promptProvenance as { actor?: unknown } | undefined)?.actor;
+  if (actor === 'human') return false;
+  if (actor === 'agent' || actor === 'system') return true;
   const origin = meta?.promptOrigin;
   if (typeof origin === 'string' && SYNTHETIC_PROMPT_ORIGINS.has(origin)) return true;
   if (meta?.promptType === 'system_reminder') return true;

@@ -1,4 +1,5 @@
 import * as fs from 'fs';
+import { codexSkillMetadata } from './codexSkillMetadata';
 import * as fsp from 'fs/promises';
 import { homedir } from 'os';
 import * as path from 'path';
@@ -312,11 +313,12 @@ async function readClaudePluginNamespace(pluginPath: string): Promise<string> {
 
 function renderCodexSkillMarkdown(descriptor: AgentWorkflowDescriptor, codexName: string): string {
   const lines: string[] = [];
+  const metadata = codexSkillMetadata(descriptor, codexName);
 
   lines.push('---');
   lines.push(`name: ${JSON.stringify(codexName)}`);
-  if (descriptor.description) {
-    lines.push(`description: ${JSON.stringify(descriptor.description)}`);
+  if (metadata.description) {
+    lines.push(`description: ${JSON.stringify(metadata.description)}`);
   }
   if (descriptor.argumentHint) {
     lines.push(`argument-hint: ${JSON.stringify(descriptor.argumentHint)}`);
@@ -330,6 +332,7 @@ function renderCodexSkillMarkdown(descriptor: AgentWorkflowDescriptor, codexName
   lines.push(`# ${descriptor.title || codexName}`);
   lines.push('');
   lines.push(`Generated from ${descriptor.sourceType}.`);
+  if (metadata.details) lines.push('', metadata.details);
   lines.push('');
 
   if (descriptor.kind === 'command') {

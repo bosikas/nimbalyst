@@ -78,6 +78,9 @@ export interface DocumentContext {
   /** Durable authorship provenance for prompt search and audit surfaces. */
   promptProvenance?: PromptProvenance;
 
+  /** Queue-authored members of a merged turn; never recover authorship by parsing prompt text. */
+  coalescedPrompts?: Array<{ prompt: string; promptProvenance?: PromptProvenance }>;
+
   /** Durable reciprocal links for work dispatched from a team conversation. */
   agentWakeOrigin?: AgentWakePromptOrigin;
 }

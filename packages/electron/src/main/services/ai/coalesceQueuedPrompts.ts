@@ -207,7 +207,13 @@ export function mergeClaimedRun<T extends CoalescibleQueuedPrompt>(run: readonly
 
   return {
     ...head,
-    documentContext,
+    documentContext: {
+      ...documentContext,
+      coalescedPrompts: run.flatMap(row => row.documentContext?.coalescedPrompts ?? [{
+        prompt: row.prompt,
+        promptProvenance: row.documentContext?.promptProvenance,
+      }]),
+    },
     prompt: formatCoalescedPrompt(run.map((row) => ({ prompt: row.prompt, author: authorLabel(authorOf(row)) }))),
     attachments: attachments.length > 0 ? attachments : head.attachments ?? null,
   };

@@ -24,6 +24,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 <!-- Bug fixes go here -->
+- Codex uses compact integration guidance and tool descriptions, and keeps coordinator messages as agent context instead of human requests
 - "Create Branch..." in the Git panel's commit menu did nothing; it now opens a form to name the branch
 - In Files mode, the chat's "Context:" label kept naming a file after its tab was closed; it now follows the active tab and disappears when no tab is open
 - Moving a session under another session on desktop, by dragging or with "Move under...", recorded the new parent as its manager; a move now leaves the manager as it was unless the session leaves its manager's tree
@@ -49,6 +50,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 <!-- Bug fixes go here -->
+- Session tools avoid duplicate edited-file entries and oversized summaries, with complete output available in a file
 - Codex sessions keep a stable skill catalog after idle pauses instead of repeatedly adding plugin skill instructions
 - The weekly history in the Claude and Codex usage popovers now charts the main weekly limit by default instead of a per-model limit such as Fable
 - Nested lists under numbered items are saved indented past the parent's number (3 spaces under `2. `, 4 under `10. `), so other Markdown tools keep them nested, and a nested numbered list under an item numbered 10 starts at 1 instead of 10

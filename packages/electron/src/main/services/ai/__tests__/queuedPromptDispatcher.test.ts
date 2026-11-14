@@ -7,6 +7,7 @@ import {
   type ClaimedQueuedPrompt,
   type QueuedPromptStoreLike,
 } from '../queuedPromptDispatcher';
+import { turnPromptAuthorship } from '../turnPromptAuthorship';
 import { MAX_COALESCED_PROMPTS } from '../coalesceQueuedPrompts';
 
 describe('queuedPromptDispatcher', () => {
@@ -278,6 +279,11 @@ describe('queuedPromptDispatcher', () => {
       expect(sent[0].indexOf('child report')).toBeLessThan(sent[0].indexOf('stop and do this instead'));
       expect(contexts[0].promptProvenance).toMatchObject({ actor: 'human', origin: 'composer', queuedPromptId: 'h' });
       expect(contexts[0].queuedPromptId).toBe('a');
+      expect(turnPromptAuthorship(contexts[0], 'a').coalescedPrompts).toEqual([
+        expect.objectContaining({ prompt: 'child report', promptProvenance: expect.objectContaining({ actor: 'agent' }) }),
+        expect.objectContaining({ prompt: 'stop and do this instead', promptProvenance: expect.objectContaining({ actor: 'human' }) }),
+        expect.objectContaining({ prompt: 'second child report', promptProvenance: expect.objectContaining({ actor: 'agent' }) }),
+      ]);
       expect([...completed].sort()).toEqual(['a', 'c', 'h']);
     });
 

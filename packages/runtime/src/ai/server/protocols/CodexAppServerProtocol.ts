@@ -31,6 +31,7 @@ import { captureCodexStderr } from './codexAppServer/stderrLogging';
 
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { buildDocumentAttachmentPromptText } from '../providers/codex/documentAttachmentPrompt';
 import { describeCodexConfigError } from './codexConfigError';
 import { reverseCodexPatch, type CodexPatchKind } from '../providers/codex/patchReverse';
@@ -285,6 +286,13 @@ export class CodexAppServerProtocol implements AgentProtocol {
     let fullText = '';
 
     const unsubscribers: Array<() => void> = [];
+    const cleanupTurn = () => {
+      for (const unsub of unsubscribers.splice(0)) {
+        try { unsub(); } catch { /* noop */ }
+      }
+      raw.activeTurnId = null;
+      raw.shellTracking?.endTurn();
+    };
     // Codex can flush the turn/start response and the first notifications in
     // one stdout chunk. Hold turn-scoped events until the response establishes
     // which turn this generator owns.
@@ -368,13 +376,28 @@ export class CodexAppServerProtocol implements AgentProtocol {
     }
 
     // Start the turn. Errors from the request itself are surfaced as fail.
-    const turnInput = await this.buildInput(message);
     let turnStartResultId: string | null = null;
     try {
-      const turnStart = await raw.client.request<{ turn?: { id?: string } }>('turn/start', {
-        threadId: raw.threadId,
-        input: turnInput,
-      } as TurnStartParams);
+      const outputs = message.toolOutputs ?? [];
+      const params: TurnStartParams = { threadId: raw.threadId, input: await this.buildInput(message) };
+      if (outputs.length > 0 && !message.content && !(message.attachments?.length)) {
+        if (outputs.length !== 1) throw new Error('Expected one bounded coordination output');
+        params.input = [];
+        params.toolOutput = outputs[0];
+      } else if (outputs.length > 0) {
+        // Mixed queue batches keep actual human requests as user input. Their
+        // coordinator evidence is a synthetic tool call/output pair, not user text.
+        // No fallback to a user message: unsupported servers must fail visibly.
+        const items = outputs.flatMap(output => {
+          const callId = `nimbalyst-context-${randomUUID()}`;
+          return [
+            { type: 'function_call', name: output.name, call_id: callId, arguments: '{}' },
+            { type: 'function_call_output', call_id: callId, output: output.output },
+          ];
+        });
+        await raw.client.request('thread/inject_items', { threadId: raw.threadId, items });
+      }
+      const turnStart = await raw.client.request<{ turn?: { id?: string } }>('turn/start', params);
       turnStartResultId = turnStart?.turn?.id ?? null;
       raw.activeTurnId = turnStartResultId;
       turnStartResolved = true;
@@ -382,6 +405,7 @@ export class CodexAppServerProtocol implements AgentProtocol {
         dispatchOwnedNotification(pending.method, pending.params);
       }
     } catch (err) {
+      cleanupTurn();
       const baseMsg = err instanceof Error ? err.message : String(err);
       yield {
         type: 'error',
@@ -427,11 +451,7 @@ export class CodexAppServerProtocol implements AgentProtocol {
         }
       }
     } finally {
-      for (const unsub of unsubscribers) {
-        try { unsub(); } catch { /* noop */ }
-      }
-      raw.activeTurnId = null;
-      raw.shellTracking?.endTurn();
+      cleanupTurn();
     }
   }
 

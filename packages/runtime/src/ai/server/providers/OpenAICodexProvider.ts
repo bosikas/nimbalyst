@@ -31,6 +31,7 @@ import { ToolPermissionService } from '../permissions/ToolPermissionService';
 import { PermissionMode, TrustChecker, PermissionPatternSaver, PermissionPatternChecker, SecurityLogger } from './ProviderPermissionMixin';
 import { CodexSdkModuleLike, loadCodexSdkModule } from './codex/codexSdkLoader';
 import { resolvePackagedCodexBinaryPath } from './codex/codexBinaryPath';
+import { buildCodexContextDelivery } from './codex/codexContextDelivery';
 import { buildCodexSystemPrompt } from './codex/codexSystemPrompt';
 import { McpConfigService } from '../services/McpConfigService';
 import { getMcpConfigService } from '../services/mcpServerConfig';
@@ -1039,6 +1040,13 @@ export class OpenAICodexProvider extends BaseAgentProvider {
 
     if (sessionId) {
       const metadataToLog: Record<string, unknown> = this.withPromptProvenanceMetadata(documentContext);
+      if (documentContext?.coalescedPrompts) {
+        // Full bodies are already in the canonical input. Keep authorship for
+        // auditing without duplicating nested reports in message metadata.
+        metadataToLog.coalescedPromptProvenance = documentContext.coalescedPrompts.map(
+          (member, index) => ({ index, ...member.promptProvenance }),
+        );
+      }
       if (attachments && attachments.length > 0) {
         metadataToLog.attachments = attachments;
       }
@@ -1287,9 +1295,14 @@ export class OpenAICodexProvider extends BaseAgentProvider {
         attachments as any,
       );
 
+      // Keep canonical logging above complete. Only the model-facing representation
+      // uses verified authorship; legacy SDK transport retains its existing behavior.
+      const delivery = this.transport === 'app-server'
+        ? await buildCodexContextDelivery(prompt, documentContext)
+        : { content: prompt };
       // Send message using protocol -- adapter parses all events
       for await (const event of this.protocol.sendMessage(session, {
-        content: prompt,
+        ...delivery,
         attachments,
         sessionId,
         mode: documentContext?.mode || 'agent',

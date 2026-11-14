@@ -120,6 +120,9 @@ export interface ProtocolMessage {
   /** Text content of the message */
   content: string;
 
+  /** Host-authored context/evidence, distinct from human input. Supported by Codex app-server. */
+  toolOutputs?: Array<{ name: string; output: string; retain: boolean }>;
+
   /** Optional attachments (images, PDFs, documents) */
   attachments?: ProtocolAttachment[];
 
