@@ -25,6 +25,19 @@ afterEach(() => {
 });
 
 describe('buildCodexSystemPrompt', () => {
+  it('honors disabled commit and interactive guidance instead of unconditionally injecting it', () => {
+    const input = {
+      ...options,
+      guidanceSettings: { 'git-commits': false, 'interactive-input': false },
+      sessionDirective: 'Human request: keep the complete file list.',
+    };
+    const prompt = buildCodexSystemPrompt(input);
+    expect(prompt).not.toContain('developer_git_commit_proposal');
+    expect(prompt).not.toContain('PromptForUserInput');
+    expect(prompt).toContain('native skill catalog and deferred tool discovery');
+    expect(prompt).toContain(input.sessionDirective);
+  });
+
   it('reduces ordinary startup size while retaining integration tool contracts', () => {
     const compact = buildCodexSystemPrompt(options);
     const previous = buildClaudeCodeSystemPrompt({
@@ -72,6 +85,22 @@ describe('buildCodexSystemPrompt', () => {
     expect(prompt.indexOf('CUSTOM VOICE BEFORE')).toBeLessThan(prompt.indexOf('## Voice'));
     expect(prompt.indexOf('CUSTOM VOICE AFTER')).toBeGreaterThan(prompt.indexOf('## Voice'));
     expect(prompt).toMatch(/CUSTOM VOICE AFTER\n\nFINAL SESSION RULE\n<\/addendum>\n$/);
+  });
+
+  it('retains custom voice and human instructions when built-in voice guidance is disabled', () => {
+    const documentContext = {
+      isVoiceMode: true,
+      voiceModeCodingAgentPrompt: { prepend: 'HUMAN VOICE BEFORE', append: 'HUMAN VOICE AFTER' },
+    } as DocumentContext;
+    for (const prompt of [
+      buildCodexSystemPrompt({ ...options, documentContext, guidanceSettings: { 'voice-mode': false }, sessionDirective: 'HUMAN TASK' }),
+      buildClaudeCodeSystemPrompt({ isVoiceMode: true, voiceModeCodingAgentPrompt: documentContext.voiceModeCodingAgentPrompt, guidanceSettings: { 'voice-mode': false }, sessionDirective: 'HUMAN TASK' }),
+    ]) {
+      expect(prompt).not.toContain('## Voice');
+      expect(prompt).toContain('HUMAN VOICE BEFORE');
+      expect(prompt).toContain('HUMAN VOICE AFTER');
+      expect(prompt).toContain('HUMAN TASK');
+    }
   });
 
   it('leaves meta-agent workflow instructions unchanged', () => {

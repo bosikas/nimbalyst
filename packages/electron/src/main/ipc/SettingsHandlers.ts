@@ -1,4 +1,5 @@
 import { registerProviderCredentialHandlers } from './ProviderCredentialHandlers';
+import { registerBuiltInGuidanceHandlers } from './BuiltInGuidanceHandlers';
 import { registerCloudflareSandboxHandlers } from './CloudflareSandboxHandlers';
 import { BrowserWindow, safeStorage, session, dialog } from 'electron';
 import { getWindowIdForWindow, windowStates } from '../window/windowState';
@@ -161,6 +162,7 @@ function getLocalNetworkIP(): string | null {
 }
 
 export function registerSettingsHandlers() {
+    registerBuiltInGuidanceHandlers();
     registerProviderCredentialHandlers();
     registerCloudflareSandboxHandlers();
     // ============================================================

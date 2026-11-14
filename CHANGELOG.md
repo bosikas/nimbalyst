@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 <!-- New features go here -->
+- Agent Features settings now list Nimbalyst’s built-in guidance with searchable instruction previews and individual or bulk toggles, including commit proposals and session-naming reminders
 - Reviewed fresh-session handoffs preserve pending human requests, decisions, ownership and evidence without replaying full history; Codex context inspection separates measured request bytes from native token usage, and MCP configuration supports native on-demand exposure while keeping discovery and Core access
 - The Git panel's branch button switches branches: search local and remote branches (a remote-only branch gets a local tracking branch) or start a new one; uncommitted changes come along, a switch git refuses changes nothing, a running agent session in the checkout asks for confirmation first, and a branch checked out in another worktree offers to open that worktree's session
 - Workstreams: a named group in the session list, shown with a folder icon, that holds sessions as peers without making one of them the parent. Create one from the New menu or with "Move to workstream..." on one or several selected sessions, drag sessions onto it, or start a session while it is selected. A workstream holding a single session shows as a group only on the desktop that created it

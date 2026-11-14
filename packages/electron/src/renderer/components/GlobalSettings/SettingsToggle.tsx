@@ -36,7 +36,7 @@ export function SettingsToggle({
             <p className="text-xs text-[var(--nim-text-muted)] mt-1">{description}</p>
           )}
         </div>
-        <ToggleSwitch checked={checked} onChange={onChange} disabled={disabled} />
+        <ToggleSwitch checked={checked} onChange={onChange} disabled={disabled} label={name} />
       </div>
     );
   }
@@ -49,7 +49,7 @@ export function SettingsToggle({
           <p className="text-xs text-[var(--nim-text-muted)] mt-0.5">{description}</p>
         )}
       </div>
-      <ToggleSwitch checked={checked} onChange={onChange} disabled={disabled} />
+      <ToggleSwitch checked={checked} onChange={onChange} disabled={disabled} label={name} />
     </div>
   );
 }
@@ -59,15 +59,18 @@ export function ToggleSwitch({
   checked,
   onChange,
   disabled,
+  label,
 }: {
   checked: boolean;
   onChange: (checked: boolean) => void;
   disabled?: boolean;
+  label?: string;
 }) {
   return (
     <label className={`relative inline-block w-11 h-6 shrink-0 ${disabled ? 'opacity-50 pointer-events-none' : 'cursor-pointer'}`}>
       <input
         type="checkbox"
+        aria-label={label}
         checked={checked}
         onChange={(e) => onChange(e.target.checked)}
         disabled={disabled}

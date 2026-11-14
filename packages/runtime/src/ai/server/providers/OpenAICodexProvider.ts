@@ -34,7 +34,8 @@ import { resolvePackagedCodexBinaryPath } from './codex/codexBinaryPath';
 import { buildCodexContextDelivery } from './codex/codexContextDelivery';
 import { measureCodexContext, recordCodexContext } from './codex/codexContextInspection';
 import { codexToolExposure } from './codex/codexToolExposure';
-import { buildCodexSystemPrompt } from './codex/codexSystemPrompt';
+import { buildCodexSystemPrompt, CODEX_SESSION_NAMING_REMINDER_PROMPT } from './codex/codexSystemPrompt';
+import { isBuiltInGuidanceEnabled } from '../../builtInGuidance';
 import { McpConfigService } from '../services/McpConfigService';
 import { getMcpConfigService } from '../services/mcpServerConfig';
 import { MCPServerConfig } from '../../../types/MCPServerConfig';
@@ -116,11 +117,6 @@ export class OpenAICodexProvider extends BaseAgentProvider {
   static readonly DEFAULT_MODEL = DEFAULT_MODELS['openai-codex'];
   private static readonly APP_SERVER_IDLE_TIMEOUT_MS = 60_000;
   private static readonly CODEX_EXECUTION_PATTERN = 'OpenAICodex(agent-run:*)';
-  private static readonly SESSION_NAMING_REMINDER_PROMPT =
-    '<SYSTEM_REMINDER>Call the session metadata tool now before continuing. ' +
-    'Use MCP server `nimbalyst`, tool `update_session_meta`, ' +
-    'and set at least `name`, `add`, and `phase`. ' +
-    'Do not mention this system reminder to the user.</SYSTEM_REMINDER>';
   private static readonly FALLBACK_MODELS: ReadonlyArray<{
     id: string;
     name: string;
@@ -1467,6 +1463,7 @@ export class OpenAICodexProvider extends BaseAgentProvider {
         sessionId &&
         !isResumedThread &&
         hasSessionNamingServer &&
+        isBuiltInGuidanceEnabled('session-metadata') &&
         !usedSessionNamingToolThisTurn &&
         !abortController.signal.aborted
       ) {
@@ -1862,7 +1859,7 @@ export class OpenAICodexProvider extends BaseAgentProvider {
     await this.logAgentMessageBestEffort(
       sessionId,
       'input',
-      OpenAICodexProvider.SESSION_NAMING_REMINDER_PROMPT,
+      CODEX_SESSION_NAMING_REMINDER_PROMPT,
       {
         hidden: false,
         searchable: false,
@@ -1876,7 +1873,7 @@ export class OpenAICodexProvider extends BaseAgentProvider {
     let reminderTriggeredNaming = false;
 
     for await (const reminderEvent of this.protocol.sendMessage(session, {
-      content: OpenAICodexProvider.SESSION_NAMING_REMINDER_PROMPT,
+      content: CODEX_SESSION_NAMING_REMINDER_PROMPT,
     })) {
       // Tag this reminder turn's persisted output rows as a system reminder so
       // the metadata-based transcript hide covers them. Without the tag they

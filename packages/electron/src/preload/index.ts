@@ -2094,6 +2094,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     setEnv: (env: Record<string, string>) => ipcRenderer.invoke('claudeSettings:set-env', env) as Promise<{ success: boolean }>,
   },
 
+  agentGuidance: {
+    getCatalog: () => ipcRenderer.invoke('agent-guidance:get-catalog') as Promise<import('@nimbalyst/runtime/ai/builtInGuidance').BuiltInGuidanceEntry[]>,
+    update: (settings: import('@nimbalyst/runtime/ai/builtInGuidance').BuiltInGuidanceSettings) =>
+      ipcRenderer.invoke('agent-guidance:update', settings) as Promise<import('@nimbalyst/runtime/ai/builtInGuidance').BuiltInGuidanceEntry[]>,
+  },
+
   agentWorkflows: {
     getSettings: () => ipcRenderer.invoke('agentWorkflows:get-settings') as Promise<{
       sourceSettings: {

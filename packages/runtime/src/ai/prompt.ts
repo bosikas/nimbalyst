@@ -1,6 +1,7 @@
 import type { DocumentContext } from './types';
 import { getPreferredAgentLanguage } from './server/preferredAgentLanguageConfig';
 import { MCP_CORE } from './server/services/mcpTopology';
+import { createGuidanceRenderer, type GuidanceRenderOptions } from './builtInGuidance';
 
 /**
  * Build session naming instructions section
@@ -68,7 +69,7 @@ So the user can see at a glance whether each session's changes are committed: af
 /**
  * Options for building agent system prompts (Claude Code, Codex, etc.)
  */
-export interface ClaudeCodePromptOptions {
+export interface ClaudeCodePromptOptions extends GuidanceRenderOptions {
   hasSessionNaming?: boolean;
   /**
    * When true, the prompt tells the agent NOT to set `name` — the session is
@@ -141,6 +142,7 @@ export interface ClaudeCodePromptOptions {
  * based on context (worktree, voice mode, session naming).
  */
 export function buildClaudeCodeSystemPrompt(options: ClaudeCodePromptOptions): string {
+  const guidance = createGuidanceRenderer(options);
   const {
     hasSessionNaming = false,
     hasOutOfBandNaming = false,
@@ -167,8 +169,10 @@ export function buildClaudeCodeSystemPrompt(options: ClaudeCodePromptOptions): s
   let prompt = `The following is an addendum to the above. Anything in the addendum supersedes the above.
 <addendum>
 
-You are an AI assistant integrated into the Nimbalyst editor, an AI-native workspace and code editor.
-When asked about your identity, be truthful about which AI model you are - do not claim to be a different model than you actually are.
+`;
+  prompt += guidance('identity', `You are an AI assistant integrated into the Nimbalyst editor, an AI-native workspace and code editor.
+When asked about your identity, be truthful about which AI model you are - do not claim to be a different model than you actually are.`);
+  prompt += guidance('interactive-input', `
 
 ## Interactive User Input
 
@@ -179,7 +183,8 @@ Before writing a question, list of options, or draft for the user to react to in
 
 Combine questions into one multi-field prompt instead of asking across turns, and pre-fill defaults so the user can submit without retyping.
 
-${effectiveToolReferenceStyle === 'codex' ? 'When an interactive tool inside `functions.exec` returns “Script running with cell ID”, keep calling `functions.wait` for that cell until its answer arrives. A running cell is not a timeout. Do not issue a final response while the question call is pending.' : ''}
+${effectiveToolReferenceStyle === 'codex' ? 'When an interactive tool inside `functions.exec` returns “Script running with cell ID”, keep calling `functions.wait` for that cell until its answer arrives. A running cell is not a timeout. Do not issue a final response while the question call is pending.' : ''}`);
+  prompt += guidance('visual-communication', `
 
 ## Visual Communication
 
@@ -192,26 +197,27 @@ Diagrams — pick the type that fits: Mermaid fenced blocks in \`.md\` for flowc
 
 Markdown also renders \`chart\`, \`2x2\` and \`decision\` fences, callouts (\`> [!NOTE]\`), columns and tabs; the wiki update skill's \`references/components.md\` has their syntax and where each renders.
 
-To embed a custom-editor file inside Markdown, put a CommonMark link on its own paragraph: \`[Label](relative/path/file.ext "width=1000 height=650")\`. Registered embeddable files render as live components. Never use the legacy \`{mockup:...}\` image-attribute syntax.
+To embed a custom-editor file inside Markdown, put a CommonMark link on its own paragraph: \`[Label](relative/path/file.ext "width=1000 height=650")\`. Registered embeddable files render as live components. Never use the legacy \`{mockup:...}\` image-attribute syntax.`);
+  prompt += guidance('file-references', `
 
 ## File References
 
-When you mention a specific file, write it as a markdown link so the user can click it open: \`[relativeName](/absolute/path/to/file.ext)\`, with an optional line/column suffix like \`[foo.ts:42](/abs/path/foo.ts:42)\`. Percent-encode spaces in paths as \`%20\` so the link isn't truncated. Only link real files you are referring to — not prose, directories, or shell commands.`;
+When you mention a specific file, write it as a markdown link so the user can click it open: \`[relativeName](/absolute/path/to/file.ext)\`, with an optional line/column suffix like \`[foo.ts:42](/abs/path/foo.ts:42)\`. Percent-encode spaces in paths as \`%20\` so the link isn't truncated. Only link real files you are referring to — not prose, directories, or shell commands.`);
 
   // Tracker guidance only makes sense when the workspace has tracker tools.
   if (trackersEnabled) {
-    prompt += `
+    prompt += guidance('trackers', `
 
 ## Tracker References
 
 Before starting work on a tracker item, call \`work_radar(issueKey)\` when that tool is available so you can see recent teammate activity and avoid duplicating or overwriting concurrent work.
 
-When you mention a tracker item (bug, task, plan, decision, etc.), link it as \`[NIM-123](nimbalyst://NIM-123)\` — issue key as both label and URN — so it renders as a live, clickable status chip. Only link real items you actually created or looked up via the tracker tools; never invent an issue key.`;
+When you mention a tracker item (bug, task, plan, decision, etc.), link it as \`[NIM-123](nimbalyst://NIM-123)\` — issue key as both label and URN — so it renders as a live, clickable status chip. Only link real items you actually created or looked up via the tracker tools; never invent an issue key.`);
   }
 
   // Add plan tracking frontmatter instructions when enabled
   if (planTrackingEnabled) {
-  prompt += `
+  prompt += guidance('plan-tracking', `
 
 ## Plan File Tracking
 
@@ -254,36 +260,35 @@ planStatus:
 - \`initiative\`: Large multi-feature effort
 - \`improvement\`: Enhancement to existing feature
 
-Update the \`updated\` timestamp and \`progress\` field (0-100) whenever modifying a plan. Use kebab-case for file names (e.g., \`dark-mode-implementation.md\`).`;
+Update the \`updated\` timestamp and \`progress\` field (0-100) whenever modifying a plan. Use kebab-case for file names (e.g., \`dark-mode-implementation.md\`).`);
   }
 
   // Add worktree warning if in worktree
   if (worktreePath) {
-    prompt += `
+    prompt += guidance('worktree', `
 
 ## Git Worktree Environment
 
-IMPORTANT: You are working in a git worktree at ${worktreePath} — an isolated environment for this session. Stay in this directory; do not modify files in the main checkout unless explicitly asked. Your changes land on the worktree's branch, not the main branch. Multiple sessions may share this worktree — be mindful of other sessions' changes and avoid overwriting their work.`;
+IMPORTANT: You are working in a git worktree at ${worktreePath} — an isolated environment for this session. Stay in this directory; do not modify files in the main checkout unless explicitly asked. Your changes land on the worktree's branch, not the main branch. Multiple sessions may share this worktree — be mindful of other sessions' changes and avoid overwriting their work.`);
   }
 
-  // Always add git commit tool guidance
-  prompt += `
+  prompt += guidance('git-commits', `
 
 ## Git Commits
 
-When asked to commit your work, use the ${gitCommitProposalTool} tool instead of command-line git commit — it stages and commits atomically, preventing conflicts between parallel sessions in the same repository. Other git operations from the command line are fine. When the commit is intended to resolve an issue or tracker item, include the canonical closing reference (e.g. \`Fixes #123\`, \`Closes ABC-123\`) on its own line in the proposed message, or a neutral reference line if the closing syntax is unclear.`;
+When asked to commit your work, use the ${gitCommitProposalTool} tool instead of command-line git commit — it stages and commits atomically, preventing conflicts between parallel sessions in the same repository. Other git operations from the command line are fine. When the commit is intended to resolve an issue or tracker item, include the canonical closing reference (e.g. \`Fixes #123\`, \`Closes ABC-123\`) on its own line in the proposed message, or a neutral reference line if the closing syntax is unclear.`);
 
   // Frozen for the life of the session — see the gitContext doc comment. The
   // "will not update" wording is literally true here, unlike the CLI's block
   // which silently refreshes on every process spawn.
   if (gitContext) {
-    prompt += `
+    prompt += guidance('repository-context', `
 
 ## Repository
 
 Resolved when this session started. It is a snapshot and will not update during the conversation — run \`git status\` yourself for the current working tree.
 
-${gitContext}`;
+${gitContext}`);
   }
 
   // Add session naming if available. Fall back to the runtime config when
@@ -291,7 +296,7 @@ ${gitContext}`;
   // through every provider's buildSystemPrompt path.
   if (hasSessionNaming) {
     const effectiveLanguage = preferredAgentLanguage ?? getPreferredAgentLanguage();
-    prompt += buildSessionNamingSection(effectiveToolReferenceStyle, hasOutOfBandNaming, effectiveLanguage);
+    prompt += guidance('session-metadata', buildSessionNamingSection(effectiveToolReferenceStyle, hasOutOfBandNaming, effectiveLanguage));
   }
 
   // Add voice mode context if applicable
@@ -301,7 +306,7 @@ ${gitContext}`;
       prompt += `\n\n${voiceModeCodingAgentPrompt.prepend}`;
     }
 
-    prompt += `
+    prompt += guidance('voice-mode', `
 
 ## Voice Mode
 
@@ -309,7 +314,7 @@ The user is interacting via voice mode. A voice assistant (GPT-4 Realtime) handl
 
 - Messages prefixed with \`[VOICE]\` are questions from the voice assistant on behalf of the user
 - For \`[VOICE]\` messages: keep your answer short and to the point - it will be spoken aloud. Lead with the answer, skip preamble and caveats, and don't pad with detail the user didn't ask for
-- You may also receive coding tasks via voice mode - handle these normally`;
+- You may also receive coding tasks via voice mode - handle these normally`);
 
     // Apply custom append if configured
     if (voiceModeCodingAgentPrompt?.append) {
@@ -333,7 +338,7 @@ export type MetaAgentWorkflowPreset = 'default' | 'implement-review-test' | 'res
 export function buildMetaAgentSystemPrompt(
   style: ToolReferenceStyle = 'claude',
   workflowPreset: MetaAgentWorkflowPreset = 'default',
-  options?: {
+  options?: GuidanceRenderOptions & {
     provider?: string;
     model?: string;
     modelDisplayName?: string;
@@ -466,7 +471,7 @@ If any step surfaces issues, repeat the loop until resolved.
 5. After all work is done, write the final answer yourself by drawing on each child's full result. Preserve the concrete detail the children produced (findings, file:line references, recommendations) instead of compressing it into a thin summary. Report only what the children actually did: if a child says it fixed, edited, or built something, relay it as the child's claim rather than confirmed fact unless its result shows the tool call that performed it. End with remaining risks and next steps.`;
   }
 
-  return appendSessionDirective(prompt, options?.sessionDirective);
+  return appendSessionDirective(createGuidanceRenderer(options)('coordination', prompt), options?.sessionDirective);
 }
 
 /**
@@ -493,12 +498,12 @@ export function appendSessionDirective(prompt: string, sessionDirective?: string
  * additive - it never overrides a base prompt that the session already had.
  */
 export function buildDevAgentSystemPrompt(
-  options?: { provider?: string; model?: string; modelDisplayName?: string }
+  options?: GuidanceRenderOptions & { provider?: string; model?: string; modelDisplayName?: string }
 ): string {
   const identity = options?.modelDisplayName
     ? `You are ${options.modelDisplayName}, served through the Antigravity language server.`
     : 'You are an AI model served through the Antigravity language server.';
-  return `You are a coding assistant working inside the user's workspace. You can investigate the codebase and make changes using your tools.
+  return createGuidanceRenderer(options)('dev-agent', `You are a coding assistant working inside the user's workspace. You can investigate the codebase and make changes using your tools.
 
 ## Your Tools
 
@@ -521,13 +526,13 @@ Every factual statement you make about the codebase MUST come from a tool result
 5. Give a plain-text response (no tool call) ONLY when the entire task is finished or no tool is needed.
 6. Instructions in the project's CLAUDE.md files and the user's prompt always take precedence over these instructions.
 
-${identity} When the user asks which model or version you are, answer truthfully with that name. Do not repeat internal provider or model identifiers, and do not claim to be a different model than you are.`;
+${identity} When the user asks which model or version you are, answer truthfully with that name. Do not repeat internal provider or model identifiers, and do not claim to be a different model than you are.`);
 }
 
 /**
  * Options for building base AI provider system prompts
  */
-export interface BasePromptOptions {
+export interface BasePromptOptions extends GuidanceRenderOptions {
   documentContext?: DocumentContext;
 }
 
@@ -541,6 +546,7 @@ export interface BasePromptOptions {
  * This function only includes static configuration and tool usage instructions.
  */
 export function buildSystemPrompt(documentContextOrOptions?: DocumentContext | BasePromptOptions): string {
+  const guidance = createGuidanceRenderer(documentContextOrOptions as GuidanceRenderOptions | undefined);
   // Support both legacy (DocumentContext) and new (BasePromptOptions) signatures
   let documentContext: DocumentContext | undefined;
 
@@ -556,15 +562,15 @@ export function buildSystemPrompt(documentContextOrOptions?: DocumentContext | B
   const mode = documentContext?.mode;
   const hasDocument = !!(documentContext && (documentContext.filePath || documentContext.content));
 
-  let base = `You are an AI assistant integrated into the Nimbalyst editor, a markdown-focused text editor.
-When asked about your identity, be truthful about which AI model you are - do not claim to be a different model than you actually are.`;
+  let base = guidance('identity', `You are an AI assistant integrated into the Nimbalyst editor, a markdown-focused text editor.
+When asked about your identity, be truthful about which AI model you are - do not claim to be a different model than you actually are.`);
 
   // In agentic coding mode, there's no specific document - agent works across codebase
   if (mode === 'agent' && !hasDocument) {
-    return base + `
+    return base + guidance('document-editing', `
 
 You are working in agentic coding mode with access to the entire workspace.
-You can read, edit, and create files as needed to complete tasks.`;
+You can read, edit, and create files as needed to complete tasks.`);
   }
 
   // If no document is open, the prompt just uses the base - no special warning needed.
@@ -580,7 +586,7 @@ You can read, edit, and create files as needed to complete tasks.`;
   const fileType = documentContext?.fileType || 'markdown';
   const isMockup = fileType === 'mockup';
 
-  return base + `
+  return base + guidance('document-editing', `
 
 ${isMockup ? `
 🎨 MOCKUP EDITING MODE
@@ -716,7 +722,7 @@ To add Banana, use applyDiff:
 }
 
 Remember: The user can SEE the changes in their editor. They just want confirmation you understood the request.
-ALWAYS use applyDiff for table modifications - it's more reliable than streaming!`;
+ALWAYS use applyDiff for table modifications - it's more reliable than streaming!`);
 }
 
 

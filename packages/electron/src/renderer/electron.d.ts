@@ -1067,6 +1067,10 @@ interface ElectronAPI {
     setEnv: (env: Record<string, string>) => Promise<void>;
   };
 
+  agentGuidance: {
+    getCatalog: () => Promise<import('@nimbalyst/runtime/ai/builtInGuidance').BuiltInGuidanceEntry[]>;
+    update: (settings: import('@nimbalyst/runtime/ai/builtInGuidance').BuiltInGuidanceSettings) => Promise<import('@nimbalyst/runtime/ai/builtInGuidance').BuiltInGuidanceEntry[]>;
+  };
   agentWorkflows: {
     getSettings: () => Promise<{
       sourceSettings: {

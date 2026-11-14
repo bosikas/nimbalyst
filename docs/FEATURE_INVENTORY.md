@@ -519,6 +519,7 @@ Companion app; pairs with a desktop over encrypted sync. Voice mode is not inclu
 
 ## Settings
 
+- Built-in skills and guidance catalog under Agent Features: search all Nimbalyst-owned prompt sections, inspect their provider-specific instructions, toggle individual sections or all sections across projects, including commit proposals and session-naming reminders. Controls affect future prompt injection; tools remain available and existing native session history is preserved. Repository instructions and provider-owned skills remain separate
 - Application: theme, AI providers, MCP servers, notifications, advanced, beta features, and extensions
 - Account: signed-in accounts, sync-account selection, active zero-knowledge mobile-sync profile, paired devices, and account-attributed shared links
 - Project: sharing/organization attachment, project access, AI provider overrides, agent permissions, tracker config, GitHub, and extensions

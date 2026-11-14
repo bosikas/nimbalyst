@@ -1,7 +1,31 @@
+// @vitest-environment node
 import { describe, expect, it } from 'vitest';
 import { appendSessionDirective, buildClaudeCodeSystemPrompt, buildMetaAgentSystemPrompt, buildDevAgentSystemPrompt } from '../prompt';
 
 describe('buildClaudeCodeSystemPrompt', () => {
+  it('can disable built-in commit guidance without removing a human session directive', () => {
+    const options = {
+      hasSessionNaming: true,
+      guidanceSettings: { 'git-commits': false },
+      sessionDirective: 'Human instruction: preserve the staged changes.',
+    };
+    const prompt = buildClaudeCodeSystemPrompt(options);
+    expect(prompt).not.toContain('developer_git_commit_proposal');
+    expect(prompt).toContain('## Interactive User Input');
+    expect(prompt).toContain(options.sessionDirective);
+  });
+
+  it('can disable coordinator guidance without losing standing human instructions', () => {
+    const options = {
+      provider: 'claude-code',
+      guidanceSettings: { coordination: false },
+      sessionDirective: 'Keep this decision and unresolved request.',
+    };
+    const prompt = buildMetaAgentSystemPrompt('claude', 'default', options);
+    expect(prompt).not.toContain('Delegate everything');
+    expect(prompt).toBe(options.sessionDirective);
+  });
+
   it('includes interactive input guidance for codex-style tool references', () => {
     const prompt = buildClaudeCodeSystemPrompt({
       toolReferenceStyle: 'codex',

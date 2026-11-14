@@ -1,4 +1,6 @@
+// @vitest-environment node
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { setBuiltInGuidanceSettingsLoader } from '../../../builtInGuidance';
 import { OpenAICodexProvider } from '../OpenAICodexProvider';
 import { configureMcpServers } from '../../services/mcpServerConfig';
 import { AgentMessagesRepository } from '../../../../storage/repositories/AgentMessagesRepository';
@@ -29,6 +31,7 @@ describe('OpenAICodexProvider persistence', () => {
   });
 
   afterEach(() => {
+    setBuiltInGuidanceSettingsLoader();
     configureMcpServers({ mcpServerPort: null });
     AgentMessagesRepository.clearStore();
   });
@@ -386,7 +389,8 @@ describe('OpenAICodexProvider persistence', () => {
     expect(outputRows).toHaveLength(0);
   });
 
-  it('persists the session naming reminder as a tagged non-searchable input row', async () => {
+  it.each([true, false])('persists the session naming reminder only when its guidance is enabled: %s', async (enabled) => {
+    setBuiltInGuidanceSettingsLoader(() => ({ 'session-metadata': enabled }));
     // update_session_meta now rides on the eager core `nimbalyst` server (MCP
     // consolidation Phase 5); registering it triggers the naming-reminder gate.
     configureMcpServers({ mcpServerPort: 41001 });
@@ -449,7 +453,11 @@ describe('OpenAICodexProvider persistence', () => {
       // drain
     }
 
-    expect(sentContents).toHaveLength(2);
+    expect(sentContents).toHaveLength(enabled ? 2 : 1);
+    if (!enabled) {
+      expect(createdMessages.some((message) => message.metadata?.reminderKind === 'session_naming')).toBe(false);
+      return;
+    }
     expect(sentContents[1]).toContain('<SYSTEM_REMINDER>');
     expect(sentContents[1]).toContain('</SYSTEM_REMINDER>');
     expect(sentContents[1]).toContain('Do not mention this system reminder to the user.');
