@@ -14,6 +14,7 @@ import { ALPHA_FEATURES, type AlphaFeatureTag } from '../../../shared/alphaFeatu
 import { AlphaBadge, SETTINGS_ALPHA_TOOLTIP } from '../common/AlphaBadge';
 import { SettingsToggle } from '../GlobalSettings/SettingsToggle';
 import { BuiltInGuidancePanel } from './BuiltInGuidancePanel';
+import { InstalledSkillsPanel } from './InstalledSkillsPanel';
 
 const AGENT_FEATURE_TAGS: AlphaFeatureTag[] = [
   'super-loops',
@@ -37,6 +38,8 @@ type AttachmentStagingMode = 'temp' | 'workspace' | 'custom';
 
 export function AgentFeaturesPanel() {
   const posthog = usePostHog();
+  const [chatDensity, setChatDensity] = useAtom(settingAtom('ai.chatDensity'));
+  const [densityError, setDensityError] = useState<string>();
   const [externalSessionFollowEnabled, setExternalSessionFollowEnabled] = useAtom(settingAtom('app.externalSessionFollowEnabled'));
   const [settings] = useAtom(advancedSettingsAtom);
   const [, updateSettings] = useAtom(setAdvancedSettingsAtom);
@@ -446,6 +449,7 @@ export function AgentFeaturesPanel() {
         </div>
 
         <BuiltInGuidancePanel />
+        <InstalledSkillsPanel workspacePath={currentWorkspacePath} />
 
         <div className="mb-4 rounded border border-[var(--nim-border)] bg-[var(--nim-bg-secondary)] p-3">
           <h5 className="text-sm font-semibold mb-1.5 text-[var(--nim-text)]">
@@ -514,6 +518,18 @@ export function AgentFeaturesPanel() {
           />
         ))}
 
+        <div className="chat-density-setting my-3">
+          <label className="flex items-center justify-between gap-3 text-sm">Chat density
+            <select aria-label="Chat density" value={chatDensity} onChange={event => {
+              setDensityError(undefined);
+              void Promise.resolve(setChatDensity(event.target.value as typeof chatDensity)).catch(error => setDensityError(String(error)));
+            }} className="rounded border border-[var(--nim-border)] bg-[var(--nim-bg-secondary)] px-2 py-1 text-sm">
+              <option value="comfortable">Comfortable</option><option value="compact">Compact</option><option value="dense">Dense</option>
+            </select>
+          </label>
+          <p className="mt-1 text-xs text-[var(--nim-text-muted)]">Adjust message spacing in all chats. Code, attachments and interactive controls keep their normal size.</p>
+          {densityError && <p role="alert" className="text-xs text-[var(--nim-error)]">Could not save density: {densityError}</p>}
+        </div>
         <SettingsToggle
           checked={chatShowToolCalls}
           onChange={(checked) => updateAIDebugSettings({ chatShowToolCalls: checked })}

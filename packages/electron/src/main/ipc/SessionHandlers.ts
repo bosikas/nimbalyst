@@ -1,4 +1,5 @@
 import { registerSessionPromptResponseHandler } from './sessionPromptResponseHandler';
+import { readSessionWorkSummary } from '@nimbalyst/runtime/ai/sessionWorkSummary';
 import { remoteSessions } from '../services/ai/remoteSessions';
 import { database } from '../database/PGLiteDatabaseWorker';
 import { projectSessionList, readSessionLaunchCounts } from './sessionListProjection';
@@ -23,6 +24,7 @@ import { SessionCommitService } from '../services/SessionCommitService';
 import { getSessionsForFile } from '../services/fileSessionLookup';
 import { normalizeSessionPhaseMetadataUpdate } from '../services/session/sessionPhaseTransition';
 import { destroyProviderForArchivedSession } from '../services/ai/archiveSessionProviderLifecycle';
+import { sessionCreationPolicy, sessionPolicyPatch } from '@nimbalyst/runtime/ai/sessionPolicy';
 import { resolveSessionModelSelection } from '../services/ai/sessionModelSelection';
 import { inheritedOwnership, stripOwnerControlledMetadata } from '../services/extensionSessions/sessionOwnership';
 import { readSessionSubtree } from '../services/sessionHierarchy';
@@ -170,9 +172,10 @@ export async function registerSessionHandlers() {
                 // Written with the row, so a directive or notifyParent is never
                 // missing when the first turn reads it. Ownership is assigned
                 // only by the host (extension session broker, spawn inheritance).
-                ...(session.metadata && typeof session.metadata === 'object'
-                    ? { metadata: normalizeSessionPhaseMetadataUpdate(stripOwnerControlledMetadata(session.metadata)) }
-                    : {}),
+                metadata: {
+                    ...normalizeSessionPhaseMetadataUpdate(stripOwnerControlledMetadata(session.metadata ?? {})),
+                    ...sessionCreationPolicy({ ...session.metadata, ...sessionPolicyPatch(session) }),
+                },
             };
             // console.log('[SessionHandlers] Creating session with payload:', JSON.stringify(createPayload));
 
@@ -282,6 +285,7 @@ export async function registerSessionHandlers() {
 
             if (updates.metadata) {
                 updates.metadata = stripOwnerControlledMetadata(updates.metadata);
+                sessionPolicyPatch(updates.metadata);
             }
             await AISessionsRepository.updateMetadata(sessionId, updates);
 
@@ -311,6 +315,8 @@ export async function registerSessionHandlers() {
             if (updates.createdBySessionId !== undefined) rendererUpdate.createdBySessionId = updates.createdBySessionId;
             if ((updates as any).isPinned !== undefined) rendererUpdate.isPinned = (updates as any).isPinned;
             if (updates.isArchived !== undefined) rendererUpdate.isArchived = updates.isArchived;
+            if (updates.metadata?.generateSummary !== undefined) rendererUpdate.generateSummary = updates.metadata.generateSummary;
+            if (updates.metadata?.autoArchiveAfterMinutes !== undefined) rendererUpdate.autoArchiveAfterMinutes = updates.metadata.autoArchiveAfterMinutes;
 
             if (Object.keys(rendererUpdate).length > 0) {
                 for (const window of BrowserWindow.getAllWindows()) {
@@ -534,6 +540,9 @@ export async function registerSessionHandlers() {
                     uncommittedCount: uncommittedMap.get(row.id) || 0,
                     // Metadata fields needed by TrackerPanel, kanban, etc.
                     phase: metadata.phase || undefined,
+                    workSummary: readSessionWorkSummary(metadata.workSummary),
+                    generateSummary: metadata.generateSummary !== false,
+                    autoArchiveAfterMinutes: Number(metadata.autoArchiveAfterMinutes) || 0,
                     tags: Array.isArray(metadata.tags) ? metadata.tags : undefined,
                     linkedTrackerItemIds: Array.isArray(metadata.linkedTrackerItemIds) ? metadata.linkedTrackerItemIds : undefined,
                 };

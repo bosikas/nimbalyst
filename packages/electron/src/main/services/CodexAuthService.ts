@@ -34,6 +34,7 @@ import type {
 } from '@nimbalyst/runtime/ai/server/protocols/codexAppServer/types';
 import { logger } from '../utils/logger';
 import { getEnhancedPath } from './shellEnvironment';
+import { createCodexSkillsService } from './CodexSkillsService';
 
 export interface CodexAuthStatus {
   account: AccountKind;
@@ -49,6 +50,10 @@ export interface CodexLoginStartedChatGpt {
 }
 
 class CodexAuthServiceImpl {
+  private readonly skills = createCodexSkillsService({ request: async <T>(method: string, params?: unknown, timeoutMs?: number) => (await this.ensureChild()).request<T>(method, params, timeoutMs) });
+  listSkills(workspace: string) { return this.skills.list(workspace); }
+  setSkillEnabled(workspace: string, file: string, enabled: boolean) { return this.skills.setEnabled(workspace, file, enabled); }
+  previewSkill(workspace: string, file: string) { return this.skills.preview(workspace, file); }
   private child: ChildProcessWithoutNullStreams | null = null;
   private client: JsonRpcClient | null = null;
   private initializing: Promise<JsonRpcClient> | null = null;

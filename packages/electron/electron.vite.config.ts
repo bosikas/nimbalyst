@@ -1,6 +1,7 @@
 import { resolve } from 'path'
 import { createRequire } from 'node:module'
 import { defineConfig } from 'electron-vite'
+import type { PluginOption } from 'vite'
 import react from '@vitejs/plugin-react'
 import viteNimbalystPlugin from '../shared/viteNimbalystPlugin.ts'
 import { viteStaticCopy } from 'vite-plugin-static-copy'
@@ -12,6 +13,9 @@ import {
   stripRequireCacheSelfEviction,
 } from '../../scripts/main-bundle-require-policy.mjs'
 import dedupeWatcherAddsPlugin from './scripts/dedupeWatcherAddsPlugin.mjs'
+
+const { localBuildOptions, localBuildInputsPlugin } = createRequire(import.meta.url)('./build/local-build-cache.js');
+const lightweightLocalBuild = process.env.NIMBALYST_LOCAL_BUILD === '1';
 
 // Plugin to optimize Shiki language imports
 const optimizeShikiPlugin = () => {
@@ -345,6 +349,7 @@ const config = {
       ]
     },
     build: {
+      ...localBuildOptions(lightweightLocalBuild),
       // Target modern Node syntax supported by the bundled Electron runtime.
       target: 'node22',
       sourcemap: isDev,
@@ -392,6 +397,7 @@ const config = {
       }
     },
     build: {
+      ...localBuildOptions(lightweightLocalBuild),
       target: 'node16',
       sourcemap: isDev,
       rollupOptions: {
@@ -539,6 +545,7 @@ const config = {
       }
     },
     build: {
+      ...localBuildOptions(lightweightLocalBuild),
       target: 'chrome109',
       sourcemap: isDev,
       rollupOptions: {
@@ -776,4 +783,22 @@ const config = {
   }
 };
 
-export default defineConfig(externalRenderer ? { ...config, renderer: undefined } : config);
+const localComponent = lightweightLocalBuild ? process.env.NIMBALYST_LOCAL_COMPONENT : undefined;
+if (localComponent && !['main', 'preload', 'renderer'].includes(localComponent)) {
+  throw new Error(`Unknown local build component: ${localComponent}`);
+}
+if (lightweightLocalBuild) {
+  for (const component of ['main', 'preload', 'renderer'] as const) {
+    const target = config[component] as { plugins?: PluginOption[] };
+    target.plugins = [
+      ...(target.plugins || []),
+      localBuildInputsPlugin(component, resolve(__dirname, 'node_modules/.cache/nimbalyst-local-build')),
+    ];
+  }
+}
+export default defineConfig({
+  ...config,
+  main: localComponent && localComponent !== 'main' ? undefined : config.main,
+  preload: localComponent && localComponent !== 'preload' ? undefined : config.preload,
+  renderer: externalRenderer || (localComponent && localComponent !== 'renderer') ? undefined : config.renderer,
+});

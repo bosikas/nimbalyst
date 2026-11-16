@@ -85,7 +85,7 @@ const DEFAULT_SESSION_HISTORY_LAYOUT: SessionHistoryLayout = {
   width: 240,
   collapsed: false,
   preCollapseWidth: undefined,
-  collapsedGroups: [],
+  collapsedGroups: ['Yesterday', 'This Week', 'Last Week', 'This Month', 'Last Month', 'Older'],
   sortOrder: 'updated',
   viewMode: 'list',
   compactRows: false,
@@ -111,6 +111,11 @@ export function mergeWithDefaults(persisted: Partial<AgentModeLayout> | undefine
   const sessionHistoryLayout: SessionHistoryLayout = {
     ...DEFAULT_SESSION_HISTORY_LAYOUT,
     ...persisted?.sessionHistoryLayout,
+    // Date sections reset each time the workspace opens; structural choices survive.
+    collapsedGroups: [...new Set([
+      ...(persisted?.sessionHistoryLayout?.collapsedGroups ?? []).filter(group => !['Today', 'Yesterday', 'This Week', 'Last Week', 'This Month', 'Last Month', 'Older'].includes(group)),
+      ...DEFAULT_SESSION_HISTORY_LAYOUT.collapsedGroups,
+    ])],
     // The retired 'card' view mode coerces to 'list' on load.
     viewMode: persisted?.sessionHistoryLayout?.viewMode === 'kanban' ? 'kanban' : 'list',
     // Escape hatch (#924): a persisted sortOrder that crashes the panel would

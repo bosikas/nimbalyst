@@ -57,6 +57,18 @@ const STORE_FALLBACK = path.join(
 );
 
 describe('SettingsService', () => {
+  it('persists chat density independently and rejects unsupported presets', async () => {
+    const { getSettingsService } = await import('../SettingsService');
+    const svc = getSettingsService();
+    expect(svc.get('ai.chatDensity')).toBe('comfortable');
+    svc.set('ai.chatDensity', 'dense');
+    svc.set('ai.chatShowToolCalls', false);
+    vi.resetModules();
+    const reloaded = (await import('../SettingsService')).getSettingsService();
+    expect(reloaded.get('ai.chatDensity')).toBe('dense');
+    expect(reloaded.get('ai.chatShowToolCalls')).toBe(false);
+    expect(() => reloaded.set('ai.chatDensity', 'tiny' as any)).toThrow();
+  });
   it('keeps provider credentials out of JSON and generic snapshots', async () => {
     const { getSettingsService } = await import('../SettingsService');
     const svc = getSettingsService();

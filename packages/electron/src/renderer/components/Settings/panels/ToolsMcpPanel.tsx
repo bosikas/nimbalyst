@@ -50,10 +50,10 @@ function formatTokens(estTokens: number | null): string {
 
 function PolicyBadge({ policy }: { policy: ToolGroupBudget['loadPolicy'] }) {
   const label =
-    policy === 'eager' ? 'Always loaded'
+    policy === 'eager' ? 'Configured eager'
     : policy === 'conditional' ? 'Conditional'
     : policy === 'external' ? 'External'
-    : 'Loads on demand';
+    : 'Deferred discovery';
   const style =
     policy === 'eager'
       ? 'bg-[rgba(245,158,11,0.15)] text-[#F59E0B] border-[rgba(245,158,11,0.3)]'

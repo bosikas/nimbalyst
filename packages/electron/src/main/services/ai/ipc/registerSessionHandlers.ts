@@ -1,4 +1,9 @@
 import { warnIfUnpublished } from '@nimbalyst/runtime/sync/pushOutcome';
+import { requestSessionWorkSummary } from '../../sessionWorkSummaryProduction';
+import { readSessionWorkSummary } from '@nimbalyst/runtime/ai/sessionWorkSummary';
+import { sessionCreationPolicy } from '@nimbalyst/runtime/ai/sessionPolicy';
+import { AISessionsRepository } from '@nimbalyst/runtime/storage/repositories/AISessionsRepository';
+import { sameWorkspaceIdentity } from '../../../utils/workspaceIdentity';
 import { TrayManager } from '../../../tray/TrayManager';
 import { safeHandle } from '../../../utils/ipcRegistry';
 import { logger } from '../../../utils/logger';
@@ -28,6 +33,14 @@ import { registerRemoteSessionHandlers } from './registerRemoteSessionHandlers';
  */
 export function registerSessionHandlers(ctx: AIServiceContext): void {
   registerRemoteSessionHandlers();
+  safeHandle('sessions:refresh-work-summary', async (_event, sessionId: string, workspacePath: string) => {
+    if (!sessionId || !workspacePath) throw new Error('A session and workspace are required.');
+    const session = await AISessionsRepository.get(sessionId);
+    if (!session || !sameWorkspaceIdentity(session.workspacePath ?? '', workspacePath)) throw new Error('Session is not in this workspace.');
+    if (remoteSessions.isRemote(sessionId)) throw new Error('Refresh the summary on the session’s host device.');
+    requestSessionWorkSummary(sessionId, workspacePath);
+    return { queued: true };
+  });
   // Create new session with provider and model selection
   safeHandle('ai:createSession', async (
     event,
@@ -36,7 +49,8 @@ export function registerSessionHandlers(ctx: AIServiceContext): void {
     workspacePath?: string,
     modelId?: string,
     sessionType?: string,
-    worktreeId?: string
+    worktreeId?: string,
+    policy?: { generateSummary?: boolean; autoArchiveAfterMinutes?: number }
   ) => {
     // TODO: Debug logging - uncomment if needed
     //   provider,
@@ -159,7 +173,10 @@ export function registerSessionHandlers(ctx: AIServiceContext): void {
       undefined, // mode
       worktreeId,
       worktreePath,
-      worktreeProjectPath
+      worktreeProjectPath,
+      'standard',
+      undefined,
+      { ...sessionCreationPolicy(policy) }
     );
     await stampSessionHost(session.id, getLocalHostDeviceId());
 
@@ -353,6 +370,13 @@ export function registerSessionHandlers(ctx: AIServiceContext): void {
     if (!session) {
       console.log(`[SESSION] Session not found: ${sessionId} (this is normal if the session was deleted)`);
       return null;
+    }
+
+    // Catch up on deliberate opens and recover interrupted summaries on restored tabs.
+    // The summary service defers work until first usable; never scan all sessions.
+    const interruptedSummary = readSessionWorkSummary(session.metadata?.workSummary)?.state === 'updating';
+    if ((trackAsResume || interruptedSummary) && (session.workspacePath || workspacePath) && !remoteSessions.isRemote(sessionId)) {
+      requestSessionWorkSummary(sessionId, session.workspacePath || workspacePath!);
     }
 
     // Restore document context state from persisted data (if available)

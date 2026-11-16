@@ -1,9 +1,12 @@
 // @vitest-environment node
-import { describe, it, expect, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { store as appStore } from '@nimbalyst/runtime/store';
 import { createStore } from 'jotai';
 import {
   migrateWorkstreamResources,
   initWorkstreamState,
+  loadWorkstreamStates,
+  loadWorkstreamState,
   workstreamStateAtom,
   workstreamOpenFilesAtom,
   workstreamActiveFileAtom,
@@ -22,6 +25,7 @@ import {
   trackerResource,
   trackerResourceId,
   setWorkstreamRightPanelModeAtom,
+  toggleWorkstreamFilesSidebarAtom,
   workstreamRightPanelModeAtom,
   setWorkstreamSessionChatIdAtom,
   workstreamSessionChatIdsAtom,
@@ -329,12 +333,12 @@ describe('per-tab tracker content focus', () => {
 });
 
 describe('Agent right panel mode', () => {
-  it('defaults to Edited Files and switches modes without hiding the panel', () => {
+  it('starts collapsed and can expand without losing the selected panel mode', () => {
     const testStore = createStore();
     const workstreamId = 'right-panel-workstream';
 
     expect(testStore.get(workstreamRightPanelModeAtom(workstreamId))).toBe('edited-files');
-    expect(testStore.get(workstreamStateAtom(workstreamId)).filesSidebarVisible).toBe(true);
+    expect(testStore.get(workstreamStateAtom(workstreamId)).filesSidebarVisible).toBe(false);
 
     testStore.set(setWorkstreamRightPanelModeAtom, {
       workstreamId,
@@ -342,7 +346,25 @@ describe('Agent right panel mode', () => {
     });
 
     expect(testStore.get(workstreamRightPanelModeAtom(workstreamId))).toBe('review');
+    expect(testStore.get(workstreamStateAtom(workstreamId)).filesSidebarVisible).toBe(false);
+    testStore.set(toggleWorkstreamFilesSidebarAtom, workstreamId);
     expect(testStore.get(workstreamStateAtom(workstreamId)).filesSidebarVisible).toBe(true);
+  });
+
+  it('restores chats collapsed while retaining the selected panel mode and width', async () => {
+    const id = 'restore-collapsed-chat';
+    vi.stubGlobal('window', { electronAPI: { invoke: vi.fn(async () => ({ workstreamStates: {
+      [id]: { filesSidebarVisible: true, rightPanelMode: 'review', fileViewerWidth: 420 },
+    } })) } });
+    try {
+      await loadWorkstreamStates('/test-workspace');
+      expect(appStore.get(workstreamStateAtom(id))).toMatchObject({ filesSidebarVisible: false, rightPanelMode: 'review', fileViewerWidth: 420 });
+      appStore.set(workstreamStateAtom(id), { filesSidebarVisible: true });
+      await loadWorkstreamState(id);
+      expect(appStore.get(workstreamStateAtom(id)).filesSidebarVisible).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
 
   it('persists one normal chat pairing per source session', () => {

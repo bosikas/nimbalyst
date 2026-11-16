@@ -20,6 +20,7 @@
  */
 
 import { z } from 'zod';
+import { SessionListAppearanceSchema, DEFAULT_SESSION_LIST_APPEARANCE } from '../sessionListAppearance';
 
 // ---------- Reusable schemas ----------
 
@@ -86,6 +87,7 @@ function setting<S extends z.ZodTypeAny>(
  *     ai.showMcpSessionStatus, ai.trackerAutomation, ai.diffPeekSize
  */
 export const SETTINGS_REGISTRY = {
+  'ui.sessionListAppearance': setting(SessionListAppearanceSchema, { store: 'app-settings', path: 'sessionListAppearance' }, DEFAULT_SESSION_LIST_APPEARANCE),
   // The default cap applies to additions, not current or restored projects.
   'projects.allowUnlimited': setting(
     z.boolean(),
@@ -199,6 +201,11 @@ export const SETTINGS_REGISTRY = {
     z.boolean(),
     { store: 'ai-settings', path: 'chatShowToolCalls' },
     true,
+  ),
+  'ai.chatDensity': setting(
+    z.enum(['comfortable', 'compact', 'dense']),
+    { store: 'ai-settings', path: 'chatDensity' },
+    'comfortable',
   ),
   'ai.aiDebugLogging': setting(
     z.boolean(),

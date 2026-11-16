@@ -22,6 +22,46 @@ const props = {
 afterEach(() => cleanup());
 
 describe('ContextUsageDisplay - context meter opens on click, not hover (#429)', () => {
+  it('refreshes observed native evidence while keeping the inspector open and separating configured tools', async () => {
+    let refreshed = false;
+    const invoke = vi.fn(async (_channel: string) => ({
+      preparedRequest: null, unavailable: 'No prepared request yet.',
+      toolDefinitions: { groups: [{ configKey: 'fixture', displayName: 'Fixture tools', enabled: true, loadPolicy: 'deferred', toolCount: 2 }] },
+      nativeEvidence: {
+        compactions: [{ id: 'compact', startedAt: 1, completedAt: 2, beforeTokens: 9000, afterTokens: refreshed ? 3000 : null }],
+        observedTools: [{ server: 'fixture', tool: 'lookup', calls: 1, lastObservedAt: 2 }], omittedToolCalls: 0,
+      },
+    }));
+    Object.defineProperty(window, 'electronAPI', { configurable: true, value: { invoke } });
+    render(<ContextUsageDisplay {...props} provider="openai-codex" sessionId="evidence-session" />);
+    fireEvent.click(screen.getByTestId('context-indicator'));
+    await screen.findByText(/Awaiting usage/);
+    expect(screen.getByText(/Fixture tools: configured deferred/).textContent).toContain('2 definitions');
+    expect(screen.getByText('fixture / lookup · 1 calls').textContent).toContain('lookup');
+    refreshed = true;
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh evidence' }));
+    await screen.findByText('(-6,000 tokens)');
+    expect(invoke.mock.calls.filter(([channel]) => channel === 'mcp-config:get-context-inspection')).toHaveLength(2);
+    expect(screen.queryByRole('tooltip')).not.toBeNull();
+  });
+  it('keeps the panel open when expanding prepared context or using its keyboard controls', async () => {
+    Object.defineProperty(window, 'electronAPI', { configurable: true, value: {
+      invoke: vi.fn(async (channel: string) => channel === 'mcp-config:get-context-inspection'
+        ? { preparedRequest: null, unavailable: 'No prepared request yet.' } : null),
+    } });
+    render(<ContextUsageDisplay {...props} provider="openai-codex" sessionId="inspection-session" />);
+    fireEvent.click(screen.getByTestId('context-indicator'));
+    await screen.findByText('No prepared request yet.');
+    const summary = screen.getByText('Inspect prepared context');
+    fireEvent.click(summary);
+    expect(screen.queryByRole('tooltip')).not.toBeNull();
+    expect(summary.closest('details')?.open).toBe(true);
+    fireEvent.keyDown(summary, { key: 'Enter' });
+    expect(screen.queryByRole('tooltip')).not.toBeNull();
+    fireEvent.keyDown(summary, { key: 'Escape' });
+    expect(screen.queryByRole('tooltip')).toBeNull();
+  });
+
   it('does NOT open the breakdown panel on hover', () => {
     render(<ContextUsageDisplay {...props} />);
     fireEvent.mouseEnter(screen.getByTestId('context-indicator'));

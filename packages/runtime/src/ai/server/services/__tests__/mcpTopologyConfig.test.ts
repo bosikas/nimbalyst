@@ -191,6 +191,24 @@ describe('getMcpServersConfig consolidated topology', () => {
     expect(config['nimbalyst-excalidraw']).toBeUndefined();
   });
 
+  it('awaits asynchronous extension discovery before returning the deferred server configuration', async () => {
+    const config = await new McpConfigService({
+      ...baseDeps(),
+      extensionMcpServerNamesLoader: async () => { await Promise.resolve(); return ['worktree-tools']; },
+    }).getMcpServersConfig({ sessionId: 'cold-worktree', workspacePath: '/test/worktree' });
+    expect(config['nimbalyst-worktree-tools']?.url).toContain('/mcp/ext/worktree-tools');
+    expect(config['nimbalyst-worktree-tools'].alwaysLoad).toBeFalsy();
+  });
+
+  it('retains core capabilities when asynchronous extension discovery fails', async () => {
+    const config = await new McpConfigService({
+      ...baseDeps(),
+      extensionMcpServerNamesLoader: async () => { throw new Error('Discovery unavailable'); },
+    }).getMcpServersConfig({ sessionId: 'cold-worktree', workspacePath: '/test/worktree' });
+    expect(config[MCP_CORE]).toBeDefined();
+    expect(config[MCP_HOST]).toBeDefined();
+  });
+
   it('does not register the retired legacy nimbalyst-mcp monolith', async () => {
     const config = await new McpConfigService(baseDeps()).getMcpServersConfig({
       sessionId: 'session123',

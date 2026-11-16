@@ -30,6 +30,7 @@ import {
   loadWorkstreamStates,
 } from '../../../store/atoms/workstreamState';
 import { errorNotificationService } from '../../../services/ErrorNotificationService';
+import { setShowContextUsageAtom } from '../../../store/atoms/agentMode';
 const row = (
   id: string,
   parentSessionId: string | null = null,
@@ -94,6 +95,7 @@ beforeEach(() => {
 });
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
   vi.clearAllMocks();
 });
 function tree() {
@@ -109,6 +111,25 @@ function tree() {
   );
 }
 describe('tree interactions', () => {
+  it('reveals active descendants without opening older branches and expires manual expansion after one minute', () => {
+    vi.useFakeTimers();
+    store.set(sessionUnreadAtom('leaf'), true);
+    store.set(sessionProcessingAtom('leaf'), true);
+    tree();
+    screen.getByText('leaf');
+    act(() => store.set(sessionProcessingAtom('leaf'), false));
+    expect(screen.queryByText('leaf')).toBeNull();
+    expect(screen.getByLabelText('2 child sessions').textContent).toBe('2');
+    fireEvent.click(screen.getByRole('button', { name: 'Expand root' }));
+    expect(screen.getByLabelText('1 child session').textContent).toBe('1');
+    fireEvent.click(screen.getByRole('button', { name: 'Expand middle' }));
+    screen.getByText('leaf');
+    act(() => vi.advanceTimersByTime(59_999));
+    screen.getByText('leaf');
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.queryByText('leaf')).toBeNull();
+    expect(store.get(workstreamStateAtom('root')).treeExpanded).toBe(false);
+  });
   it('keeps an empty workstream distinct from an ordinary session when its children disappear', () => {
     const wrapper = row('workstream', null, { sessionType: 'workstream' });
     const child = row('child', 'workstream');
@@ -173,7 +194,7 @@ describe('tree interactions', () => {
     });
     const view = render(<Provider store={store}><SessionTree root={rows[0]} sessions={[]} activeSessionId={null}
       onSessionSelect={vi.fn()} selectedSessionIds={new Set(['a', 'b'])} /></Provider>);
-    fireEvent.contextMenu(screen.getByText('a').closest('.session-list-item')!);
+    fireEvent.contextMenu(screen.getByRole('button', { name: /^Session: a,/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Move 2 sessions to workstream...' }));
     expect(screen.getAllByRole('option').map((o) => o.textContent)).toEqual(['New workstream...', 'ws']);
     fireEvent.click(screen.getByRole('option', { name: 'ws' }));
@@ -202,7 +223,7 @@ describe('tree interactions', () => {
         : { success: true });
     render(<Provider store={store}><SessionTree root={rows[0]} sessions={[]} activeSessionId={null}
       onSessionSelect={vi.fn()} selectedSessionIds={new Set(['a', 'b'])} /></Provider>);
-    fireEvent.contextMenu(screen.getByText('a').closest('.session-list-item')!);
+    fireEvent.contextMenu(screen.getByRole('button', { name: /^Session: a,/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Move 2 sessions to workstream...' }));
     fireEvent.click(screen.getByRole('option', { name: 'New workstream...' }));
     await waitFor(() => expect(errorNotificationService.showError).toHaveBeenCalledWith(
@@ -213,7 +234,7 @@ describe('tree interactions', () => {
     invoke.mockImplementation(async (channel: string, payload?: any) =>
       channel === 'sessions:create' ? { success: true, id: payload.session.id }
         : channel === 'sessions:set-parent' ? { success: false, error: 'rejected' } : { success: true });
-    fireEvent.contextMenu(screen.getByText('a').closest('.session-list-item')!);
+    fireEvent.contextMenu(screen.getByRole('button', { name: /^Session: a,/ }));
     fireEvent.click(screen.getByRole('button', { name: 'Move 2 sessions to workstream...' }));
     fireEvent.click(screen.getByRole('option', { name: 'New workstream...' }));
     await waitFor(() => expect(errorNotificationService.showError).toHaveBeenCalledWith(
@@ -291,9 +312,15 @@ describe('tree interactions', () => {
     const { result } = renderHook(() => useVisibleSessionTreeRows(trees, null, '/project'), {
       wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
     });
-    const visible = () => result.current.get('root')!.map((r) => [r.node.session.id, r.node.depth - r.baseDepth]);
+    const visible = () => result.current.get('root')!.filter(r => !r.olderCount).map((r) => [r.node.session.id, r.node.depth - r.baseDepth]);
     expect(visible()).toEqual([['root', 0]]);
     act(() => store.set(sessionProcessingAtom('leaf'), true));
+    expect(visible()).toEqual([['root', 0], ['middle', 1], ['leaf', 2]]);
+    act(() => store.set(sessionProcessingAtom('leaf'), false));
+    act(() => {
+      store.set(workstreamStateAtom('root'), { treeExpanded: true });
+      store.set(workstreamStateAtom('middle'), { treeExpanded: true });
+    });
     expect(visible()).toEqual([['root', 0], ['middle', 1], ['leaf', 2]]);
     act(() => store.set(workstreamStateAtom('middle'), { treeExpanded: false }));
     expect(visible()).toEqual([['root', 0], ['middle', 1]]);
@@ -320,13 +347,18 @@ describe('tree interactions', () => {
     expect(store.get(sessionRegistryAtom).get('child')?.isPinned).toBe(!isPinned);
   });
 
-  it('opens running or unread ancestor paths, honors explicit collapse and restores per-row preferences', async () => {
+  it('keeps older children collapsed on reopen while revealing active descendants', async () => {
     act(() => store.set(sessionUnreadAtom('leaf'), true));
     const view = tree();
+    expect(screen.queryByText('leaf')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Expand root' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Expand middle' }));
     screen.getByText('leaf');
     fireEvent.click(screen.getByRole('button', { name: 'Collapse middle' }));
     expect(screen.queryByText('leaf')).toBeNull();
     act(() => store.set(sessionProcessingAtom('leaf'), true));
+    screen.getByText('leaf');
+    act(() => store.set(sessionProcessingAtom('leaf'), false));
     expect(screen.queryByText('leaf')).toBeNull();
     view.unmount();
     const saved = { workstreamStates: { middle: { treeExpanded: false }, root: { treeExpanded: true } } };
@@ -334,8 +366,74 @@ describe('tree interactions', () => {
     await act(() => loadWorkstreamStates('/project'));
     tree();
     expect(screen.queryByText('leaf')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Expand root' }));
     fireEvent.click(screen.getByRole('button', { name: 'Expand middle' }));
     screen.getByText('leaf');
+  });
+  it('reveals search results without changing manual expansion preferences', () => {
+    const view = render(<Provider store={store}><SessionTree root={rows[0]} sessions={rows.slice(1, 3)} activeSessionId={null} revealMatches onSessionSelect={vi.fn()} /></Provider>);
+    screen.getByText('leaf');
+    expect(store.get(workstreamStateAtom('middle')).treeExpanded).not.toBe(true);
+    view.rerender(<Provider store={store}><SessionTree root={rows[0]} sessions={rows.slice(1, 3)} activeSessionId={null} onSessionSelect={vi.fn()} /></Provider>);
+    expect(screen.queryByText('leaf')).toBeNull();
+  });
+  it('extends the inactivity timeout when interacting with a child', () => {
+    vi.useFakeTimers();
+    const select = vi.fn();
+    render(<Provider store={store}><SessionTree root={rows[0]} sessions={rows.slice(1, 3)} activeSessionId={null} onSessionSelect={select} /></Provider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Expand root' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Expand middle' }));
+    act(() => vi.advanceTimersByTime(30_000));
+    fireEvent.pointerEnter(screen.getByText('leaf').closest('.session-tree-row')!);
+    expect(select).not.toHaveBeenCalled();
+    act(() => vi.advanceTimersByTime(59_999));
+    screen.getByText('leaf');
+    act(() => vi.advanceTimersByTime(1));
+    expect(screen.queryByText('leaf')).toBeNull();
+  });
+  it('reveals full child metadata on hover without expanding the row or navigating', async () => {
+    const leaf: SessionMeta = { ...rows[2], provider: 'openai-codex', model: 'openai-codex:gpt-6.1-sol', phase: 'validating', contextUsage: { tokens: 1000, contextWindow: 100000 }, workSummary: { scope: 'Session navigation and context visibility', remaining: 'Install and review the local build.', attention: 'review', areas: ['Navigation'], state: 'ready', coverage: 'complete', updatedAt: 100, throughMessageId: 12 } };
+    store.set(sessionRegistryAtom, new Map([...rows.slice(0, 2), leaf].map(row => [row.id, row])));
+    store.set(setShowContextUsageAtom, true);
+    const select = vi.fn();
+    render(<Provider store={store}><SessionTree root={rows[0]} sessions={rows.slice(1, 3)} activeSessionId={null} onSessionSelect={select} /></Provider>);
+    fireEvent.click(screen.getByRole('button', { name: 'Expand root' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Expand middle' }));
+    const child = screen.getByText('leaf').closest('.session-list-item')!;
+    expect(child.querySelector('[role="meter"]')?.getAttribute('aria-valuenow')).toBe('1');
+    expect(child.textContent).toContain('gpt-6.1-sol');
+    expect(child.textContent).toContain('Session navigation and context visibility');
+    expect(child.textContent).toContain('Install and review the local build.');
+    expect(child.querySelector('.session-list-item-phase')).toBeNull();
+    expect(child.querySelector('details')).toBeNull();
+    expect(screen.queryByRole('dialog', { name: 'Details for leaf' })).toBeNull();
+    const title = child.querySelector('.session-list-item-title')!;
+    Object.defineProperties(title, { clientWidth: { configurable: true, value: 10 }, scrollWidth: { configurable: true, value: 100 } });
+    fireEvent.mouseEnter(child);
+    fireEvent.mouseEnter(title);
+    expect(screen.getByRole('tooltip').textContent).toBe('leaf');
+    const details = await screen.findByRole('dialog', { name: 'Details for leaf' });
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    expect(details.textContent).toContain('Model: gpt-6.1-sol');
+    expect(details.textContent).toContain('Phase: validating');
+    expect(details.textContent).toContain('AI summary');
+    expect(details.textContent).toContain('through message 12');
+    expect(child.contains(details)).toBe(false);
+    expect(select).not.toHaveBeenCalled();
+    fireEvent.keyDown(child, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Details for leaf' })).toBeNull());
+    expect(screen.queryByRole('tooltip')).toBeNull();
+    act(() => store.set(setShowContextUsageAtom, false));
+  });
+  it('shows hover details to keyboard users and dismisses them with Escape', async () => {
+    const select = vi.fn();
+    render(<Provider store={store}><SessionTree sessions={[rows[3]]} activeSessionId={null} onSessionSelect={select} /></Provider>);
+    const chat = screen.getByRole('button', { name: /^Session: target,/ });
+    act(() => chat.focus());
+    await screen.findByRole('dialog', { name: 'Details for target' });
+    expect(select).not.toHaveBeenCalled();
+    fireEvent.keyDown(chat, { key: 'Escape' });
+    await waitFor(() => expect(screen.queryByRole('dialog', { name: 'Details for target' })).toBeNull());
   });
   it('filters invalid parents and accepts a searched parent with the keyboard', async () => {
     const move = vi.fn().mockResolvedValue(true);

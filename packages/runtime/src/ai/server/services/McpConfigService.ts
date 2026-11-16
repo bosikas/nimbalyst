@@ -73,7 +73,7 @@ export interface McpConfigServiceDeps {
    * `extensionServerConfigKey`). Read on every config build so newly-loaded
    * extensions get a server on the next session start.
    */
-  extensionMcpServerNamesLoader?: ((workspacePath?: string) => string[]) | null;
+  extensionMcpServerNamesLoader?: ((workspacePath?: string) => string[] | Promise<string[]>) | null;
 
   /**
    * Per-launch bearer token for the internal Nimbalyst MCP HTTP servers.
@@ -231,7 +231,7 @@ export class McpConfigService {
         let extensionShortNames: string[] = [];
         try {
           extensionShortNames =
-            this.deps.extensionMcpServerNamesLoader(workspacePath) ?? [];
+            (await this.deps.extensionMcpServerNamesLoader(workspacePath)) ?? [];
         } catch {
           extensionShortNames = [];
         }

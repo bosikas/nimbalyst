@@ -1,5 +1,6 @@
 import type { AgentRole, SessionData, SessionMode, SessionType, TranscriptViewMessage } from '../server/types';
 import type { SessionContextUsage } from '../sessionContextUsage';
+import type { SessionWorkSummary } from '../sessionWorkSummary';
 
 // Type aliases for compatibility
 export type ChatMessage = TranscriptViewMessage;
@@ -59,6 +60,9 @@ export interface SessionMeta {
   linkedTrackerItemIds?: string[];
   /** Last persisted context-window fill (metadata.tokenUsage.currentContext). */
   contextUsage?: SessionContextUsage;
+  workSummary?: SessionWorkSummary;
+  generateSummary?: boolean;
+  autoArchiveAfterMinutes?: number;
   // Branch tracking - SEPARATE from hierarchical parentSessionId
   branchedFromSessionId?: string;
   branchPointMessageId?: number;
@@ -69,6 +73,8 @@ export interface SessionMeta {
 export type SessionListItem = SessionMeta;
 
 export interface CreateSessionPayload {
+  generateSummary?: boolean;
+  autoArchiveAfterMinutes?: number;
   id: string;
   provider: string;
   model?: string;
@@ -128,6 +134,8 @@ export interface UpdateSessionMetadataPayload
   draftInput?: string;
   metadata?: Record<string, unknown>;
   isArchived?: boolean;
+  /** Host-only atomic archive guard; never serialized into metadata or sync. */
+  autoArchiveGuard?: { minutes: number; completedAt: number; cutoff: string };
   /** Document state for transition detection (persisted across restarts) */
   lastDocumentState?: PersistedDocumentState | null;
   /** Canonical transcript transform tracking */

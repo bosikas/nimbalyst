@@ -29,6 +29,8 @@ import type {
 } from '@nimbalyst/runtime';
 import { filterSessionsForPersonalSync } from '@nimbalyst/runtime/sync';
 import { readSessionContextUsage } from '@nimbalyst/runtime/ai/sessionContextUsage';
+import { readSessionWorkSummary } from '@nimbalyst/runtime/ai/sessionWorkSummary';
+import { sessionPolicyPatch } from '@nimbalyst/runtime/ai/sessionPolicy';
 
 type PGliteLike = {
   query<T = any>(sql: string, params?: any[]): Promise<{ rows: T[] }>;
@@ -75,7 +77,7 @@ const normalizeJsonObject = parseJsonObjectColumn;
  */
 const SESSION_LIST_METADATA_KEYS = [
   'hasUnread', 'hasPendingPrompt', 'externalSource', 'externalLastActivityAt',
-  'phase', 'tags', 'linkedTrackerItemIds', 'tokenUsage', 'userWorkstream',
+  'phase', 'tags', 'linkedTrackerItemIds', 'tokenUsage', 'userWorkstream', 'workSummary', 'generateSummary', 'autoArchiveAfterMinutes',
 ] as const;
 function sessionListMetadataSql(): string {
   return `${buildMetadataProjectionSql('s.metadata', SESSION_LIST_METADATA_KEYS, [`'nestedHasUnread', s.metadata->'metadata'->'hasUnread'`])} AS metadata`;
@@ -515,6 +517,9 @@ export function createPGLiteSessionStore(db: PGliteLike, ensureDbReady?: EnsureR
 
     async create(payload: CreateSessionPayload): Promise<void> {
       await ensureReady();
+      const policy = sessionPolicyPatch(payload);
+      sessionPolicyPatch(payload.metadata);
+      if (Object.keys(policy).length) payload = { ...payload, metadata: { ...payload.metadata, ...policy } };
       const now = Date.now();
       const createdAtMs = payload.createdAt ?? now;
       const updatedAtMs = payload.updatedAt ?? now;
@@ -615,6 +620,7 @@ export function createPGLiteSessionStore(db: PGliteLike, ensureDbReady?: EnsureR
 
     async updateMetadata(sessionId: string, metadata: UpdateSessionMetadataPayload): Promise<void> {
       await ensureReady();
+      if (metadata.isArchived === false) metadata = { ...metadata, metadata: { ...metadata.metadata, autoArchiveCompletedAt: null } };
       const updates: string[] = [];
       const values: any[] = [sessionId];
 
@@ -728,10 +734,26 @@ export function createPGLiteSessionStore(db: PGliteLike, ensureDbReady?: EnsureR
       const setClause = updates.join(', ');
       if (metadata.isArchived !== undefined) {
         const { rows: subtree } = await db.query<{ id: string }>(`${SESSION_DESCENDANTS_CTE} SELECT id FROM session_subtree`, [sessionId]);
-        const statements = [
+        const statements: HierarchyStatement[] = [
           { sql: `UPDATE ai_sessions SET ${setClause} WHERE id=$1`, params: values },
           { sql: `${SESSION_DESCENDANTS_CTE} UPDATE ai_sessions SET is_archived=$2 WHERE id IN (SELECT id FROM session_subtree)`, params: [sessionId, metadata.isArchived] },
         ];
+        if (metadata.autoArchiveGuard) {
+          if (!db.runTransaction) throw new Error('Automatic archival requires atomic database transactions.');
+          const guard = metadata.autoArchiveGuard;
+          statements.unshift({ sql: `${SESSION_DESCENDANTS_CTE} SELECT s.id FROM ai_sessions s WHERE s.id=$1
+            AND s.status='idle' AND s.is_archived=FALSE
+            AND CAST(s.metadata->>'autoArchiveAfterMinutes' AS BIGINT)=$2
+            AND CAST(s.metadata->>'autoArchiveCompletedAt' AS BIGINT)=$3
+            AND NOT EXISTS (SELECT 1 FROM ai_sessions c JOIN session_subtree t ON t.id=c.id
+              WHERE (c.is_archived=FALSE OR c.is_archived IS NULL) AND (
+                c.status IS NULL OR c.status<>'idle' OR c.is_pinned=TRUE
+                OR CAST(c.metadata->>'hasPendingPrompt' AS TEXT) IN ('true','1')
+                OR CAST(c.metadata->>'remoteHostDeviceId' AS TEXT) IS NOT NULL
+                OR COALESCE(c.last_activity,c.updated_at,c.created_at)>$4
+                OR EXISTS (SELECT 1 FROM queued_prompts q WHERE q.session_id=c.id AND q.status IN ('pending','executing'))))`,
+            params: [sessionId, guard.minutes, guard.completedAt, guard.cutoff], expectedRows: 1 });
+        }
         if (db.runTransaction) await db.runTransaction(statements);
         else for (const statement of statements) await db.query(statement.sql, statement.params);
         await publishSubtreeArchive(subtree.map(row => row.id), metadata.isArchived);
@@ -951,6 +973,9 @@ export function createPGLiteSessionStore(db: PGliteLike, ensureDbReady?: EnsureR
           // Linked tracker item IDs from metadata JSONB
           linkedTrackerItemIds: Array.isArray(metadata.linkedTrackerItemIds) ? metadata.linkedTrackerItemIds : undefined,
           contextUsage: readSessionContextUsage(metadata.tokenUsage),
+          workSummary: readSessionWorkSummary(metadata.workSummary),
+          generateSummary: metadata.generateSummary !== false,
+          autoArchiveAfterMinutes: Number(metadata.autoArchiveAfterMinutes) || 0,
         } satisfies SessionMeta & { hasPendingInteractivePrompt?: boolean; phase?: string; tags?: string[]; linkedTrackerItemIds?: string[] };
       });
       return sessions.sort((a, b) => b.updatedAt - a.updatedAt);

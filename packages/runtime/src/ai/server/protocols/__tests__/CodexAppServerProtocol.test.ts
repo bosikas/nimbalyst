@@ -32,6 +32,7 @@ vi.mock('../codexAppServer/codexAppServerBinary', () => ({
 import { CodexAppServerProtocol, type CodexAppServerHostBindings } from '../CodexAppServerProtocol';
 import { resolveCodexPermissionProfile } from '../codexPermissionProfile';
 import type { ProtocolEvent } from '../ProtocolInterface';
+import { readCodexContextEvidence } from '../../providers/codex/codexContextInspection';
 
 class FakeChildProcess extends EventEmitter {
   readonly stdin: PassThrough;
@@ -199,6 +200,26 @@ describe('CodexAppServerProtocol', () => {
     protocol.cleanupSession(session);
     expect((request.params as any).config).toMatchObject({ 'sandbox_workspace_write.writable_roots': ['/parent'], 'sandbox_workspace_write.network_access': true });
     expect((request.params as any).config).not.toHaveProperty('additional_writable_roots');
+  });
+  it('observes native compaction and MCP use outside a sendMessage iterator', async () => {
+    const protocol = new CodexAppServerProtocol();
+    const pending = protocol.createSession({ workspacePath: '/workspace', raw: { nimbalystSessionId: 'native-inspection-integration' } });
+    const init = await nextWrittenMatching(child, 'initialize');
+    child.emitLine({ id: init.id, result: {} });
+    const start = await nextWrittenMatching(child, 'thread/start');
+    child.emitLine({ id: start.id, result: { thread: { id: 'inspection-thread' } } });
+    const session = await pending;
+    const notify = (method: string, rest: Record<string, unknown>) => child.emitLine({ method, params: { threadId: 'inspection-thread', ...rest } });
+    notify('thread/tokenUsage/updated', { tokenUsage: { last: { totalTokens: 9000 } } });
+    notify('item/started', { item: { id: 'compact', type: 'contextCompaction' } });
+    notify('item/completed', { item: { id: 'compact', type: 'contextCompaction' } });
+    notify('thread/tokenUsage/updated', { tokenUsage: { last: { totalTokens: 3000 } } });
+    notify('item/started', { item: { id: 'tool', type: 'mcpToolCall', server: 'deferred', tool: 'search' } });
+    expect(readCodexContextEvidence('native-inspection-integration')).toMatchObject({
+      compactions: [{ beforeTokens: 9000, afterTokens: 3000 }],
+      observedTools: [{ server: 'deferred', tool: 'search', calls: 1 }],
+    });
+    protocol.cleanupSession(session);
   });
 
   it.each(['start', 'resume'])('rejects a read-only downgrade on %s before any turn', async (kind) => {

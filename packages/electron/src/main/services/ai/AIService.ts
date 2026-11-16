@@ -1,4 +1,6 @@
 import { reservePromptAnswer } from './PromptAnswerReservation';
+import { configureSessionWorkSummaries } from '../sessionWorkSummaryProduction';
+import { configureSessionAutoArchive } from '../sessionAutoArchive';
 import { sessionInbox } from './sessionInboxService';
 import { resolveProviderApiKey } from './resolveProviderApiKey';
 import { SAVED_CREDENTIAL, withoutProviderConfigCredentials } from '../../../shared/providerCredentials';
@@ -189,6 +191,8 @@ export class AIService {
     logger.main.info('[AIService] Constructor called');
     this.sessionManager = new SessionManager(sessionStore);
     this.streamingHandler = new MessageStreamingHandler(this);
+    configureSessionWorkSummaries(workspace => this.isProviderEnabledForWorkspace('openai-codex', workspace));
+    configureSessionAutoArchive();
 
     // Set up persistence callback for DocumentContextService
     // Use AISessionsRepository directly since SessionManager doesn't have a generic updateMetadata

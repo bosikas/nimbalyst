@@ -45,6 +45,7 @@ import {
 } from './ProtocolInterface';
 import { JsonRpcClient } from './codexAppServer/jsonRpcClient';
 import { observeCodexShellTracking, prepareCodexShellTracking, type CodexShellTrackingRegistration } from './codexAppServer/shellTracking';
+import { observeCodexContextNotifications } from '../providers/codex/codexContextInspection';
 import {
   getCodexVendorPathEntries,
   resolveCodexBinaryPath,
@@ -593,6 +594,7 @@ export class CodexAppServerProtocol implements AgentProtocol {
       shellTracking: tracking?.registration,
     };
     observeCodexShellTracking(client, raw.shellTracking, () => raw.threadId, () => raw.activeTurnId);
+    observeCodexContextNotifications(client, typeof options.raw?.nimbalystSessionId === 'string' ? options.raw.nimbalystSessionId : undefined, () => raw.threadId);
     return raw;
   }
   /**

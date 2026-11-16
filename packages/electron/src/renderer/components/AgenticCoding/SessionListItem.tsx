@@ -2,6 +2,7 @@ import { SessionSpawnerLink } from './SessionSpawnerLink';
 import { SessionProviderIcon } from './SessionProviderIcon';
 import { SessionContextUsageBar } from './SessionContextUsageBar';
 import React, { useState, useCallback, useEffect, useRef, useMemo, memo } from 'react';
+import { autoUpdate, flip, FloatingFocusManager, FloatingPortal, offset, safePolygon, shift, useDismiss, useFloating, useFocus, useHover, useInteractions, useRole } from '@floating-ui/react';
 import { atom, useAtomValue, useSetAtom } from 'jotai';
 import { MaterialSymbol } from '@nimbalyst/runtime/ui/icons/MaterialSymbol';
 import { invalidateSessionMoveUndo, useSessionTreeMove } from './useSessionTreeMove';
@@ -11,10 +12,12 @@ import { ProviderIcon } from '@nimbalyst/runtime/ui/icons/ProviderIcons';
 import { getRelativeTimeString } from '../../utils/dateFormatting';
 import { sessionOrChildProcessingAtom, sessionUnreadAtom, sessionPendingPromptAtom, sessionHasPendingInteractivePromptAtom, sessionShareAtom, sessionWakeupAtom, sessionLastActivityAtom } from '../../store';
 import { sessionRegistryAtom, pendingSessionRenameAtom, createWorkstreamAtom } from '../../store/atoms/sessions';
+import { SessionWorkCaption, SessionWorkSummaryDetails, SessionWorkAttentionIndicator } from './SessionWorkCaption';
 import { SessionContextMenu } from './SessionContextMenu';
 import { errorNotificationService } from '../../services/ErrorNotificationService';
 import { FullTitleTooltip } from './FullTitleTooltip';
 import { settingAtom } from '../../store/atoms/settingAtomFamily';
+import { sessionAppearanceVariables } from '../../../shared/sessionListAppearance';
 import { sessionAgentWakePendingAtom } from '../../store/atoms/teamInbox';
 import { sessionBackgroundTasksAtom, describeBackgroundWait } from '../../store/atoms/sessionBackgroundTasks';
 
@@ -129,32 +132,14 @@ const SessionExternalMarker = memo(function SessionExternalMarker({ sessionId }:
   );
 });
 
-const PHASE_STYLES: Record<string, { label: string; color: string; bg: string }> = {
-  backlog: { label: 'Backlog', color: 'var(--nim-text-faint)', bg: 'rgba(128,128,128,0.12)' },
-  planning: { label: 'Planning', color: 'var(--nim-primary)', bg: 'rgba(96,165,250,0.12)' },
-  implementing: { label: 'Implementing', color: 'var(--nim-warning)', bg: 'rgba(251,191,36,0.12)' },
-  validating: { label: 'Validating', color: '#a78bfa', bg: 'rgba(167,139,250,0.12)' },
-  complete: { label: 'Complete', color: 'var(--nim-success)', bg: 'rgba(74,222,128,0.12)' },
-};
-
-const SessionPhaseBadge = memo<{ phase: string }>(({ phase }) => {
-  const style = PHASE_STYLES[phase];
-  if (!style) return null;
-  return (
-    <span
-      className="session-list-item-phase text-[0.5625rem] leading-tight px-1 py-px rounded font-medium whitespace-nowrap"
-      style={{ color: style.color, backgroundColor: style.bg }}
-    >
-      {style.label}
-    </span>
-  );
-});
-
 interface SessionListItemProps {
   id: string;
   treeContext?: boolean;
+  isChild?: boolean;
+  worktreeLabel?: string;
+  onWorktreeMenu?: (event: React.MouseEvent) => void;
   treeLeading?: React.ReactNode;
-  /** Inline summary shown on the metadata line (or the title line when compact). */
+  /** Compact child count and activity summary beside the title. */
   treeDetails?: React.ReactNode;
   /** Single-line row: title, inline summary and time. */
   compact?: boolean;
@@ -202,6 +187,9 @@ interface SessionListItemProps {
 export const SessionListItem = memo<SessionListItemProps>(function SessionListItem({
   id,
   treeContext,
+  isChild = false,
+  worktreeLabel,
+  onWorktreeMenu,
   treeLeading,
   treeDetails,
   compact,
@@ -239,12 +227,28 @@ export const SessionListItem = memo<SessionListItemProps>(function SessionListIt
   branchedAt,
   phase,
 }) {
+  const appearance = useAtomValue(settingAtom('ui.sessionListAppearance'));
   const [showContextMenu, setShowContextMenu] = useState(false);
   const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 });
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
   const renameInputRef = useRef<HTMLInputElement>(null);
   const [movePicker, setMovePicker] = useState<null | 'parent' | 'workstreams'>(null);
+  const detailsAllowed = !isRenaming && !showContextMenu && !movePicker;
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const { refs, floatingStyles, context } = useFloating({
+    open: detailsOpen && detailsAllowed,
+    onOpenChange: setDetailsOpen,
+    placement: 'right-start',
+    middleware: [offset(10), flip(), shift({ padding: 12 })],
+    whileElementsMounted: autoUpdate,
+  });
+  const { getReferenceProps, getFloatingProps } = useInteractions([
+    useHover(context, { enabled: detailsAllowed, delay: { open: 550, close: 120 }, handleClose: safePolygon() }),
+    useFocus(context, { enabled: detailsAllowed }),
+    useDismiss(context),
+    useRole(context, { role: 'dialog' }),
+  ]);
   const { move, moveMany, canJoinWorkstream, isDragging, isDraggable, hint, onDragStart: handleDragStart, onDragEnd: handleDragEnd, onDragOver: handleDragOver, onDragLeave: handleDragLeave, onDrop: handleDrop } = useSessionTreeMove(id, projectPath);
 
   // Share state (for the share icon indicator in the list item)
@@ -369,25 +373,34 @@ export const SessionListItem = memo<SessionListItemProps>(function SessionListIt
   const displayModel = model?.includes(':') ? model.split(':')[1] : model;
 
   return (
+    <>
     <div
+      ref={refs.setReference}
+      {...getReferenceProps({
+        onKeyDown: (e: React.KeyboardEvent<HTMLDivElement>) => {
+          if (e.target !== e.currentTarget) return;
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onClick(e as unknown as React.MouseEvent);
+          }
+        },
+      })}
         id={"session-list-item-" + id}
       data-testid={isWorktreeSession ? 'worktree-session-item' : isWorkstream ? 'workstream-session-item' : 'session-list-item'}
       data-session-type={isWorktreeSession ? 'worktree' : isWorkstream ? 'workstream' : 'session'}
-      className={`session-list-item relative flex ${compact ? 'compact items-center py-0.5' : 'items-start py-1'} gap-2.5 pr-3 pl-7 cursor-pointer rounded mr-2 transition-[background-color,opacity] duration-150 select-none
-        hover:bg-[var(--nim-bg-hover)]
+      className={`session-list-item ${isChild ? 'is-child' : ''} context-${appearance.childContext} relative flex ${compact ? 'compact items-center py-0.5' : 'items-start py-1'} gap-2.5 pr-3 pl-7 cursor-pointer rounded mr-2 transition-[background-color,opacity] duration-150 select-none
         focus:outline-2 focus:outline-[var(--nim-border-focus)] focus:-outline-offset-2
-        ${isActive ? 'active bg-[var(--nim-bg-selected)]' : ''}
+        ${isActive ? 'active' : ''}
         ${isLoaded ? 'loaded' : ''}
         ${isArchived ? 'archived opacity-60 hover:opacity-80' : ''}
-        ${isSelected ? 'selected bg-[var(--nim-bg-selected)]' : ''}
+        ${isSelected ? 'selected' : ''}
         ${isPinned ? 'pinned' : ''}
         ${isDragging ? 'dragging opacity-50 cursor-grabbing' : ''}
         ${hint?.valid ? 'drop-target-valid bg-[rgba(83,89,93,0.4)] border-2 border-dashed border-[var(--nim-primary)]' : ''}
         ${hint?.between && hint.valid ? 'border-t-2 border-[var(--nim-primary)]' : ''}
         ${isDraggable ? 'cursor-grab' : ''}
-        ${isAwaitingInput && !isActive ? 'bg-[rgba(251,191,36,0.08)]' : ''}
       `}
-      style={{ ...(isAwaitingInput ? { borderLeft: '2px solid var(--nim-warning)' } : {}), ...(treeContext ? { paddingLeft: 4, marginLeft: 0 } : {}), ...(hint && !hint.valid ? { cursor: 'not-allowed' } : {}) }}
+      style={{ ...sessionAppearanceVariables(appearance), ...(isAwaitingInput ? { borderLeft: '2px solid var(--nim-warning)' } : {}), ...(treeContext ? { paddingLeft: 4, marginLeft: 0 } : {}), ...(hint && !hint.valid ? { cursor: 'not-allowed' } : {}) } as React.CSSProperties}
       onClick={onClick}
       onContextMenu={handleContextMenu}
       draggable={isDraggable}
@@ -398,22 +411,15 @@ export const SessionListItem = memo<SessionListItemProps>(function SessionListIt
       onDrop={handleDrop}
       role="button"
       tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.target !== e.currentTarget) return;
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onClick(e as unknown as React.MouseEvent);
-        }
-      }}
       aria-label={`Session: ${displayTitle}, ${timestampLabel} ${relativeTime}${isLoaded ? ' (loaded in tab)' : ''}${isArchived ? ' (archived)' : ''}`}
       aria-current={isActive ? 'page' : undefined}
     >
       {treeLeading}
-      <div className={`session-list-item-icon shrink-0 ${compact ? "" : "mt-0.5"} text-[var(--nim-text-muted)] flex items-center relative ${isActive ? '[&]:text-[var(--nim-primary)] [&_svg]:text-[var(--nim-primary)]' : '[&_svg]:text-[var(--nim-text-muted)]'} ${isWorkstream ? 'workstream-icon' : ''} ${isWorktreeSession ? 'worktree-icon' : ''}`}>
+      <div style={{ visibility: (isChild ? appearance.showChildIcon : appearance.showParentIcon) ? undefined : 'hidden' }} className={`session-list-item-icon shrink-0 ${compact ? "" : "mt-0.5"} text-[var(--nim-text-muted)] flex items-center relative ${isActive ? '[&]:text-[var(--nim-primary)] [&_svg]:text-[var(--nim-primary)]' : '[&_svg]:text-[var(--nim-text-muted)]'} ${isWorkstream ? 'workstream-icon' : ''} ${isWorktreeSession ? 'worktree-icon' : ''}`}>
         {sessionType === 'voice' ? (
           // Voice session: OpenAI icon with mic badge
           <div className="relative">
-            <ProviderIcon provider="openai" size={16} />
+            <ProviderIcon provider="openai" size={14} />
             <MaterialSymbol
               icon="mic"
               size={12}
@@ -422,23 +428,14 @@ export const SessionListItem = memo<SessionListItemProps>(function SessionListIt
             />
           </div>
         ) : isWorktreeSession && !treeContext ? (
-          <WorktreeIcon size={16} />
+          <WorktreeIcon size={14} />
         ) : sessionType === 'workstream' ? (
           // The container gets a folder; a session with children keeps its provider icon.
-          <MaterialSymbol icon={isExpanded ? 'folder_open' : 'folder'} size={16} />
+          <MaterialSymbol icon={isExpanded ? 'folder_open' : 'folder'} size={14} />
         ) : (
-          <SessionProviderIcon sessionId={id} provider={provider} size={16} isActive={isActive} hideLaunchCount={treeContext} />
+          <SessionProviderIcon sessionId={id} provider={provider} size={14} isActive={isActive} hideLaunchCount={treeContext} />
         )}
       </div>
-      {isPinned && (
-        <MaterialSymbol icon="push_pin" size={12} className={`session-list-item-pin-icon shrink-0 -ml-1 opacity-70 ${isActive ? 'text-[var(--nim-primary)] opacity-80' : 'text-[var(--nim-text-faint)]'}`} />
-      )}
-      {branchedAt && (
-        <MaterialSymbol icon="fork_right" size={12} className={`session-list-item-branch-icon shrink-0 -ml-1 opacity-60 ${isActive ? 'text-[var(--nim-primary)] opacity-70' : 'text-[var(--nim-text-faint)]'}`} title="Branched conversation" />
-      )}
-      {shareInfo && (
-        <MaterialSymbol icon="link" size={12} className={`session-list-item-share-icon shrink-0 -ml-1 opacity-60 ${isActive ? 'text-[var(--nim-primary)] opacity-70' : 'text-[var(--nim-text-faint)]'}`} title="Shared" />
-      )}
       <div className="session-list-item-content flex-1 min-w-0 overflow-hidden">
         {isRenaming ? (
           <input
@@ -451,43 +448,33 @@ export const SessionListItem = memo<SessionListItemProps>(function SessionListIt
             onBlur={handleRenameSubmit}
             onClick={(e) => e.stopPropagation()}
           />
-        ) : compact ? (
-          <>
-          <div className="session-list-item-compact-line flex items-center gap-1.5 min-w-0">
-            <FullTitleTooltip
-              label={displayTitle}
-              className={`session-list-item-title block flex-1 min-w-0 text-[0.8125rem] text-[var(--nim-text)] font-medium overflow-hidden text-ellipsis whitespace-nowrap transition-colors duration-150 ${isActive ? 'font-semibold' : ''} ${isArchived ? 'text-[var(--nim-text-faint)]' : ''}`}
-            >
-              {displayTitle}
-            </FullTitleTooltip>
-            {treeDetails}
-            <span className="session-list-item-datetime shrink-0 text-[0.6875rem] text-[var(--nim-text-faint)] whitespace-nowrap" title={fullDateTime}>{relativeTime}</span>
-            {hint && <span className="session-tree-drop-hint text-xs text-[var(--nim-primary)]" role="status">{hint.label}</span>}
-          </div>
-          <SessionContextUsageBar sessionId={id} />
-          </>
         ) : (
           <>
-            <FullTitleTooltip
-              label={displayTitle}
-              className={`session-list-item-title block text-[0.8125rem] text-[var(--nim-text)] font-medium overflow-hidden text-ellipsis whitespace-nowrap mb-0.5 transition-colors duration-150 ${isActive ? 'font-semibold' : ''} ${isArchived ? 'text-[var(--nim-text-faint)]' : ''}`}
-            >
-              {displayTitle}
-            </FullTitleTooltip>
-            <div className="session-list-item-meta flex gap-1.5 text-[0.6875rem] text-[var(--nim-text-faint)] items-center mt-0.5">
-              <span className="session-list-item-datetime text-[0.6875rem] text-[var(--nim-text-faint)] whitespace-nowrap transition-colors duration-150" title={fullDateTime}>{relativeTime}</span>
-              {displayModel && <span className="session-list-item-model overflow-hidden text-ellipsis whitespace-nowrap">{displayModel}</span>}
-              {phase && <SessionPhaseBadge phase={phase} />}
-              <SessionExternalMarker sessionId={id} />
-              {treeDetails}
+            <div className="session-list-item-eyebrow" hidden={!appearance.showTimestamps}>
+              <span className="session-list-item-datetime" title={fullDateTime}>{relativeTime}</span>
+            </div>
+            <div className="session-list-item-headline flex items-center gap-1.5 min-w-0">
+              <FullTitleTooltip label={displayTitle} disabled={detailsOpen && !!detailsAllowed} className={`session-list-item-title block flex-1 min-w-0 text-[0.8125rem] text-[var(--nim-text)] overflow-hidden text-ellipsis whitespace-nowrap ${isActive ? 'font-semibold' : 'font-medium'}`}>
+                {displayTitle}
+              </FullTitleTooltip>
+              {(isPinned || branchedAt || shareInfo || treeDetails) && <div className="session-list-item-source-markers">
+                {isPinned && <MaterialSymbol icon="push_pin" size={10} title="Pinned" />}
+                {branchedAt && <MaterialSymbol icon="fork_right" size={10} title="Branched conversation" />}
+                {shareInfo && <MaterialSymbol icon="link" size={10} title="Shared" />}
+                {treeDetails}
+              </div>}
+            </div>
+            <SessionWorkCaption sessionId={id} />
+            <div className="session-list-item-secondary" style={{ display: appearance.showModel ? undefined : 'none' }}>
+              <span className="session-list-item-model" title={displayModel ? `Model: ${displayModel}` : 'Model not recorded'}>{displayModel || 'Model —'}</span>
             </div>
             <SessionContextUsageBar sessionId={id} />
-            <SessionSpawnerLink sessionId={id} />
             {hint && <div className="session-tree-drop-hint text-xs text-[var(--nim-primary)]" role="status">{hint.label}</div>}
           </>
         )}
       </div>
       <div className="session-list-item-right shrink-0 flex items-center gap-1.5 ml-auto">
+        <SessionWorkAttentionIndicator sessionIds={[id]} descendantsOnly />
         {uncommittedCount !== undefined && uncommittedCount > 0 && (
           <span className="session-list-item-badge uncommitted text-[0.6875rem] px-1.5 py-0.5 rounded-xl font-semibold whitespace-nowrap bg-[rgba(245,158,11,0.15)] text-[var(--nim-warning)]" title={`${uncommittedCount} uncommitted change${uncommittedCount !== 1 ? 's' : ''}`}>
             {uncommittedCount}
@@ -534,10 +521,35 @@ export const SessionListItem = memo<SessionListItemProps>(function SessionListIt
         />
       )}
     </div>
+    {detailsOpen && detailsAllowed && (
+      <FloatingPortal>
+        <FloatingFocusManager context={context} modal={false} initialFocus={-1} returnFocus={false}>
+          <div ref={refs.setFloating} style={floatingStyles} {...getFloatingProps()}
+            aria-label={`Details for ${displayTitle}`} className="session-row-details-popover select-text">
+            <div className="session-row-details-title">{displayTitle}</div>
+            <div className="session-row-details-metadata">
+              <SessionWorkSummaryDetails sessionId={id} workspacePath={projectPath ?? ''} />
+              {displayModel && <div>Model: {displayModel}</div>}
+              {worktreeLabel && <div>Worktree: {worktreeLabel}</div>}
+              {onWorktreeMenu && <button type="button" className="session-work-refresh" onClick={onWorktreeMenu}>Worktree actions…</button>}
+              <SessionContextUsageBar sessionId={id} variant="details" />
+              {phase && <div>Phase: {phase}</div>}
+              <div>{timestampLabel}: {fullDateTime}</div>
+              <SessionExternalMarker sessionId={id} />
+              <SessionSpawnerLink sessionId={id} />
+            </div>
+          </div>
+        </FloatingFocusManager>
+      </FloatingPortal>
+    )}
+    </>
   );
 }, (prev, next) => {
   return (
     prev.treeContext === next.treeContext &&
+    prev.isChild === next.isChild &&
+    prev.worktreeLabel === next.worktreeLabel &&
+    prev.onWorktreeMenu === next.onWorktreeMenu &&
     prev.treeLeading === next.treeLeading &&
     prev.treeDetails === next.treeDetails &&
     prev.compact === next.compact &&

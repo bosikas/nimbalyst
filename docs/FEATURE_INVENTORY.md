@@ -86,6 +86,9 @@ Twelve built-in provider lanes, plus any agent an extension contributes. Every l
 - Session pinning
 - Session branching / forking
 - Session tags and phase tracking
+- Desktop session scope summaries and remaining-work captions — host-driven updates after completed turns, independently of agent metadata calls; scoped text search and area/remaining-work/blocker/review filters, with whole-group activity sections. Uses an enabled, signed-in Codex CLI for isolated ephemeral inference across provider sessions; summaries are AI estimates with source checkpoints, visible stale/partial states, retry, and bounded opening/latest evidence for long histories instead of repeated historical replay. Native input/cache/output usage is retained per inference attempt, including retries; unavailable usage is explicit. Original transcripts stay intact
+- Desktop session lifecycle policies — creation UI, agent creation tools and per-session settings expose `generateSummary` (default true) and `autoArchiveAfterMinutes` (default zero/off). Built-in PR review creation uses summaries off and a 30-minute idle timer. Auto-archive starts after a finished turn and defers for selected chats, active descendants, queued work, pending input, pinned sessions and recent activity; atomic guards preserve transcripts and worktrees. Non-default remote-session policies require host support and are rejected locally rather than silently ignored
+- Desktop session list customization — device-local Comfortable/Compact presets, live preview and reset; independent typography, row spacing, scope/remaining/model/timestamp visibility, parent/child provider icons, child context bars, indentation, guides and collapse controls. Active children appear before expandable older chats; single-root worktree headings can be hidden while worktree details and actions remain accessible
 - Session HTML export and clipboard copy
 - Shareable session links (E2E encrypted, 1/7/30 day expiry)
 - Live import of external Claude Code and Codex CLI sessions — opt in with **Follow external agent sessions** under **Settings → Agent Features** (OFF by default); follow sessions in open workspaces and their worktrees into the session list and open transcripts, including later title updates while preserving names set in Nimbalyst
@@ -99,7 +102,8 @@ Twelve built-in provider lanes, plus any agent an extension contributes. Every l
 
 ## Workstreams
 
-- Nested session trees within a workspace or worktree, with collapsible orchestrators and subtree activity, unread, and uncommitted-file rollups
+- Nested session trees within a workspace or worktree, with collapsible orchestrators and subtree activity, unread, and uncommitted-file rollups; branches start collapsed and close after one minute without row interaction. Search temporarily reveals branches without changing collapse choices. Child metadata is available through Details, without context bars or inline phase labels
+- Compact session navigation with search, new session and an overflow menu for Kanban, archive, sorting and creation variants; Today opens by default and older date sections start collapsed. The selected chat has the main highlight, with a quieter ancestor accent
 - Workstream containers: a named group with a folder icon that holds peer sessions with no parent or manager among them; created from the create menu or "Move to workstream..." (one or several selected sessions), filled by moving or dragging sessions in or by starting a session while it is selected
 - Workstream editor tabs (multi-file editing per session)
 - Workstream session tabs (switch between child sessions)
@@ -123,6 +127,8 @@ Twelve built-in provider lanes, plus any agent an extension contributes. Every l
 - Model selector (per-session or per-workstream)
 - Context window usage display with pace tracking
 - Codex context inspector in the token meter: measured UTF-8 bytes and inclusion reasons for the last Nimbalyst-prepared request, separate from provider-reported tokens; native instructions, history, compaction and loaded-tool categories are explicitly opaque. Available after a Codex turn in the current app process
+- Codex context evidence: compare provider-reported context-token samples around the latest 20 native compactions observed in this app process, with missing samples explicit and no inferred text or isolated savings; inspect configured tool groups and deferred discovery separately from verified MCP calls (up to 200 tool names). Native loaded schemas remain unknown and canonical transcripts remain intact
+- The separately installed Session Archive extension provides a unified session-inspector timeline for saved events, Codex request usage and recorded context: newest-first order, type/search/measured-usage filters, incremental older records, source/turn identifiers and explicit missing-data or partial-source explanations; original transcripts and provider logs remain read-only
 - Reviewed fresh-session handoffs through `prepare_session_handoff` and `spawn_session`: account for every human/unknown-provenance request and potentially active machine instruction, retain decisions, ownership, pending instructions and evidence links, and save a durable review ledger without replaying the full transcript. Reject stale/incomplete reviews and unresolved source approvals; source execution and queued work are not automatically stopped or transferred
 - Optional context-usage bar under each session-list row (session list menu, **Show context usage**, off by default; providers that report a context window only)
 - Files-edited sidebar with per-session scope
@@ -520,6 +526,8 @@ Companion app; pairs with a desktop over encrypted sync. Voice mode is not inclu
 ## Settings
 
 - Built-in skills and guidance catalog under Agent Features: search all Nimbalyst-owned prompt sections, inspect their provider-specific instructions, toggle individual sections or all sections across projects, including commit proposals and session-naming reminders. Controls affect future prompt injection; tools remain available and existing native session history is preserved. Repository instructions and provider-owned skills remain separate
+- Installed Codex skill catalog under Agent Features: discover enabled and disabled native skills for the current workspace, search names and sources, preview local instructions with bounded output and a complete recovery file, and save individual path-based switches through Codex's native user configuration. Changes affect that skill path across projects and future native context; existing history is not rewritten. Claude skill controls remain provider-managed
+- Chat density under Agent Features: persistent comfortable, compact and dense message spacing across chats and windows; code, attachments and interactive controls retain their normal size
 - Application: theme, AI providers, MCP servers, notifications, advanced, beta features, and extensions
 - Account: signed-in accounts, sync-account selection, active zero-knowledge mobile-sync profile, paired devices, and account-attributed shared links
 - Project: sharing/organization attachment, project access, AI provider overrides, agent permissions, tracker config, GitHub, and extensions

@@ -526,7 +526,7 @@ interface ElectronAPI {
   // AI operations (flat methods)
   aiHasApiKey: () => Promise<boolean>;
   aiInitialize: (provider?: string, apiKey?: string) => Promise<any>;
-  aiCreateSession: (provider: 'claude' | 'claude-code' | 'claude-code-cli' | 'openai' | 'openai-codex' | 'opencode' | 'copilot-cli' | 'lmstudio', documentContext?: any, workspacePath?: string, modelId?: string, sessionType?: string, worktreeId?: string) => Promise<any>;
+  aiCreateSession: (provider: 'claude' | 'claude-code' | 'claude-code-cli' | 'openai' | 'openai-codex' | 'opencode' | 'copilot-cli' | 'lmstudio', documentContext?: any, workspacePath?: string, modelId?: string, sessionType?: string, worktreeId?: string, policy?: { generateSummary?: boolean; autoArchiveAfterMinutes?: number }) => Promise<any>;
   aiSendMessage: (message: string, documentContext?: any, sessionId?: string, workspacePath?: string) => Promise<any>;
   aiGetSessions: (workspacePath?: string) => Promise<any>;
   aiLoadSession: (sessionId: string, workspacePath?: string, trackAsResume?: boolean) => Promise<any>;
@@ -677,7 +677,7 @@ interface ElectronAPI {
   ai: {
     hasApiKey: () => Promise<boolean>;
     initialize: (provider?: string, apiKey?: string) => Promise<any>;
-    createSession: (provider: 'claude' | 'claude-code' | 'claude-code-cli' | 'openai' | 'openai-codex' | 'lmstudio', documentContext?: any, workspacePath?: string, modelId?: string, sessionType?: string, worktreeId?: string) => Promise<any>;
+    createSession: (provider: 'claude' | 'claude-code' | 'claude-code-cli' | 'openai' | 'openai-codex' | 'lmstudio', documentContext?: any, workspacePath?: string, modelId?: string, sessionType?: string, worktreeId?: string, policy?: { generateSummary?: boolean; autoArchiveAfterMinutes?: number }) => Promise<any>;
     sendMessage: (message: string, documentContext?: any, sessionId?: string, workspacePath?: string) => Promise<any>;
     getSessions: (workspacePath?: string) => Promise<any>;
     getSessionList: (workspacePath?: string) => Promise<any>;
@@ -1068,6 +1068,9 @@ interface ElectronAPI {
   };
 
   agentGuidance: {
+    listSkills: (workspace: string) => Promise<import('../shared/codexSkills').CodexSkillCatalog>;
+    setSkillEnabled: (workspace: string, file: string, enabled: boolean) => Promise<import('../shared/codexSkills').CodexSkillCatalog>;
+    previewSkill: (workspace: string, file: string) => Promise<string>;
     getCatalog: () => Promise<import('@nimbalyst/runtime/ai/builtInGuidance').BuiltInGuidanceEntry[]>;
     update: (settings: import('@nimbalyst/runtime/ai/builtInGuidance').BuiltInGuidanceSettings) => Promise<import('@nimbalyst/runtime/ai/builtInGuidance').BuiltInGuidanceEntry[]>;
   };

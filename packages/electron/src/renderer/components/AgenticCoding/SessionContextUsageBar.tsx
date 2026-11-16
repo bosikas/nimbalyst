@@ -28,7 +28,7 @@ function formatTokensShort(tokens: number): string {
  * Context-window fill under a session row's title. Owns its subscriptions so
  * a token update re-renders only this bar, not the row or its siblings.
  */
-export const SessionContextUsageBar = memo(function SessionContextUsageBar({ sessionId }: { sessionId: string }) {
+export const SessionContextUsageBar = memo(function SessionContextUsageBar({ sessionId, variant = 'bar' }: { sessionId: string; variant?: 'bar' | 'details' }) {
   const enabled = useAtomValue(showContextUsageAtom);
   // Primitives, so a registry refresh that rebuilds entries does not re-render unchanged bars.
   const provider = useAtomValue(useMemo(() => atom(get => get(sessionRegistryAtom).get(sessionId)?.provider), [sessionId]));
@@ -38,16 +38,21 @@ export const SessionContextUsageBar = memo(function SessionContextUsageBar({ ses
   // updates mid-turn; when it is present it wins, including a cleared snapshot after compaction.
   const liveTokenUsage = useAtomValue(sessionTokenUsageAtom(sessionId));
 
-  if (!enabled) return null;
-  if (agentCapabilitiesForProviderType(provider).contextReporting !== 'context-window') return null;
+  if (!enabled && variant !== 'details') return null;
+  if (agentCapabilitiesForProviderType(provider).contextReporting !== 'context-window') return variant !== 'bar'
+    ? <span className="session-context-usage-unknown" title="Context-window usage is not reported by this provider">Context —</span> : null;
   const usage = liveTokenUsage
     ? readSessionContextUsage(liveTokenUsage)
-    : storedTokens && storedWindow ? { tokens: storedTokens, contextWindow: storedWindow } : undefined;
-  if (!usage) return null;
+    : readSessionContextUsage({ currentContext: { tokens: storedTokens, contextWindow: storedWindow } });
+  if (!usage) return variant !== 'bar'
+    ? <span className="session-context-usage-unknown" title="No current context-window measurement reported">Context —</span> : null;
 
   const percent = contextUsagePercent(usage);
   const level = contextUsageLevel(percent);
   const label = `Context ${formatTokensShort(usage.tokens)} / ${formatTokensShort(usage.contextWindow)} (${percent}%)`;
+  const exactLabel = `Context: ${usage.tokens.toLocaleString()} / ${usage.contextWindow.toLocaleString()} tokens (${percent}%)`;
+
+  if (variant === 'details') return <span>{exactLabel}</span>;
 
   return (
     <div

@@ -1,8 +1,11 @@
 import { SessionTree } from './SessionTree.tsx';
+import { SessionWorkAttentionIndicator } from './SessionWorkCaption';
 import { sessionRegistryAtom } from '../../store/atoms/sessions';
 import React, { useState, useCallback, useEffect, useRef, memo, useMemo } from 'react';
 import { useAtomValue, useSetAtom } from 'jotai';
 import { compactRowsAtom } from '../../store/atoms/agentMode';
+import { settingAtom } from '../../store/atoms/settingAtomFamily';
+import { buildSessionTree } from './sessionTreeModel';
 import { MaterialSymbol } from '@nimbalyst/runtime/ui/icons/MaterialSymbol';
 import { copyToClipboard } from '@nimbalyst/runtime/utils/clipboard';
 import {
@@ -16,7 +19,6 @@ import {
   buildShareUrl,
 } from '../../store';
 import { errorNotificationService } from '../../services/ErrorNotificationService';
-import { WorktreeIcon } from '../common/WorktreeIcon';
 import { dialogRef, DIALOG_IDS } from '../../dialogs';
 import type { ShareDialogData } from '../../dialogs';
 import { FullTitleTooltip } from './FullTitleTooltip';
@@ -93,6 +95,7 @@ interface WorktreeData {
 }
 
 interface WorkstreamGroupProps {
+  revealMatches?: boolean;
   type: 'workstream' | 'worktree';
   id: string;
   title: string;
@@ -144,6 +147,7 @@ interface WorkstreamGroupProps {
 }
 
 export const WorkstreamGroup: React.FC<WorkstreamGroupProps> = ({
+  revealMatches,
   type,
   id,
   title,
@@ -185,6 +189,7 @@ export const WorkstreamGroup: React.FC<WorkstreamGroupProps> = ({
 }) => {
   const registry = useAtomValue(sessionRegistryAtom);
   const compact = useAtomValue(compactRowsAtom);
+  const appearance = useAtomValue(settingAtom('ui.sessionListAppearance'));
   const [showContextMenu, setShowContextMenu] = useState(false);
   const [contextMenuPosition, setContextMenuPosition] = useState({ x: 0, y: 0 });
   const [adjustedContextMenuPosition, setAdjustedContextMenuPosition] = useState<{ x: number; y: number } | null>(null);
@@ -558,9 +563,10 @@ export const WorkstreamGroup: React.FC<WorkstreamGroupProps> = ({
   const displayIsArchived = type === 'worktree' ? worktree?.isArchived : isArchived;
   const sessionCount = sessions.length || childCount || 0;
 
+  const hideHeader = type === 'worktree' && appearance.hideRedundantWorktrees && buildSessionTree(sessions).length === 1;
   if (['workstream'].includes(type)) {
     const root = registry.get(id) ?? { id, title, provider: provider || 'claude-code', isPinned: isPinned ?? false, isArchived: isArchived ?? false, childCount: childCount ?? 0, sessionType: 'workstream' as const, workspaceId: projectPath || '', createdAt: 0, updatedAt: 0, messageCount: 0, parentSessionId: null, worktreeId: null, uncommittedCount: 0 };
-    return <SessionTree root={root} sessions={sessions} activeSessionId={activeSessionId} projectPath={projectPath}
+    return <SessionTree root={root} sessions={sessions} activeSessionId={activeSessionId} projectPath={projectPath} revealMatches={revealMatches}
       onSessionSelect={onSessionSelect} onSessionDelete={onSessionDelete} onSessionArchive={onSessionArchive}
       onSessionUnarchive={onSessionUnarchive} onSessionPinToggle={onSessionPinToggle}
       onSessionRename={onSessionRename} onSessionBranch={onSessionBranch} />;
@@ -569,14 +575,14 @@ export const WorkstreamGroup: React.FC<WorkstreamGroupProps> = ({
 
   return (
     <div
-      className={`workstream-group pb-1 ${displayIsArchived ? 'archived' : ''} ${isActive ? 'active' : ''} ${isSelected ? 'selected' : ''}`}
+      className={`workstream-group pb-1 ${compact ? 'compact' : ''} ${displayIsArchived ? 'archived' : ''} ${isActive ? 'active' : ''} ${isSelected ? 'selected' : ''}`}
       data-testid={type === 'worktree' ? 'worktree-group' : 'workstream-group'}
       onMouseLeave={handleCloseContextMenu}
     >
       {/* Header */}
-      <div
+      {!hideHeader && <div
         className={`workstream-group-header flex items-center gap-0 text-[0.8125rem] text-[var(--nim-text)] transition-colors duration-150 rounded-md mr-2 w-[calc(100%-0.5rem)] ${
-          isSelected ? 'bg-[var(--nim-bg-selected)]' : isActive ? 'bg-[var(--nim-bg-selected)]' : 'hover:bg-[var(--nim-bg-hover)]'
+          isActive ? 'workstream-group-parent-active' : 'hover:bg-[var(--nim-bg-hover)]'
         } ${isValidDropTarget ? 'bg-[rgba(83,89,93,0.4)] border-2 border-dashed border-[var(--nim-primary)]' : ''}`}
         onContextMenu={handleContextMenu}
         onDragOver={handleDragOver}
@@ -611,23 +617,6 @@ export const WorkstreamGroup: React.FC<WorkstreamGroupProps> = ({
           }}
           aria-label={`${type === 'worktree' ? 'Worktree' : 'Workstream'}: ${displayTitle}, ${sessionCount} session${sessionCount !== 1 ? 's' : ''}`}
         >
-          {/* Icon */}
-          <div className={`workstream-group-icon shrink-0 w-[1.125rem] h-[1.125rem] mt-[0.0625rem] flex items-center justify-center ${
-            isActive ? 'text-[var(--nim-primary)]' : 'text-[var(--nim-text-muted)]'
-          } [&_svg]:w-full [&_svg]:h-full`}>
-            {type === 'worktree' ? (
-              <WorktreeIcon size={16} />
-            ) : (
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <circle cx="8" cy="4" r="1.5" fill="currentColor"/>
-                <circle cx="4" cy="12" r="1.5" fill="currentColor"/>
-                <circle cx="12" cy="12" r="1.5" fill="currentColor"/>
-                <line x1="7.5" y1="5.2" x2="4.5" y2="10.8" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
-                <line x1="8.5" y1="5.2" x2="11.5" y2="10.8" stroke="currentColor" strokeWidth="1" strokeLinecap="round"/>
-              </svg>
-            )}
-          </div>
-
           {/* Content */}
           <div className={`workstream-group-content flex-1 min-w-0 flex ${compact ? 'items-center gap-1.5' : 'flex-col gap-0.5'}`}>
             <div className={`workstream-group-row-primary flex items-center gap-1 ${compact ? 'flex-1 min-w-0' : ''}`}>
@@ -668,6 +657,7 @@ export const WorkstreamGroup: React.FC<WorkstreamGroupProps> = ({
                 <span className="workstream-group-badge archived text-[0.5625rem] px-1.5 py-[0.0625rem] rounded-[0.625rem] font-medium bg-[rgba(156,163,175,0.15)] text-[var(--nim-text-faint)]">archived</span>
               )}
               {/* Status indicator for child sessions (processing/pending/unread) */}
+              {!isRenamingWorktree && <SessionWorkAttentionIndicator sessionIds={sessions.map(s => s.id)} />}
               {!isRenamingWorktree && (
                 <WorkstreamGroupStatusIndicator sessionIds={sessions.map(s => s.id)} />
               )}
@@ -734,12 +724,14 @@ export const WorkstreamGroup: React.FC<WorkstreamGroupProps> = ({
             )}
           </div>
         )}
-      </div>
+      </div>}
 
       {/* Sessions List */}
-      {isExpanded && (
-        <div className="workstream-group-sessions pt-1 pb-1 pl-4 animate-[workstreamSlideDown_0.2s_ease-out]">
-          <SessionTree sessions={sessions} activeSessionId={activeSessionId} projectPath={projectPath}
+      {(isExpanded || hideHeader) && (
+        <div className={`workstream-group-sessions ${hideHeader ? 'workstream-group-merged' : 'pt-1 pb-1 pl-4 animate-[workstreamSlideDown_0.2s_ease-out]'}`}>
+          <SessionTree sessions={sessions} activeSessionId={activeSessionId} projectPath={projectPath} revealMatches={revealMatches}
+            worktreeLabel={hideHeader ? [displayTitle, worktree?.branch, worktree?.path].filter(Boolean).join(' · ') : undefined}
+            onWorktreeMenu={hideHeader ? handleContextMenu : undefined}
             onSessionSelect={onSessionSelect} onSessionDelete={onSessionDelete} onSessionArchive={onSessionArchive}
             onSessionUnarchive={onSessionUnarchive} onSessionPinToggle={onSessionPinToggle}
             onSessionRename={onSessionRename} onSessionBranch={onSessionBranch} />

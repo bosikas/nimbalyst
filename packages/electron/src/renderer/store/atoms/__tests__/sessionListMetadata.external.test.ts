@@ -14,15 +14,29 @@ vi.mock('../../index', async () => {
 });
 vi.mock('../sessions', async () => {
   const { atom } = await import('jotai');
-  return { sessionRegistryAtom: atom(new Map()), sessionListWorkspaceAtom: atom('/parent'), refreshSessionListAtom: atom(null, () => {}), sessionChildrenAtom: () => atom([]), sessionParentIdAtom: () => atom(null) };
+  return { activeSessionIdAtom: atom<string | null>(null), sessionRegistryAtom: atom(new Map()), sessionListWorkspaceAtom: atom('/parent'), refreshSessionListAtom: atom(null, () => {}), sessionChildrenAtom: () => atom([]), sessionParentIdAtom: () => atom(null) };
 });
 vi.mock('../workstreamState', async () => {
   const { atom } = await import('jotai'); return { workstreamStateAtom: () => atom({}) };
 });
 import { vi } from 'vitest';
 import { store } from '../../index';
-import { sessionRegistryAtom } from '../sessions';
+import { sessionRegistryAtom, activeSessionIdAtom } from '../sessions';
 import { initSessionListListeners } from '../../listeners/sessionListListeners';
+it('reports selected-session changes for archive protection and unsubscribes on disposal', () => {
+  const send = vi.fn();
+  vi.stubGlobal('window', { electronAPI: { send, on: () => () => {} } });
+  store.set(activeSessionIdAtom, null);
+  const dispose = initSessionListListeners();
+  expect(send).toHaveBeenLastCalledWith('sessions:visible-session', null);
+  store.set(activeSessionIdAtom, 'selected-child');
+  expect(send).toHaveBeenLastCalledWith('sessions:visible-session', 'selected-child');
+  dispose();
+  send.mockClear();
+  store.set(activeSessionIdAtom, null);
+  expect(send).not.toHaveBeenCalled();
+  vi.unstubAllGlobals();
+});
 it('routes targeted external metadata updates into the registry without changing sibling entries', () => {
   const handlers = new Map<string, (...args: any[]) => void>();
   vi.stubGlobal('window', { electronAPI: { on: (channel: string, handler: any) => { handlers.set(channel, handler); return () => {}; } } });
@@ -31,9 +45,11 @@ it('routes targeted external metadata updates into the registry without changing
   store.set(sessionRegistryAtom, new Map([['own', own], ['sibling', sibling]]));
   const dispose = initSessionListListeners();
   try {
-    handlers.get('sessions:session-updated')!('own', { externalSource: 'claude-code', externalLastActivityAt: 42 });
+    const workSummary = { scope: 'Session navigation and context visibility', remaining: 'Review sidebar', attention: 'review', areas: ['Navigation'], state: 'ready', coverage: 'complete', updatedAt: 100, throughMessageId: 12 };
+    handlers.get('sessions:session-updated')!('own', { externalSource: 'claude-code', externalLastActivityAt: 42, workSummary });
     expect(store.get(sessionRegistryAtom).get('own')).toMatchObject({ externalSource: 'claude-code', externalLastActivityAt: 42 });
     expect(store.get(sessionRegistryAtom).get('sibling')).toBe(sibling);
+    expect(store.get(sessionRegistryAtom).get('own')?.workSummary).toEqual(workSummary);
   } finally { dispose(); vi.unstubAllGlobals(); }
 });
 

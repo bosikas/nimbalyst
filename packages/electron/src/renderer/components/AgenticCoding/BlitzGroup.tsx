@@ -29,6 +29,7 @@ interface BlitzWorktreeEntry {
 }
 
 interface BlitzGroupProps {
+  revealMatches?: boolean;
   blitzId: string;
   title: string;
   isExpanded: boolean;
@@ -194,6 +195,7 @@ const BlitzSessionRow: React.FC<{
  * Uses the same layout structure as WorkstreamGroup for visual consistency.
  */
 export const BlitzGroup: React.FC<BlitzGroupProps> = memo(({
+  revealMatches,
   blitzId,
   title,
   isExpanded,
@@ -597,7 +599,7 @@ export const BlitzGroup: React.FC<BlitzGroupProps> = memo(({
 
             // Multiple sessions - render as a collapsible worktree subgroup
             const groupKey = `blitz-wt:${worktreeId}`;
-            const isWorktreeExpanded = !collapsedGroups.includes(groupKey);
+            const isWorktreeExpanded = revealMatches || !collapsedGroups.includes(groupKey);
             const worktreeIsActive = sessions.some(s => s.id === activeSessionId);
 
             return (

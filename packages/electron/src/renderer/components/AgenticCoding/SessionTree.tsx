@@ -1,11 +1,12 @@
-import React, { useMemo } from 'react';
-import { atom, useAtom, useAtomValue, type Getter } from 'jotai';
+import React, { useEffect, useMemo } from 'react';
+import { atom, useAtom, useAtomValue, useStore, type Getter } from 'jotai';
 import { MaterialSymbol } from '@nimbalyst/runtime/ui/icons/MaterialSymbol';
 import {
   sessionRegistryAtom,
   sessionProcessingAtom,
   sessionUnreadAtom,
   sessionHasPendingInteractivePromptAtom,
+  sessionPendingPromptAtom,
   selectedWorkstreamAtom,
   type SessionMeta,
 } from '../../store/atoms/sessions';
@@ -13,9 +14,13 @@ import { workspaceSessionTurnActivityAtom } from '../../store/atoms/sessionActiv
 import { workstreamStateAtom } from '../../store/atoms/workstreamState';
 import { compactRowsAtom } from '../../store/atoms/agentMode';
 import { SessionListItem } from './SessionListItem';
+import { settingAtom } from '../../store/atoms/settingAtomFamily';
 import { buildSessionTree, isWorkstreamContainer, mergedTreeHeader, treeIndent, type SessionTreeNode } from './sessionTreeModel';
 
 export interface SessionTreeProps {
+  worktreeLabel?: string;
+  onWorktreeMenu?: (event: React.MouseEvent) => void;
+  revealMatches?: boolean;
   sessions: SessionMeta[];
   root?: SessionMeta;
   activeSessionId: string | null;
@@ -35,23 +40,18 @@ export type SessionTreeRowHandlers = Omit<SessionTreeProps, 'sessions' | 'root'>
 
 /** One visible row of a flattened tree; virtual lists render one of these per item. */
 export interface VisibleSessionTreeRow {
+  olderCount?: number;
   node: SessionTreeNode<SessionMeta>;
   baseDepth: number;
   /** Set on a tree's top row: a merged wrapper keeps the pin identity of the hidden root. */
   pinSession?: SessionMeta;
 }
 
-/** Explicit toggle wins; otherwise a node opens while any member needs attention or is active. */
+/** Background activity never expands a branch; rollup indicators remain visible. */
 function readTreeExpanded(get: Getter, node: { id: string; ids: readonly string[] }, activeSessionId: string | null): boolean {
-  const explicit = get(workstreamStateAtom(node.id)).treeExpanded;
-  if (explicit !== undefined && explicit !== null) return explicit;
-  return node.ids.some(
-    (id) =>
-      id === activeSessionId ||
-      get(sessionProcessingAtom(id)) ||
-      get(sessionUnreadAtom(id)) ||
-      get(sessionHasPendingInteractivePromptAtom(id))
-  );
+  void activeSessionId;
+  const state = get(workstreamStateAtom(node.id));
+  return state.treeExpanded === true && (state.treeExpandedUntil === null || state.treeExpandedUntil === undefined || state.treeExpandedUntil > Date.now());
 }
 
 /**
@@ -62,9 +62,12 @@ function readTreeExpanded(get: Getter, node: { id: string; ids: readonly string[
 export function useVisibleSessionTreeRows(
   trees: readonly { key: string; rows: readonly SessionMeta[] }[],
   activeSessionId: string | null,
-  projectPath: string
+  projectPath: string,
+  revealMatches = false,
 ): Map<string, VisibleSessionTreeRow[]> {
   const registry = useAtomValue(sessionRegistryAtom);
+  const appearance = useAtomValue(settingAtom('ui.sessionListAppearance'));
+  const store = useStore();
   const activity = useAtomValue(workspaceSessionTurnActivityAtom(projectPath));
   const forests = useMemo(
     () =>
@@ -93,13 +96,37 @@ export function useVisibleSessionTreeRows(
     return out;
   });
   const parentsKey = parents.map((parent) => parent.ids.join(',')).join('|');
+  const allIds = [...new Set(forests.flatMap(forest => forest.roots.flatMap(root => root.ids)))];
+  const idsKey = allIds.join('\0');
+  const liveKey = useAtomValue(useMemo(() => atom(get => JSON.stringify(allIds.filter(id =>
+    id === activeSessionId || get(sessionProcessingAtom(id)) || get(sessionPendingPromptAtom(id)) || get(sessionHasPendingInteractivePromptAtom(id))
+  ))), [idsKey, activeSessionId]));
   // A joined string keeps the subscription quiet unless the expanded set really changes.
   const expandedKey = useAtomValue(
     // eslint-disable-next-line react-hooks/exhaustive-deps -- parentsKey covers parents
-    useMemo(() => atom((get) => parents.filter((parent) => readTreeExpanded(get, parent, activeSessionId)).map((parent) => parent.id).join('\0')), [parentsKey, activeSessionId])
+    useMemo(() => atom((get) => JSON.stringify(parents.filter((parent) => get(workstreamStateAtom(parent.id)).treeExpanded === true).map((parent) => [parent.id, get(workstreamStateAtom(parent.id)).treeExpandedUntil ?? null]))), [parentsKey])
   );
+  useEffect(() => {
+    const leases = JSON.parse(expandedKey) as Array<[string, number | null]>;
+    if (!leases.length) return;
+    if (appearance.autoCollapseSeconds === 0) {
+      for (const [id, until] of leases) if (until !== null) store.set(workstreamStateAtom(id), { treeExpandedUntil: null });
+      return;
+    }
+    const now = Date.now();
+    for (const [id, until] of leases) if (until === null) store.set(workstreamStateAtom(id), { treeExpandedUntil: now + appearance.autoCollapseSeconds * 1000 });
+    const deadline = Math.min(...leases.map(([, until]) => until ?? now + appearance.autoCollapseSeconds * 1000));
+    const timer = setTimeout(() => {
+      for (const [id] of leases) {
+        const state = store.get(workstreamStateAtom(id));
+        if (state.treeExpandedUntil !== null && state.treeExpandedUntil <= Date.now()) store.set(workstreamStateAtom(id), { treeExpanded: false, treeExpandedUntil: null });
+      }
+    }, Math.max(0, deadline - now));
+    return () => clearTimeout(timer);
+  }, [expandedKey, store, appearance.autoCollapseSeconds]);
   return useMemo(() => {
-    const expanded = new Set(expandedKey ? expandedKey.split('\0') : []);
+    const expanded = new Set((JSON.parse(expandedKey) as Array<[string, number | null]>).filter(([, until]) => until === null || until > Date.now()).map(([id]) => id));
+    const live = new Set(JSON.parse(liveKey) as string[]);
     const result = new Map<string, VisibleSessionTreeRow[]>();
     for (const forest of forests) {
       const rows: VisibleSessionTreeRow[] = [];
@@ -107,14 +134,20 @@ export function useVisibleSessionTreeRows(
         const header = mergedTreeHeader(root);
         const visit = (node: SessionTreeNode<SessionMeta>, pinSession?: SessionMeta) => {
           rows.push({ node, baseDepth: header.depth, pinSession });
-          if (expanded.has(node.session.id)) node.children.forEach((child) => visit(child));
+          const active = node.children.filter(child => child.ids.some(id => live.has(id)));
+          const older = node.children.filter(child => !child.ids.some(id => live.has(id)));
+          const full = revealMatches || expanded.has(node.session.id);
+          const shown = full ? node.children : [...active, ...older.slice(0, appearance.olderChildren)];
+          const ordered = appearance.activeChildrenFirst ? [...active.filter(child => shown.includes(child)), ...older.filter(child => shown.includes(child))] : node.children.filter(child => shown.includes(child));
+          ordered.forEach(child => visit(child));
+          if (!full && older.length > appearance.olderChildren) rows.push({ node, baseDepth: header.depth, olderCount: older.length - appearance.olderChildren });
         };
         visit(header, root.session);
       }
       result.set(forest.key, rows);
     }
     return result;
-  }, [forests, expandedKey]);
+  }, [forests, expandedKey, revealMatches, liveKey, appearance.activeChildrenFirst, appearance.olderChildren]);
 }
 
 /** Non-virtual tree, used inside worktree groups. */
@@ -124,18 +157,40 @@ export function SessionTree(props: SessionTreeProps) {
     () => [{ key: 'tree', rows: props.root ? [props.root, ...props.sessions] : props.sessions }],
     [props.root, props.sessions]
   );
-  const rows = useVisibleSessionTreeRows(trees, props.activeSessionId, projectPath).get('tree') ?? [];
+  const rows = useVisibleSessionTreeRows(trees, props.activeSessionId, projectPath, props.revealMatches).get('tree') ?? [];
   return (
     <div className="session-tree" role="tree" aria-label="Session tree">
       {rows.map((row) => (
-        <SessionTreeRow key={row.node.session.id} {...props} {...row} />
+        <SessionTreeRow key={`${row.node.session.id}${row.olderCount ? ':older' : ''}`} {...props} {...row} />
       ))}
     </div>
   );
 }
 
 export function SessionTreeRow(props: SessionTreeRowHandlers & VisibleSessionTreeRow) {
+  return props.olderCount ? <OlderChildrenRow {...props} /> : <SessionTreeSessionRow {...props} />;
+}
+
+function OlderChildrenRow(props: SessionTreeRowHandlers & VisibleSessionTreeRow) {
+  const [, setState] = useAtom(workstreamStateAtom(props.node.session.id));
+  const appearance = useAtomValue(settingAtom('ui.sessionListAppearance'));
+  return <div className="session-tree-older" style={{ marginLeft: (props.node.depth - props.baseDepth) * appearance.indent }}><button type="button" onClick={() => setState({ treeExpanded: true, treeExpandedUntil: appearance.autoCollapseSeconds ? Date.now() + appearance.autoCollapseSeconds * 1000 : null })}>Show {props.olderCount} older {props.olderCount === 1 ? 'chat' : 'chats'}</button></div>;
+}
+
+function SessionTreeSessionRow(props: SessionTreeRowHandlers & VisibleSessionTreeRow) {
   const { node, baseDepth, activeSessionId } = props;
+  const store = useStore();
+  const appearance = useAtomValue(settingAtom('ui.sessionListAppearance'));
+  function extendExpansion() {
+    let current: string | null = node.session.id;
+    const seen = new Set<string>();
+    while (current && !seen.has(current)) {
+      seen.add(current);
+      const state = store.get(workstreamStateAtom(current));
+      if (state.treeExpanded) store.set(workstreamStateAtom(current), { treeExpandedUntil: appearance.autoCollapseSeconds ? Date.now() + appearance.autoCollapseSeconds * 1000 : null });
+      current = store.get(sessionRegistryAtom).get(current)?.parentSessionId ?? null;
+    }
+  }
   const row = node.session;
   const pinSession = props.pinSession ?? row;
   const [, setState] = useAtom(workstreamStateAtom(row.id));
@@ -157,7 +212,7 @@ export function SessionTreeRow(props: SessionTreeRowHandlers & VisibleSessionTre
       [row.id, node.ids.join('\0'), activeSessionId]
     )
   );
-  const expanded = status.expanded;
+  const expanded = props.revealMatches || status.expanded;
   const indent = treeIndent(node.depth - baseDepth);
   const hasChildren = node.children.length > 0;
   const hiddenCount = node.ids.length - 1;
@@ -186,7 +241,7 @@ export function SessionTreeRow(props: SessionTreeRowHandlers & VisibleSessionTre
       {node.uncommittedCount > 0 && (
         <span className="text-[var(--nim-warning)]">{node.uncommittedCount} uncommitted</span>
       )}
-      {!expanded && <span>{hiddenCount} sessions</span>}
+      {!expanded && <span className="session-tree-child-count" title={`${hiddenCount} child session${hiddenCount === 1 ? '' : 's'}`} aria-label={`${hiddenCount} child session${hiddenCount === 1 ? '' : 's'}`}>{hiddenCount}</span>}
     </span>
   ), [hasChildren, status.running, status.review, node.uncommittedCount, expanded, hiddenCount]);
   const leading = useMemo(() => (
@@ -197,28 +252,34 @@ export function SessionTreeRow(props: SessionTreeRowHandlers & VisibleSessionTre
         className={`session-tree-chevron shrink-0 flex items-center p-0 leading-none ${compact ? "" : "mt-1"}`}
         onClick={(e) => {
           e.stopPropagation();
-          setState({ treeExpanded: !expanded });
+          setState({ treeExpanded: !expanded, treeExpandedUntil: expanded || !appearance.autoCollapseSeconds ? null : Date.now() + appearance.autoCollapseSeconds * 1000 });
         }}
       >
         <MaterialSymbol icon={expanded ? 'expand_more' : 'chevron_right'} size={14} />
       </button>
     ) : (
-      <span className="w-3.5 shrink-0" />
+      <span className="session-tree-spacer w-3.5 shrink-0" />
     )
-  ), [hasChildren, expanded, row.title, compact, setState]);
+  ), [hasChildren, expanded, row.title, compact, setState, appearance.autoCollapseSeconds]);
   return (
     <div
-      className="session-tree-row"
+      className={`session-tree-row ${activeSessionId && activeSessionId !== row.id && node.ids.includes(activeSessionId) ? 'session-tree-ancestor-active' : ''}`}
+      data-tree-session-id={row.id}
+      onPointerEnter={extendExpansion}
+      onFocusCapture={extendExpansion}
+      onClickCapture={extendExpansion}
       role="treeitem"
       aria-level={node.depth - baseDepth + 1}
       aria-expanded={node.children.length ? expanded : undefined}
       style={{
-        marginLeft: indent.level * 16,
-        borderLeft: indent.rail ? '1px solid var(--nim-border)' : undefined,
+        marginLeft: indent.level * appearance.indent,
+        borderLeft: indent.rail && appearance.branchGuides ? '1px solid var(--nim-border)' : undefined,
       }}
     >
       <SessionListItem
         {...row}
+        worktreeLabel={props.worktreeLabel}
+        onWorktreeMenu={node.depth === baseDepth ? props.onWorktreeMenu : undefined}
         isPinned={pinSession.isPinned}
         title={row.title || 'Untitled Session'}
         isActive={isActive}
@@ -231,6 +292,7 @@ export function SessionTreeRow(props: SessionTreeRowHandlers & VisibleSessionTre
         treeLeading={leading}
         treeDetails={details}
         compact={compact}
+        isChild={node.depth > baseDepth}
         uncommittedCount={node.children.length ? undefined : row.uncommittedCount}
         onClick={(e) => props.onSessionSelect(row.id, e)}
         onDelete={props.onSessionDelete && (() => props.onSessionDelete!(row.id))}

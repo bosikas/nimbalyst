@@ -1,5 +1,8 @@
 import { useSessionSelectionFallback } from '../../hooks/useSessionSelectionFallback';
 import { createCommittedRankBuilder, createSessionOrder, getLiveSessionOrderTimestamp } from './sessionHistoryOrder';
+import { createTodayActivityGroupsAtom } from './sessionTodayActivity';
+import { SessionActivityHeader } from './SessionActivityHeader';
+import { matchesSessionWorkSearch, matchesWorkSummaryFilter, type WorkSummaryFilter } from '@nimbalyst/runtime/ai/sessionWorkSummary';
 import {selectedMachineAtom} from '../../store/atoms/remoteMachines';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useAtomValue, useSetAtom } from 'jotai';
@@ -86,8 +89,7 @@ import { AlphaBadge } from '../common/AlphaBadge';
 import { defaultAgentModelAtom } from '../../store/atoms/appSettings';
 import { runWorkspaceGuardedRequest, useResetOnWorkspaceChange } from './useResetOnWorkspaceChange';
 import { usePostHog } from 'posthog-js/react';
-import { projectAppearanceAtom } from '../../store/atoms/projectAppearance';
-import { WorkspaceSummaryHeader, generateWorkspaceAccentColor } from '../WorkspaceSummaryHeader';
+import { SessionNavigationToolbar } from './SessionNavigationToolbar';
 import { errorNotificationService } from '../../services/ErrorNotificationService';
 import { FloatingPortal, useFloatingMenu } from '../../hooks/useFloatingMenu';
 import {
@@ -306,8 +308,8 @@ const SessionHistoryComponent: React.FC = () => {
   const onSessionBranch: ((sessionId: string) => void) | undefined = useCallback((sessionId: string) => {
     void dispatchBranchSession(sessionId);
   }, [dispatchBranchSession]);
-  const onNewSession: (() => void) | undefined = useCallback(() => {
-    void dispatchCreateNewSession({ launchSource: 'session_history', intoSelectedWorkstream: true });
+  const onNewSession = useCallback((policy?: { generateSummary?: boolean; autoArchiveAfterMinutes?: number }) => {
+    void dispatchCreateNewSession({ ...policy, launchSource: 'session_history', intoSelectedWorkstream: true });
   }, [dispatchCreateNewSession]);
   const dispatchCreateWorkstream = useSetAtom(createWorkstreamAtom);
   const onNewWorkstream = useCallback(() => {
@@ -433,11 +435,11 @@ const SessionHistoryComponent: React.FC = () => {
   const loading = atomLoading && allSessions.length === 0; // Only show loading on initial load
   const [error, setError] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [workFilter, setWorkFilter] = useState<WorkSummaryFilter>('all');
   // Use controlled sort order from props if provided, otherwise use internal state
   const [internalSortOrder, setInternalSortOrder] = useState<'updated' | 'created'>('updated');
   const sortBy = controlledSortOrder ?? internalSortOrder;
   const setSortBy = onSortOrderChange ?? setInternalSortOrder;
-  const [sortDropdownOpen, setSortDropdownOpen] = useState(false);
   const newDropdownMenu = useFloatingMenu({ placement: 'bottom-end', offsetPx: 4 });
   const [worktreeBaseBranchPickerOpen, setWorktreeBaseBranchPickerOpen] = useState(false);
   const [contentSearchTriggered, setContentSearchTriggered] = useState(false);
@@ -494,6 +496,7 @@ const SessionHistoryComponent: React.FC = () => {
   // Clearing searchQuery changes the filter key, so the filter effect below also drops content-search results.
   const trackWorkspaceRequest = useResetOnWorkspaceChange(workspacePath, () => {
     setSearchQuery('');
+    setWorkFilter('all');
     setContentSearchTriggered(false);
     setIsSearching(false);
     setError(null);
@@ -504,6 +507,10 @@ const SessionHistoryComponent: React.FC = () => {
   // Tag filter state (parity with Kanban tag picker; session-only, no persistence)
   const allWorkspaceTags = useAtomValue(sessionKanbanTagsAtom);
   const tagFilter = useAtomValue(sessionListTagFilterAtom);
+  const revealMatches = searchQuery.trim().length > 0 || tagFilter.tags.length > 0 || workFilter !== 'all';
+  const summaryAreas = useMemo(() => [...new Map([...sessionRegistry.values()]
+    .filter(s => s.workspaceId === workspacePath && (s.remoteHostDeviceId ?? '') === (selectedRemoteHost ?? '') && (showArchived || !s.isArchived))
+    .flatMap(s => s.workSummary?.areas ?? []).map(area => [area.toLocaleLowerCase(), area])).values()].sort(), [sessionRegistry, workspacePath, selectedRemoteHost, showArchived]);
   const setTagFilter = useSetAtom(sessionListTagFilterAtom);
   const [showTagDropdown, setShowTagDropdown] = useState(false);
   const [tagQuery, setTagQuery] = useState('');
@@ -605,9 +612,6 @@ const SessionHistoryComponent: React.FC = () => {
   }, []);
 
   // Extract workspace name from path
-  const workspaceName = getFileName(workspacePath) || 'Workspace';
-  const projectAppearance = useAtomValue(projectAppearanceAtom(workspacePath)).snapshot?.appearance;
-  const workspaceColor = projectAppearance?.color || generateWorkspaceAccentColor(workspacePath);
   const useThrottledTurnOrdering = mode === 'agent' && sortBy === 'updated';
   const liveOrderTimestampMap = useMemo(() => {
     const timestamps = new Map<string, number>();
@@ -815,7 +819,7 @@ const SessionHistoryComponent: React.FC = () => {
   // a content search is active, this effect leaves `sessions` (already populated by
   // executeSearch) alone instead of clobbering it.
   useEffect(() => {
-    const filterKey = `${searchQuery}|${tagFilter.tags.join(',')}|${mode}`;
+    const filterKey = `${searchQuery}|${tagFilter.tags.join(',')}|${mode}|${workFilter}`;
     const userFilterInputsChanged = prevSessionFilterKeyRef.current !== filterKey;
     prevSessionFilterKeyRef.current = filterKey;
 
@@ -835,25 +839,28 @@ const SessionHistoryComponent: React.FC = () => {
     const titleQuery = searchQuery.trim().toLowerCase();
     const hasTitleQuery = titleQuery.length > 0;
 
-    if (!hasTitleQuery && !hasTagFilter) {
+    if (!hasTitleQuery && !hasTagFilter && workFilter === 'all') {
       // No filters - show all sessions (filtered by mode)
       setSessions([...sessionsToFilter].sort(compareSessionOrder));
       return;
     }
 
-    // Filter sessions by title (case-insensitive) AND tags (OR within tags).
-    const filtered = sessionsToFilter.filter(session => {
-      if (hasTitleQuery && !(session.title ?? '').toLowerCase().includes(titleQuery)) {
-        return false;
+    const matches = (session: SessionItem) =>
+      (!hasTitleQuery || matchesSessionWorkSearch(session, titleQuery)) &&
+      matchesWorkSummaryFilter(session.workSummary, workFilter) &&
+      (!hasTagFilter || activeTags.some(tag => matchesSessionListTag(session, tag, sessionRegistry)));
+    const matchingRoots = new Set<string>();
+    const matchingWorktrees = new Set<string>();
+    for (const candidate of sessionRegistry.values()) {
+      if (candidate.workspaceId !== workspacePath || (candidate.remoteHostDeviceId ?? '') !== (selectedRemoteHost ?? '') || (!showArchived && candidate.isArchived)) continue;
+      if (matches(candidate)) {
+        matchingRoots.add(sessionTreeRootId(candidate.id, sessionRegistry));
+        if (candidate.worktreeId) matchingWorktrees.add(candidate.worktreeId);
       }
-      if (hasTagFilter) {
-        const matchesAny = activeTags.some(t => matchesSessionListTag(session, t, sessionRegistry));
-        if (!matchesAny) return false;
-      }
-      return true;
-    });
+    }
+    const filtered = sessionsToFilter.filter(session => matches(session) || matchingRoots.has(session.id) || (!!session.worktreeId && matchingWorktrees.has(session.worktreeId)));
     setSessions(filtered.sort(compareSessionOrder));
-  }, [searchQuery, tagFilter.tags, allSessions, mode, compareSessionOrder, sessionRegistry, contentSearchTriggered]);
+  }, [searchQuery, tagFilter.tags, allSessions, mode, compareSessionOrder, sessionRegistry, contentSearchTriggered, workspacePath, selectedRemoteHost, showArchived, workFilter]);
 
   useEffect(() => {
     const commitOrderMap = (nextMap: Map<string, number>) => {
@@ -1913,15 +1920,6 @@ const SessionHistoryComponent: React.FC = () => {
     handleSuperLoopUpdate(loopId, { isPinned });
   };
 
-  const toggleSortDropdown = () => {
-    setSortDropdownOpen(!sortDropdownOpen);
-  };
-
-  const selectSortOption = (option: 'updated' | 'created') => {
-    setSortBy(option);
-    setSortDropdownOpen(false);
-  };
-
   const toggleNewDropdown = () => {
     newDropdownMenu.setIsOpen(!newDropdownMenu.isOpen);
   };
@@ -2072,18 +2070,6 @@ const SessionHistoryComponent: React.FC = () => {
       toggleNewDropdown();
     }
   };
-
-  // Close dropdowns when clicking outside
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as HTMLElement;
-      if (sortDropdownOpen && !target.closest('.session-history-sort-dropdown')) {
-        setSortDropdownOpen(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, [sortDropdownOpen]);
 
   // One pass over the registry: each session's tree root, and the non-root members of
   // each tree. Scanning the registry once per workstream was quadratic in session count.
@@ -2363,18 +2349,32 @@ const SessionHistoryComponent: React.FC = () => {
     [groupedItems],
   );
 
+  const todayActivityGroups = useAtomValue(useMemo(() => createTodayActivityGroupsAtom(
+    groupedItems.Today ?? [],
+    (item) => {
+      switch (item.type) {
+        case 'session': return [item.session.id];
+        case 'workstream': return [item.session.id, ...item.sessions.map(session => session.id)];
+        case 'worktree': return item.sessions.map(session => session.id);
+        case 'blitz': return item.worktrees.flatMap(worktree => worktree.sessions.map(session => session.id));
+        case 'superLoop': return (worktreeGroupsData.get(item.loop.worktreeId)?.sessions ?? []).map(session => session.id);
+      }
+    },
+  ), [groupedItems, worktreeGroupsData]));
+
   // Flatten groups and their visible items into a single array for Virtuoso.
   // Group headers are included as items; collapsed groups omit their children.
   // Workstream trees are flattened to one Virtuoso item per visible row.
   type FlatVirtuosoItem =
     | { kind: 'group-header'; key: string; groupKey: string; itemCount: number; isExpanded: boolean }
+    | { kind: 'activity-header'; key: string; title: string; itemCount: number }
     | { kind: 'item'; key: string; groupKey: string; item: UnifiedListItem }
     | { kind: 'tree-row'; key: string; groupKey: string; row: VisibleSessionTreeRow };
 
   const workstreamTrees = useMemo(() => {
     const trees: { key: string; rows: SessionItem[] }[] = [];
     for (const groupKey of groupKeys) {
-      if (collapsedGroups.includes(groupKey)) continue;
+      if (!revealMatches && collapsedGroups.includes(groupKey)) continue;
       for (const item of groupedItems[groupKey]) {
         if (item.type !== 'workstream') continue;
         const root = sessionRegistry.get(item.session.id) ?? item.session;
@@ -2382,29 +2382,34 @@ const SessionHistoryComponent: React.FC = () => {
       }
     }
     return trees;
-  }, [groupKeys, groupedItems, collapsedGroups, sessionRegistry]);
-  const workstreamTreeRows = useVisibleSessionTreeRows(workstreamTrees, activeSessionId, workspacePath);
+  }, [groupKeys, groupedItems, collapsedGroups, sessionRegistry, revealMatches]);
+  const workstreamTreeRows = useVisibleSessionTreeRows(workstreamTrees, activeSessionId, workspacePath, revealMatches);
 
   const flatVirtuosoItems = useMemo(() => {
     const flat: FlatVirtuosoItem[] = [];
     for (const groupKey of groupKeys) {
       const items = groupedItems[groupKey];
-      const isExpanded = !collapsedGroups.includes(groupKey);
+      const isExpanded = revealMatches || !collapsedGroups.includes(groupKey);
       flat.push({ kind: 'group-header', key: `group:${groupKey}`, groupKey, itemCount: items.length, isExpanded });
       if (isExpanded) {
-        for (const item of items) {
-          if (item.type === 'workstream') {
-            for (const row of workstreamTreeRows.get(item.session.id) ?? []) {
-              flat.push({ kind: 'tree-row', key: `tree:${row.node.session.id}`, groupKey, row });
+        const sections = groupKey === 'Today' ? Object.entries(todayActivityGroups) : [['', items] as const];
+        for (const [activity, sectionItems] of sections) {
+          if (!sectionItems.length) continue;
+          if (activity) flat.push({ kind: 'activity-header', key: `activity:${activity}`, title: activity, itemCount: sectionItems.length });
+          for (const item of sectionItems) {
+            if (item.type === 'workstream') {
+              for (const row of workstreamTreeRows.get(item.session.id) ?? []) {
+                flat.push({ kind: 'tree-row', key: `tree:${row.node.session.id}${row.olderCount ? ':older' : ''}`, groupKey, row });
+              }
+              continue;
             }
-            continue;
+            flat.push({ kind: 'item', key: `${item.type}:${unifiedItemId(item)}`, groupKey, item });
           }
-          flat.push({ kind: 'item', key: `${item.type}:${unifiedItemId(item)}`, groupKey, item });
         }
       }
     }
     return flat;
-  }, [groupKeys, groupedItems, collapsedGroups, workstreamTreeRows]);
+  }, [groupKeys, groupedItems, collapsedGroups, workstreamTreeRows, revealMatches, todayActivityGroups]);
 
   // Keep visual order ref in sync with the flattened list for shift-click range selection.
   // Must include ALL visible session IDs in exact visual order -- including sessions nested
@@ -2412,11 +2417,11 @@ const SessionHistoryComponent: React.FC = () => {
   visualOrderRef.current = () => {
     const ids: string[] = [];
     const treeOrder = (rows: SessionItem[]) => visibleSessionTreeIds(rows.map(row => ({...row, updatedAt: Math.max(row.updatedAt, workspaceTurnActivity.get(row.id) ?? 0)})), node =>
-      store.get(workstreamStateAtom(node.session.id)).treeExpanded ?? node.ids.some(id => id === activeSessionId || store.get(sessionProcessingAtom(id)) || store.get(sessionUnreadAtom(id)) || store.get(sessionHasPendingInteractivePromptAtom(id)))
+      revealMatches || store.get(workstreamStateAtom(node.session.id)).treeExpanded === true
     );
     for (const entry of flatVirtuosoItems) {
       if (entry.kind === 'tree-row') {
-        ids.push(entry.row.node.session.id);
+        if (!entry.row.olderCount) ids.push(entry.row.node.session.id);
         continue;
       }
       if (entry.kind !== 'item') continue;
@@ -2428,7 +2433,7 @@ const SessionHistoryComponent: React.FC = () => {
         case 'workstream':
           break;
         case 'worktree':
-          if (!collapsedGroups.includes(`worktree:${item.worktreeId}`)) ids.push(...treeOrder(item.sessions));
+          if (revealMatches || !collapsedGroups.includes(`worktree:${item.worktreeId}`)) ids.push(...treeOrder(item.sessions));
           break;
         case 'blitz':
           for (const wt of item.worktrees) {
@@ -2671,137 +2676,39 @@ const SessionHistoryComponent: React.FC = () => {
     // sets the cache and writes the registry atom).
   }, [sessions, collapsedGroups, workspacePath, showArchived]);
 
+  const renderToolbar = (children?: React.ReactNode) => <SessionNavigationToolbar
+    workspacePath={workspacePath} search={searchQuery} onSearch={setSearchQuery} onNew={onNewSession}
+    workFilter={workFilter} onWorkFilter={setWorkFilter} areas={summaryAreas}
+    sort={sortBy} onSort={setSortBy} archived={showArchived} onArchive={toggleShowArchived}
+    kanban={viewMode === 'kanban'} onKanban={() => {
+      const newMode = viewMode === 'kanban' ? 'list' : 'kanban';
+      posthog?.capture('session_view_mode_switched', { fromMode: viewMode, toMode: newMode });
+      setViewMode(newMode);
+    }} compact={compactRows} onCompact={() => setCompactRows(!compactRows)}
+    context={showContextUsage} onContext={() => setShowContextUsage(!showContextUsage)} count={iosMatchCount}
+    actions={[
+      { label: 'New workstream', run: onNewWorkstream },
+      ...(onNewWorktreeSession ? [{ label: 'New worktree', run: openWorktreeBaseBranchPicker, disabled: isNotGitRepo }] : []),
+      ...(onNewTerminal ? [{ label: 'New terminal', run: onNewTerminal }] : []),
+      ...(onNewBlitz ? [{ label: 'New Blitz', run: onNewBlitz, disabled: isNotGitRepo }] : []),
+      ...(isSuperLoopsAvailable ? [{ label: 'New Super Loop', run: openSuperLoopDialog, disabled: isNotGitRepo }] : []),
+      ...(isMetaAgentEnabled ? [{ label: 'New coordinator', run: handleNewMetaAgent }] : []),
+      ...(onOpenQuickSearch ? [{ label: 'Search all sessions', run: onOpenQuickSearch }] : []),
+      ...(onImportSessions ? [{ label: 'Import sessions', run: onImportSessions }] : []),
+    ]}>{children}</SessionNavigationToolbar>;
+
   if (loading) {
-    return (
-      <div className="session-history flex flex-col h-full bg-[var(--nim-bg)] overflow-hidden">
-        <div className="workspace-color-accent h-[3px] w-full opacity-90 shrink-0" style={{ backgroundColor: workspaceColor }} />
-        <WorkspaceSummaryHeader showMachineSelector
-          workspacePath={workspacePath}
-          workspaceName={workspaceName}
-          showAccent={false}
-          actions={
-            <>
-            {onOpenQuickSearch && (
-              <HelpTooltip testId="session-quick-search-button">
-                <button
-                  className="session-history-search-button flex items-center justify-center p-1.5 bg-[var(--nim-bg-secondary)] border border-[var(--nim-border)] rounded text-[var(--nim-text)] cursor-pointer transition-colors duration-150 shrink-0 hover:bg-[var(--nim-bg-hover)] hover:border-[var(--nim-primary)] active:bg-[var(--nim-bg-tertiary)] [&_svg]:block"
-                  data-testid="session-quick-search-button"
-                  onClick={onOpenQuickSearch}
-                  aria-label="Search sessions"
-                >
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.5"/>
-                    <path d="M10.5 10.5L14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                  </svg>
-                </button>
-              </HelpTooltip>
-            )}
-            {onImportSessions && (
-              <button
-                className="session-history-import-button flex items-center justify-center p-1.5 bg-[var(--nim-bg-secondary)] border border-[var(--nim-border)] rounded text-[var(--nim-text)] cursor-pointer transition-colors duration-150 shrink-0 hover:bg-[var(--nim-bg-hover)] hover:border-[var(--nim-primary)] active:bg-[var(--nim-bg-tertiary)] [&_svg]:block"
-                data-testid="import-sessions-button"
-                onClick={onImportSessions}
-                title="Import Claude Agent sessions"
-                aria-label="Import sessions"
-              >
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M13.5 8.5V12.5C13.5 13.0523 13.0523 13.5 12.5 13.5H3.5C2.94772 13.5 2.5 13.0523 2.5 12.5V8.5M8 2.5V10.5M8 10.5L5.5 8M8 10.5L10.5 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                </svg>
-              </button>
-            )}
-            </>
-          }
-        />
-        <div className="session-history-section-label px-3 py-1.5 text-[11px] font-semibold text-[var(--nim-text-faint)] uppercase tracking-wider border-b border-[var(--nim-border)] bg-[var(--nim-bg-secondary)] shrink-0">Agent Sessions</div>
-        <div className="session-history-search px-3 py-2 border-b border-[var(--nim-border)] shrink-0 relative">
-          <input
-            type="text"
-            className="session-history-search-input nim-input w-full pl-3 pr-9 py-2 text-[13px] text-[var(--nim-text)] bg-[var(--nim-bg-secondary)] border border-[var(--nim-border)] rounded outline-none transition-colors duration-150 placeholder:text-[var(--nim-text-faint)] focus:border-[var(--nim-primary)] focus:bg-[var(--nim-bg)]"
-            placeholder="Search sessions..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            aria-label="Search sessions"
-          />
-          {searchQuery && (
-            <button
-              type="button"
-              className="session-history-search-clear absolute right-5 top-1/2 -translate-y-1/2 flex items-center justify-center w-5 h-5 rounded text-[var(--nim-text-muted)] bg-transparent border-none cursor-pointer transition-colors duration-150 hover:bg-[var(--nim-bg-hover)] hover:text-[var(--nim-text)]"
-              onClick={() => setSearchQuery('')}
-              aria-label="Clear search"
-              title="Clear search"
-            >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M4 4L12 12M12 4L4 12" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-              </svg>
-            </button>
-          )}
-        </div>
-        <div className="session-history-filters flex items-center px-3 py-2 border-b border-[var(--nim-border)] gap-1.5 shrink-0">
-          <div className="session-history-sort-dropdown ml-auto relative">
-            <button
-              className="session-history-sort-button flex items-center justify-center px-1.5 py-1 text-xs rounded border border-[var(--nim-border)] bg-[var(--nim-bg-secondary)] text-[var(--nim-text-muted)] cursor-pointer transition-all duration-150 outline-none hover:bg-[var(--nim-bg-tertiary)] hover:border-[var(--nim-primary)] hover:text-[var(--nim-text)] [&_svg]:block"
-              onClick={toggleSortDropdown}
-              title={`Sorted by: ${sortBy === 'updated' ? 'Last Updated' : 'Created'}`}
-              aria-label="Sort sessions"
-            >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M8 2V14M8 14L4 10M8 14L12 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
-            {sortDropdownOpen && (
-              <div className="session-history-sort-menu absolute top-[calc(100%+4px)] right-0 min-w-[140px] bg-[var(--nim-bg)] border border-[var(--nim-border)] rounded overflow-hidden z-[100] shadow-[0_4px_12px_rgba(0,0,0,0.15)]">
-                <button
-                  className={`session-history-sort-option flex items-center justify-between w-full px-3 py-2 text-[13px] border-none text-[var(--nim-text)] cursor-pointer transition-colors duration-150 text-left gap-2 hover:bg-[var(--nim-bg-hover)] [&>span]:flex-1 [&_svg]:shrink-0 [&_svg]:text-[var(--nim-primary)] ${sortBy === 'updated' ? 'bg-[var(--nim-bg-selected)] font-medium' : ''}`}
-                  onClick={() => selectSortOption('updated')}
-                >
-                  <span>Last Updated</span>
-                  {sortBy === 'updated' && (
-                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M13 4L6 11L3 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                  )}
-                </button>
-                <button
-                  className={`session-history-sort-option flex items-center justify-between w-full px-3 py-2 text-[13px] border-none text-[var(--nim-text)] cursor-pointer transition-colors duration-150 text-left gap-2 hover:bg-[var(--nim-bg-hover)] [&>span]:flex-1 [&_svg]:shrink-0 [&_svg]:text-[var(--nim-primary)] ${sortBy === 'created' ? 'bg-[var(--nim-bg-selected)] font-medium' : ''}`}
-                  onClick={() => selectSortOption('created')}
-                >
-                  <span>Created</span>
-                  {sortBy === 'created' && (
-                    <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                      <path d="M13 4L6 11L3 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                    </svg>
-                  )}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-        <div className="session-history-loading flex flex-col items-center justify-center px-4 py-8 text-center text-[var(--nim-text-faint)] text-[13px]">
-          <span>Searching sessions...</span>
-        </div>
-      </div>
-    );
+    return <div className="session-history flex flex-col h-full bg-[var(--nim-bg)] overflow-hidden">
+      {renderToolbar()}
+      <div className="session-history-loading p-4 text-xs text-[var(--nim-text-faint)]">Loading sessions…</div>
+    </div>;
   }
 
   if (error) {
-    return (
-      <div className="session-history flex flex-col h-full bg-[var(--nim-bg)] overflow-hidden">
-        <div className="workspace-color-accent h-[3px] w-full opacity-90 shrink-0" style={{ backgroundColor: workspaceColor }} />
-        <WorkspaceSummaryHeader showMachineSelector
-          workspacePath={workspacePath}
-          workspaceName={workspaceName}
-          showAccent={false}
-          actions={
-            <>
-            </>
-          }
-        />
-        <div className="session-history-section-label px-3 py-1.5 text-[11px] font-semibold text-[var(--nim-text-faint)] uppercase tracking-wider border-b border-[var(--nim-border)] bg-[var(--nim-bg-secondary)] shrink-0">Agent Sessions</div>
-        <div className="session-history-error flex flex-col items-center justify-center px-4 py-8 text-center text-[var(--nim-error)] text-[13px]">
-          <span>{error}</span>
-        </div>
-      </div>
-    );
+    return <div className="session-history flex flex-col h-full bg-[var(--nim-bg)] overflow-hidden">
+      {renderToolbar()}
+      <div className="session-history-error p-4 text-xs text-[var(--nim-error)]">{error}</div>
+    </div>;
   }
 
   // Check if we have an active search query
@@ -2840,44 +2747,8 @@ const SessionHistoryComponent: React.FC = () => {
     // session with the filtered tag). See GitHub #470 / NIM-675.
     return (
       <div className="session-history flex flex-col h-full bg-[var(--nim-bg)] overflow-hidden">
-        <div className="workspace-color-accent h-[3px] w-full opacity-90 shrink-0" style={{ backgroundColor: workspaceColor }} />
-        <WorkspaceSummaryHeader showMachineSelector
-          workspacePath={workspacePath}
-          workspaceName={workspaceName}
-          showAccent={false}
-          actions={
-            <>
-              {onImportSessions && (
-                <button
-                  className="session-history-import-button flex items-center justify-center p-1.5 bg-[var(--nim-bg-secondary)] border border-[var(--nim-border)] rounded text-[var(--nim-text)] cursor-pointer transition-colors duration-150 shrink-0 hover:bg-[var(--nim-bg-hover)] hover:border-[var(--nim-primary)] active:bg-[var(--nim-bg-tertiary)] [&_svg]:block"
-                  data-testid="import-sessions-button"
-                  onClick={onImportSessions}
-                  title="Import Claude Agent sessions"
-                  aria-label="Import sessions"
-                >
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M13.5 8.5V12.5C13.5 13.0523 13.0523 13.5 12.5 13.5H3.5C2.94772 13.5 2.5 13.0523 2.5 12.5V8.5M8 2.5V10.5M8 10.5L5.5 8M8 10.5L10.5 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                </button>
-              )}
-              {onNewTerminal && (
-                <button
-                  className="session-history-new-terminal-button flex items-center justify-center p-1.5 bg-[var(--nim-bg-secondary)] border border-[var(--nim-border)] rounded text-[var(--nim-text)] cursor-pointer transition-colors duration-150 shrink-0 hover:bg-[var(--nim-bg-hover)] hover:border-[var(--nim-primary)] active:bg-[var(--nim-bg-tertiary)] [&_svg]:block"
-                  data-testid="new-terminal-button"
-                  onClick={() => onNewTerminal()}
-                  title="New terminal"
-                  aria-label="Create new terminal"
-                >
-                  <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M3 5L7 9L3 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-                    <path d="M9 13H13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                  </svg>
-                </button>
-              )}
-            </>
-          }
-        />
-        <div className="session-history-section-label px-3 py-1.5 text-[11px] font-semibold text-[var(--nim-text-faint)] uppercase tracking-wider border-b border-[var(--nim-border)] bg-[var(--nim-bg-secondary)] shrink-0">Agent Sessions</div>
+
+        {renderToolbar()}
         <div className="session-history-empty flex flex-col items-center justify-center px-4 py-8 text-center text-[var(--nim-text-faint)] text-[13px]">
           <p className="my-1">No sessions yet</p>
           <p className="session-history-empty-hint my-1 text-xs text-[var(--nim-text-faint)]">
@@ -2895,73 +2766,15 @@ const SessionHistoryComponent: React.FC = () => {
 
   return (
     <div className="session-history flex flex-col h-full bg-[var(--nim-bg)] overflow-hidden">
-      <div className="workspace-color-accent h-[3px] w-full opacity-90 shrink-0" style={{ backgroundColor: workspaceColor }} />
-      <WorkspaceSummaryHeader showMachineSelector
-        workspacePath={workspacePath}
-        workspaceName={workspaceName}
-        showAccent={false}
-        actions={
-          <>
-          <HelpTooltip testId="session-kanban-button">
-            <button
-              className={`flex items-center gap-1 px-2 py-1.5 text-[11px] font-semibold rounded border cursor-pointer transition-all duration-150 shrink-0 ${viewMode === 'kanban' ? 'bg-[var(--nim-primary)] border-[var(--nim-primary)] text-white hover:opacity-90' : 'bg-[var(--nim-bg-secondary)] border-[var(--nim-border)] text-[var(--nim-text-muted)] hover:bg-[var(--nim-bg-hover)] hover:border-[var(--nim-primary)] hover:text-[var(--nim-text)]'}`}
-              data-testid="session-kanban-button"
-              onClick={() => {
-                const newMode = viewMode === 'kanban' ? 'list' : 'kanban';
-                posthog?.capture('session_view_mode_switched', {
-                  fromMode: viewMode,
-                  toMode: newMode,
-                });
-                setViewMode(newMode);
-              }}
-              aria-label={viewMode === 'kanban' ? 'Switch to list view' : 'Switch to kanban view'}
-            >
-              <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <rect x="1.5" y="2" width="3.5" height="12" rx="0.75" stroke="currentColor" strokeWidth="1.25"/>
-                <rect x="6.25" y="2" width="3.5" height="8" rx="0.75" stroke="currentColor" strokeWidth="1.25"/>
-                <rect x="11" y="2" width="3.5" height="10" rx="0.75" stroke="currentColor" strokeWidth="1.25"/>
-              </svg>
-              Kanban
-            </button>
-          </HelpTooltip>
-          {onOpenQuickSearch && (
-            <HelpTooltip testId="session-quick-search-button">
-              <button
-                className="session-history-search-button flex items-center justify-center p-1.5 bg-[var(--nim-bg-secondary)] border border-[var(--nim-border)] rounded text-[var(--nim-text)] cursor-pointer transition-colors duration-150 shrink-0 hover:bg-[var(--nim-bg-hover)] hover:border-[var(--nim-primary)] active:bg-[var(--nim-bg-tertiary)] [&_svg]:block"
-                data-testid="session-quick-search-button"
-                onClick={onOpenQuickSearch}
-                aria-label="Search sessions"
-              >
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.5"/>
-                  <path d="M10.5 10.5L14 14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                </svg>
-              </button>
-            </HelpTooltip>
-          )}
-          {onImportSessions && (
-            <button
-              className="session-history-import-button flex items-center justify-center p-1.5 bg-[var(--nim-bg-secondary)] border border-[var(--nim-border)] rounded text-[var(--nim-text)] cursor-pointer transition-colors duration-150 shrink-0 hover:bg-[var(--nim-bg-hover)] hover:border-[var(--nim-primary)] active:bg-[var(--nim-bg-tertiary)] [&_svg]:block"
-              data-testid="import-sessions-button"
-              onClick={onImportSessions}
-              title="Import Claude Agent sessions"
-              aria-label="Import sessions"
-            >
-              <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M13.5 8.5V12.5C13.5 13.0523 13.0523 13.5 12.5 13.5H3.5C2.94772 13.5 2.5 13.0523 2.5 12.5V8.5M8 2.5V10.5M8 10.5L5.5 8M8 10.5L10.5 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-              </svg>
-            </button>
-          )}
-          </>
-        }
-      />
-      <div className="session-history-section-label px-3 py-1.5 text-[11px] font-semibold text-[var(--nim-text-faint)] uppercase tracking-wider border-b border-[var(--nim-border)] bg-[var(--nim-bg-secondary)] shrink-0">Agent Sessions</div>
+
+      {renderToolbar(
       <div className="session-history-search px-3 py-2 border-b border-[var(--nim-border)] shrink-0 relative z-10">
         <input
           ref={searchInputRef}
           type="text"
           className="session-history-search-input nim-input w-full px-3 py-2 pr-14 text-[13px] text-[var(--nim-text)] bg-[var(--nim-bg-secondary)] border border-[var(--nim-border)] rounded outline-none transition-colors duration-150 placeholder:text-[var(--nim-text-faint)] focus:border-[var(--nim-primary)] focus:bg-[var(--nim-bg)]"
-          placeholder="Search or type # to filter by tag..."
+          placeholder="Search sessions, work or #tags…"
+          title="Search titles, scope, remaining work and areas; type # for tags"
           value={showTagDropdown
             ? (searchQuery ? searchQuery + ' ' : '') + '#' + tagQuery
             : searchQuery}
@@ -3179,103 +2992,7 @@ const SessionHistoryComponent: React.FC = () => {
           </div>
         )}
       </div>
-      <div className="session-history-filters flex items-center px-3 py-2 border-b border-[var(--nim-border)] gap-1.5 shrink-0">
-        <button
-          className={`session-history-archive-filter flex items-center justify-center px-1.5 py-1 text-xs rounded border border-[var(--nim-border)] bg-[var(--nim-bg-secondary)] text-[var(--nim-text-faint)] cursor-pointer transition-all duration-150 outline-none hover:bg-[var(--nim-bg-tertiary)] hover:border-[var(--nim-primary)] hover:text-[var(--nim-text)] [&_svg]:block ${showArchived ? 'bg-[var(--nim-primary)] border-[var(--nim-primary)] text-white hover:opacity-90' : ''}`}
-          onClick={toggleShowArchived}
-          title={showArchived ? 'Hide archived sessions' : 'Show archived sessions'}
-          aria-label={showArchived ? 'Hide archived sessions' : 'Show archived sessions'}
-        >
-          <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M2 5h12M4 5v8a1 1 0 001 1h6a1 1 0 001-1V5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round"/>
-            <path d="M6 8h4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round"/>
-          </svg>
-        </button>
-        {(() => {
-          const hasFilter = searchQuery.trim().length > 0 || tagFilter.tags.length > 0;
-          const visibleCount = sessions.length;
-          const totalLabel = `${iosMatchCount} non-archived session${iosMatchCount === 1 ? '' : 's'} in this workspace (matches the iOS project list count)`;
-          const title = hasFilter
-            ? `${visibleCount} of ${iosMatchCount} visible after current filters -- ${totalLabel}`
-            : totalLabel;
-          return (
-            <span
-              className="session-history-match-count text-[11px] text-[var(--nim-text-faint)] tabular-nums"
-              title={title}
-              data-testid="session-list-match-count"
-            >
-              {hasFilter
-                ? `${visibleCount} of ${iosMatchCount} session${iosMatchCount === 1 ? '' : 's'}`
-                : `${iosMatchCount} session${iosMatchCount === 1 ? '' : 's'}`}
-            </span>
-          );
-        })()}
-        <div className="session-history-sort-dropdown ml-auto relative">
-          <button
-            className="session-history-sort-button flex items-center justify-center px-1.5 py-1 text-xs rounded border border-[var(--nim-border)] bg-[var(--nim-bg-secondary)] text-[var(--nim-text-muted)] cursor-pointer transition-all duration-150 outline-none hover:bg-[var(--nim-bg-tertiary)] hover:border-[var(--nim-primary)] hover:text-[var(--nim-text)] [&_svg]:block"
-            onClick={toggleSortDropdown}
-            title={`Sorted by: ${sortBy === 'updated' ? 'Last Updated' : 'Created'}`}
-            aria-label="Sort sessions"
-          >
-            <svg width="14" height="14" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M8 2V14M8 14L4 10M8 14L12 10" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
-            </svg>
-          </button>
-          {sortDropdownOpen && (
-            <div className="session-history-sort-menu absolute top-[calc(100%+4px)] right-0 min-w-[140px] bg-[var(--nim-bg)] border border-[var(--nim-border)] rounded overflow-hidden z-[100] shadow-[0_4px_12px_rgba(0,0,0,0.15)]">
-              <button
-                className={`session-history-sort-option flex items-center justify-between w-full px-3 py-2 text-[13px] border-none text-[var(--nim-text)] cursor-pointer transition-colors duration-150 text-left gap-2 hover:bg-[var(--nim-bg-hover)] [&>span]:flex-1 [&_svg]:shrink-0 [&_svg]:text-[var(--nim-primary)] ${sortBy === 'updated' ? 'bg-[var(--nim-bg-selected)] font-medium' : ''}`}
-                onClick={() => selectSortOption('updated')}
-              >
-                <span>Last Updated</span>
-                {sortBy === 'updated' && (
-                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M13 4L6 11L3 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                )}
-              </button>
-              <button
-                className={`session-history-sort-option flex items-center justify-between w-full px-3 py-2 text-[13px] border-none text-[var(--nim-text)] cursor-pointer transition-colors duration-150 text-left gap-2 hover:bg-[var(--nim-bg-hover)] [&>span]:flex-1 [&_svg]:shrink-0 [&_svg]:text-[var(--nim-primary)] ${sortBy === 'created' ? 'bg-[var(--nim-bg-selected)] font-medium' : ''}`}
-                onClick={() => selectSortOption('created')}
-              >
-                <span>Created</span>
-                {sortBy === 'created' && (
-                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M13 4L6 11L3 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                )}
-              </button>
-              <div className="session-history-sort-divider border-t border-[var(--nim-border)]" />
-              <button
-                className={`session-history-compact-option flex items-center justify-between w-full px-3 py-2 text-[13px] border-none text-[var(--nim-text)] cursor-pointer transition-colors duration-150 text-left gap-2 hover:bg-[var(--nim-bg-hover)] [&>span]:flex-1 [&_svg]:shrink-0 [&_svg]:text-[var(--nim-primary)] ${compactRows ? 'bg-[var(--nim-bg-selected)] font-medium' : ''}`}
-                onClick={() => { setCompactRows(!compactRows); setSortDropdownOpen(false); }}
-                role="menuitemcheckbox"
-                aria-checked={compactRows}
-              >
-                <span>Compact rows</span>
-                {compactRows && (
-                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M13 4L6 11L3 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                )}
-              </button>
-              <button
-                className={`session-history-context-usage-option flex items-center justify-between w-full px-3 py-2 text-[13px] border-none text-[var(--nim-text)] cursor-pointer transition-colors duration-150 text-left gap-2 hover:bg-[var(--nim-bg-hover)] [&>span]:flex-1 [&_svg]:shrink-0 [&_svg]:text-[var(--nim-primary)] ${showContextUsage ? 'bg-[var(--nim-bg-selected)] font-medium' : ''}`}
-                onClick={() => { setShowContextUsage(!showContextUsage); setSortDropdownOpen(false); }}
-                role="menuitemcheckbox"
-                aria-checked={showContextUsage}
-              >
-                <span>Show context usage</span>
-                {showContextUsage && (
-                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M13 4L6 11L3 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
-                  </svg>
-                )}
-              </button>
-            </div>
-          )}
-        </div>
-      </div>
+      )}
       {(selectedSessionIds.size > 0 || selectedGroupIds.size > 0) && (
         <div className="session-history-bulk-actions flex items-center justify-between px-3 py-2 bg-[var(--nim-bg-selected)] border-b border-[var(--nim-border)] gap-2">
           <span className="session-history-bulk-count text-xs font-medium text-[var(--nim-text)]">{selectedSessionIds.size + selectedGroupIds.size} selected</span>
@@ -3347,6 +3064,7 @@ const SessionHistoryComponent: React.FC = () => {
                 if (entry.kind === 'tree-row') {
                   return (
                     <SessionTreeRow
+                      revealMatches={revealMatches}
                       {...entry.row}
                       activeSessionId={activeSessionId}
                       projectPath={workspacePath}
@@ -3385,16 +3103,21 @@ const SessionHistoryComponent: React.FC = () => {
                   );
                 }
 
+                if (entry.kind === 'activity-header') {
+                  return <SessionActivityHeader title={entry.title} count={entry.itemCount} />;
+                }
+
                 // Render the appropriate item type
                 const item = entry.item;
                 if (item.type === 'blitz') {
                   const blitzData = blitzCache.get(item.blitzId);
-                  const isBlitzExpanded = !collapsedGroups.includes(`blitz:${item.blitzId}`);
+                  const isBlitzExpanded = revealMatches || !collapsedGroups.includes(`blitz:${item.blitzId}`);
                   const allSessionIds = item.worktrees.flatMap(w => w.sessions.map(s => s.id));
                   const isBlitzActive = allSessionIds.includes(activeSessionId || '');
 
                   return (
                     <BlitzGroup
+                      revealMatches={revealMatches}
                       blitzId={item.blitzId}
                       title={blitzData?.displayName || (blitzData?.prompt ? blitzData.prompt.slice(0, 60) + (blitzData.prompt.length > 60 ? '...' : '') : 'Loading...')}
                       isExpanded={isBlitzExpanded}
@@ -3427,11 +3150,12 @@ const SessionHistoryComponent: React.FC = () => {
                 }
                 if (item.type === 'worktree') {
                   const worktreeData = worktreeCache.get(item.worktreeId);
-                  const isWorktreeExpanded = !collapsedGroups.includes(`worktree:${item.worktreeId}`);
+                  const isWorktreeExpanded = revealMatches || !collapsedGroups.includes(`worktree:${item.worktreeId}`);
 
                   return (
                     <WorkstreamGroup
                       type="worktree"
+                      revealMatches={revealMatches}
                       projectPath={workspacePath}
                       id={item.worktreeId}
                       title={worktreeData?.displayName || worktreeData?.name || 'Loading...'}
@@ -3515,7 +3239,7 @@ const SessionHistoryComponent: React.FC = () => {
                   );
                 }
                 if (item.type === 'superLoop') {
-                  const isSuperExpanded = !collapsedGroups.includes(`super-loop:${item.loop.id}`);
+                  const isSuperExpanded = revealMatches || !collapsedGroups.includes(`super-loop:${item.loop.id}`);
                   const superWorktreeSessions = worktreeGroupsData.get(item.loop.worktreeId);
                   const isSuperActive = superWorktreeSessions
                     ? superWorktreeSessions.sessions.some(s => s.id === activeSessionId)

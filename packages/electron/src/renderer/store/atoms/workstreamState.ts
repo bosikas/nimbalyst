@@ -235,8 +235,9 @@ export interface WorkstreamState {
   /** Resolved worktree path (cached so it's available synchronously on remount) */
   worktreePath: string | null;
 
-  /** Explicit sidebar expansion; null follows active/unread descendants. */
+  /** Sidebar branches start collapsed; explicit expansion expires after inactivity. */
   treeExpanded: boolean | null;
+  treeExpandedUntil: number | null;
 
   // ===== UI State (persisted per-workstream) =====
   /** Layout mode (split/editor/transcript) */
@@ -289,9 +290,10 @@ function createDefaultState(id: string): WorkstreamState {
     worktreeId: null,
     worktreePath: null,
     treeExpanded: null,
+    treeExpandedUntil: null,
     layoutMode: 'transcript', // Start with transcript maximized
     splitRatio: 0.5,
-    filesSidebarVisible: true,
+    filesSidebarVisible: false,
     rightPanelMode: 'edited-files',
     lastAuxiliaryPanelMode: 'edited-files',
     fileViewerWidth: null,
@@ -1174,7 +1176,7 @@ export const transferSessionStateToWrapperAtom = atom(
       worktreePath: null,
       layoutMode: 'transcript',
       splitRatio: 0.5,
-      filesSidebarVisible: true,
+      filesSidebarVisible: false,
       rightPanelMode: 'edited-files',
       lastAuxiliaryPanelMode: 'edited-files',
       fileViewerWidth: null,
@@ -1293,7 +1295,8 @@ export async function loadWorkstreamStates(workspacePath: string): Promise<void>
 
     const map = new Map<string, WorkstreamState>();
     for (const [id, state] of Object.entries(saved)) {
-      map.set(id, state as WorkstreamState);
+      // Start restored chats in the transcript; explicit panel actions can open it.
+      map.set(id, { ...(state as WorkstreamState), filesSidebarVisible: false, treeExpanded: false, treeExpandedUntil: null });
       // console.log('[workstreamState] Restored state for', id, ':', state);
     }
     store.set(workstreamStatesAtom, map);
@@ -1349,10 +1352,11 @@ export async function loadWorkstreamState(workstreamId: string): Promise<void> {
       const merged: WorkstreamState = {
         ...current,
         // UI state from persisted
-        treeExpanded: restored.treeExpanded,
+        treeExpanded: false,
+        treeExpandedUntil: null,
         layoutMode: (saved as WorkstreamState).layoutMode ?? current.layoutMode,
         splitRatio: (saved as WorkstreamState).splitRatio ?? current.splitRatio,
-        filesSidebarVisible: (saved as WorkstreamState).filesSidebarVisible ?? current.filesSidebarVisible,
+        filesSidebarVisible: false,
         rightPanelMode: normalizeRightPanelMode((saved as WorkstreamState).rightPanelMode ?? current.rightPanelMode),
         lastAuxiliaryPanelMode: restored.lastAuxiliaryPanelMode,
         fileViewerWidth: restored.fileViewerWidth,

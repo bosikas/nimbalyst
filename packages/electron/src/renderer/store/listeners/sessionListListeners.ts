@@ -8,6 +8,7 @@
  */
 
 import { store } from '../index';
+import { readSessionWorkSummary } from '@nimbalyst/runtime/ai/sessionWorkSummary';
 import { sessionBackgroundTasksAtom, type BackgroundTaskSummary } from '../atoms/sessionBackgroundTasks';
 import {
   refreshSessionListAtom,
@@ -15,6 +16,7 @@ import {
   sessionRegistryAtom,
   sessionChildrenAtom,
   sessionParentIdAtom,
+  activeSessionIdAtom,
 } from '../atoms/sessions';
 import { workstreamStateAtom } from '../atoms/workstreamState';
 import { sessionRefMapAtom, type SessionRefMeta } from '@nimbalyst/runtime/ui/AgentTranscript/session/sessionRefAtoms';
@@ -29,6 +31,9 @@ const DEBOUNCE_MS = 150; // Debounce rapid refreshes within 150ms
  */
 export function initSessionListListeners(): () => void {
   const cleanups: Array<() => void> = [];
+  const publishVisible = () => window.electronAPI.send?.('sessions:visible-session', store.get(activeSessionIdAtom) ?? null);
+  publishVisible();
+  cleanups.push(store.sub(activeSessionIdAtom, publishVisible));
 
   // Handle session list refresh requests (e.g., from mobile sync, session creation)
   const handleRefreshRequest = (data: { workspacePath: string; sessionId?: string }) => {
@@ -72,6 +77,9 @@ export function initSessionListListeners(): () => void {
     if (meta) {
       registry.set(sessionId, {
         ...meta,
+        ...(updates.workSummary !== undefined && { workSummary: readSessionWorkSummary(updates.workSummary) }),
+        ...(typeof updates.generateSummary === 'boolean' && { generateSummary: updates.generateSummary }),
+        ...(typeof updates.autoArchiveAfterMinutes === 'number' && { autoArchiveAfterMinutes: updates.autoArchiveAfterMinutes }),
         ...(updates.phase !== undefined && { phase: updates.phase as string }),
         ...(updates.tags !== undefined && { tags: updates.tags as string[] }),
         ...(updates.title !== undefined && { title: updates.title as string }),

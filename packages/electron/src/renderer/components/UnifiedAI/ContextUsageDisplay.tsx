@@ -160,6 +160,7 @@ export function ContextUsageDisplay({
   }, [enableTooltip]);
 
   const handleKeyDown = useCallback((event: React.KeyboardEvent) => {
+    if (event.target !== event.currentTarget) return;
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
       toggleTooltip();
@@ -280,6 +281,7 @@ export function ContextUsageDisplay({
           className="context-usage-tooltip absolute right-0 bottom-[calc(100%+8px)] w-[280px] max-w-[calc(100vw-32px)] max-h-[70vh] p-3 rounded-[10px] bg-[var(--nim-bg)] border border-[var(--nim-border)] shadow-[0_12px_32px_rgba(0,0,0,0.35)] z-10 text-[var(--nim-text)] overflow-y-auto box-border"
           id={tooltipId}
           role="tooltip"
+          onClick={(event) => event.stopPropagation()}
         >
           <div className="tooltip-header flex justify-between items-center text-xs mb-2 text-[var(--nim-text-muted)]">
             <div className="tooltip-header-left flex items-center gap-1.5">

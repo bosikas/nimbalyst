@@ -91,7 +91,7 @@ describe('buildCodexSystemPrompt', () => {
     const documentContext = {
       isVoiceMode: true,
       voiceModeCodingAgentPrompt: { prepend: 'HUMAN VOICE BEFORE', append: 'HUMAN VOICE AFTER' },
-    } as DocumentContext;
+    } as DocumentContext & { voiceModeCodingAgentPrompt: { prepend: string; append: string } };
     for (const prompt of [
       buildCodexSystemPrompt({ ...options, documentContext, guidanceSettings: { 'voice-mode': false }, sessionDirective: 'HUMAN TASK' }),
       buildClaudeCodeSystemPrompt({ isVoiceMode: true, voiceModeCodingAgentPrompt: documentContext.voiceModeCodingAgentPrompt, guidanceSettings: { 'voice-mode': false }, sessionDirective: 'HUMAN TASK' }),

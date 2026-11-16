@@ -1,4 +1,6 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+// @vitest-environment node
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { AgentMessagesRepository } from '../../../storage/repositories/AgentMessagesRepository';
 import { SessionManager } from '../SessionManager';
 import type {
   SessionStore,
@@ -128,10 +130,13 @@ describe('SessionManager (runtime server)', () => {
   let manager: SessionManager;
 
   beforeEach(async () => {
+    AgentMessagesRepository.registerStore({ create: async () => {}, list: async () => [] });
     store = new InMemorySessionStore();
     manager = new SessionManager(store);
     await manager.initialize();
   });
+
+  afterEach(() => AgentMessagesRepository.clearStore());
 
   it('persists inherited worktree, parent and manager together when creating a phone child', async () => {
     const insert = vi.spyOn(store, 'create');

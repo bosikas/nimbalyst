@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 const state = vi.hoisted(() => ({ session: null as any, snapshot: null as any }));
 vi.mock('@nimbalyst/runtime/storage/repositories/AISessionsRepository', () => ({ AISessionsRepository: { get: async () => state.session } }));
-vi.mock('@nimbalyst/runtime/ai/server/providers/codex/codexContextInspection', () => ({ readCodexContext: () => state.snapshot }));
+vi.mock('@nimbalyst/runtime/ai/server/providers/codex/codexContextInspection', () => ({ readCodexContext: () => state.snapshot, readCodexContextEvidence: () => ({ compactions: [], observedTools: [], omittedToolCalls: 0 }) }));
 vi.mock('../../utils/workspaceIdentity', () => ({ sameWorkspaceIdentity: (a: string, b: string) => a === b }));
 vi.mock('../toolBudgetService', () => ({ getToolBudgetSnapshot: async () => ({ groups: [{ schemaBytes: 1234, estTokens: 300, inclusionReason: 'Configured discovery' }] }) }));
 import { getSessionContextInspection } from '../sessionContextInspection';

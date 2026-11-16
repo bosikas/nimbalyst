@@ -36,6 +36,9 @@ export function sessionListMetadata(
       linkedTrackerItemIds: s.linkedTrackerItemIds,
     }),
     ...(s.contextUsage && { contextUsage: s.contextUsage }),
+    ...(s.workSummary && { workSummary: s.workSummary }),
+    generateSummary: s.generateSummary ?? true,
+    autoArchiveAfterMinutes: s.autoArchiveAfterMinutes ?? 0,
     ...(s.agentRole && { agentRole: s.agentRole }),
     ...(s.createdBySessionId !== undefined && {
       createdBySessionId: s.createdBySessionId,

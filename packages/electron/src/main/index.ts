@@ -2771,8 +2771,7 @@ app.whenReady().then(async () => {
         // `nimbalyst-trackers`); default on.
         configureMcpServers({
             mcpServerPort: result.port,
-            extensionMcpServerNamesLoader: (workspacePath?: string) =>
-                getActiveExtensionShortNames(workspacePath),
+            extensionMcpServerNamesLoader: getActiveExtensionShortNames,
             trackersAgentToolsDisabledLoader: (workspacePath?: string) =>
                 workspacePath ? !isTrackersAgentToolsEnabled(workspacePath) : false,
         });

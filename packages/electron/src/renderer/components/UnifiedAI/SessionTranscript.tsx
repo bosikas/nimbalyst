@@ -23,6 +23,7 @@ import type { ExitPlanModeDeferral } from '@nimbalyst/runtime/ai/exitPlanModeDef
 import { agentCapabilitiesForProviderType } from '@nimbalyst/runtime/ai/server/agentCapabilities';
 import type { ToolCallDiffLoadResult } from '@nimbalyst/runtime/ai/server/transcript';
 import { AgentTranscriptPanel } from '@nimbalyst/runtime/ui/AgentTranscript/components/AgentTranscriptPanel';
+import './chatDensity.css';
 import type { TranscriptFileLocation } from '@nimbalyst/runtime/ui/AgentTranscript/components/MarkdownRenderer';
 import { ClaudeCliTerminalStrip } from './ClaudeCliTerminalStrip';
 import { ClaudeCliNotInstalledNotice } from './ClaudeCliNotInstalledNotice';
@@ -414,6 +415,7 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
   const isDataLoading = useAtomValue(sessionLoadingAtom(sessionId));
   const loadError = useAtomValue(sessionLoadErrorAtom(sessionId));
   const chatShowToolCalls = useAtomValue(chatShowToolCallsAtom);
+  const chatDensity = useAtomValue(settingAtom('ai.chatDensity'));
   const [aiMode, setAiMode] = useAtom(sessionModeAtom(sessionId));
   const [currentModel, setCurrentModel] = useAtom(sessionModelAtom(sessionId));
   const [isArchived, setIsArchived] = useAtom(sessionArchivedAtom(sessionId));
@@ -2550,6 +2552,8 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
   return (
     <div
       style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', minHeight: 0 }}
+      className="session-transcript"
+      data-chat-density={chatDensity}
       data-session-id={sessionId}
     >
       {/* NIM-852: install notice at the top of the transcript when the genuine

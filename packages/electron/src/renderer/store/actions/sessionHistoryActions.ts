@@ -103,6 +103,8 @@ export interface CreateNewWorktreeSessionOptions {
 }
 
 export interface CreateNewSessionOptions {
+  generateSummary?: boolean;
+  autoArchiveAfterMinutes?: number;
   initialDraft?: string;
   sessionId?: string;
   model?: string;
@@ -461,6 +463,10 @@ export const createNewSessionActionAtom = atom(
     const title = options.title ?? 'New Session';
     const host = get(selectedMachineAtom(workspacePath));
     if (host) {
+      if (options.generateSummary === false || (options.autoArchiveAfterMinutes ?? 0) > 0) {
+        errorNotificationService.showError('Session policies are local-only', 'Create this session on this Mac to configure summaries or auto-archive.');
+        return undefined;
+      }
       try {
       const id = await window.electronAPI.invoke('ai:createRemoteSession', workspacePath, host, {model: options.model ?? (model?.startsWith('claude-code:') ? model : undefined)});
       if (options.initialDraft) await window.electronAPI.invoke('ai:saveRemoteDraft', id, workspacePath, {text: options.initialDraft, attachments: []});
@@ -483,7 +489,7 @@ export const createNewSessionActionAtom = atom(
           model,
           title,
           mode: options.mode,
-          metadata: options.metadata,
+          metadata: { ...options.metadata, ...(options.generateSummary !== undefined ? { generateSummary: options.generateSummary } : {}), ...(options.autoArchiveAfterMinutes !== undefined ? { autoArchiveAfterMinutes: options.autoArchiveAfterMinutes } : {}) },
           ...(parentSessionId ? { parentSessionId } : {}),
         },
         workspaceId: workspacePath,
@@ -510,6 +516,8 @@ export const createNewSessionActionAtom = atom(
           worktreeId: null,
           childCount: 0,
           uncommittedCount: 0,
+          generateSummary: options.generateSummary ?? (options.metadata?.generateSummary !== false),
+          autoArchiveAfterMinutes: options.autoArchiveAfterMinutes ?? Number(options.metadata?.autoArchiveAfterMinutes ?? 0),
         });
 
         if (options.initialDraft) {

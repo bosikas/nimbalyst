@@ -35,3 +35,16 @@ it('moves a session without naming its new parent as manager; only an undo resto
   await setParent({}, { sessionId: 's', newParentId: null, workspacePath: '/p', restoreManagerId: 'spawner' });
   expect(h.updateMetadata.mock.calls[1][1]).toMatchObject({ parentSessionId: null, createdBySessionId: 'spawner' });
 });
+
+it('persists creation policy before the first turn and rejects invalid minute values', async () => {
+  h.create.mockClear();
+  const create = (policy: object) => h.handlers.get('sessions:create')!({}, {
+    session: { id: 'review-policy', provider: 'claude-code', ...policy }, workspaceId: '/p',
+  });
+  expect(await create({ generateSummary: false, autoArchiveAfterMinutes: 30 })).toMatchObject({ success: true });
+  expect(h.create.mock.calls[0][0].metadata).toMatchObject({ generateSummary: false, autoArchiveAfterMinutes: 30 });
+  await create({});
+  expect(h.create.mock.calls[1][0].metadata).toMatchObject({ generateSummary: true, autoArchiveAfterMinutes: 0 });
+  expect(await create({ autoArchiveAfterMinutes: -1 })).toMatchObject({ success: false });
+  expect(h.create).toHaveBeenCalledTimes(2);
+});

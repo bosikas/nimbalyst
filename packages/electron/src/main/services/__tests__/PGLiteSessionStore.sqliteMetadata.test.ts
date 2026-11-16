@@ -35,9 +35,58 @@ import { AISessionsRepository } from '@nimbalyst/runtime/storage/repositories/AI
 import { registerMobileHierarchyAuthority } from '../ai/mobileHierarchySync';
 import { registerSessionHierarchyPublication } from '../sync/sessionHierarchyPublication';
 import { getLocalHostDeviceId } from '../ai/sessionHostAttribution';
+import { readSessionWorkSummary } from '@nimbalyst/runtime/ai/sessionWorkSummary';
 
 let tmpDir: string;
 let sqlite: SQLiteDatabase;
+
+it('atomically defers automatic archival for active or pinned descendants and changed policies, then preserves the subtree on archive', async () => {
+  const store = createPGLiteSessionStore(sqlite);
+  const now = Date.now();
+  const completedAt = now - 31 * 60_000;
+  const old = new Date(completedAt).toISOString();
+  await store.create({ id: 'auto-root', provider: 'openai-codex', workspaceId: '/p', metadata: { autoArchiveAfterMinutes: 30, autoArchiveCompletedAt: completedAt } });
+  await store.create({ id: 'auto-child', provider: 'openai-codex', workspaceId: '/p', parentSessionId: 'auto-root' });
+  await sqlite.query("UPDATE ai_sessions SET status='idle', last_activity=$1, updated_at=$1, created_at=$1 WHERE id IN ('auto-root','auto-child')", [old]);
+  const patch = { isArchived: true, autoArchiveGuard: { minutes: 30, completedAt, cutoff: new Date(now - 30 * 60_000).toISOString() } };
+  await sqlite.query("UPDATE ai_sessions SET status='running' WHERE id='auto-child'");
+  await expect(store.updateMetadata('auto-root', patch)).rejects.toThrow();
+  expect((await store.get('auto-root'))?.isArchived).toBe(false);
+  await sqlite.query("UPDATE ai_sessions SET status='idle', is_pinned=TRUE WHERE id='auto-child'");
+  await expect(store.updateMetadata('auto-root', patch)).rejects.toThrow();
+  await sqlite.query("UPDATE ai_sessions SET is_pinned=FALSE WHERE id='auto-child'");
+  await store.updateMetadata('auto-child', { metadata: { hasPendingPrompt: true } });
+  await expect(store.updateMetadata('auto-root', patch)).rejects.toThrow();
+  await store.updateMetadata('auto-child', { metadata: { hasPendingPrompt: false } });
+  await sqlite.query("INSERT INTO queued_prompts(id,session_id,prompt,status) VALUES ('auto-prompt','auto-child','Continue review','pending')");
+  await expect(store.updateMetadata('auto-root', patch)).rejects.toThrow();
+  await sqlite.query("UPDATE queued_prompts SET status='executing' WHERE id='auto-prompt'");
+  await expect(store.updateMetadata('auto-root', patch)).rejects.toThrow();
+  await sqlite.query("UPDATE queued_prompts SET status='completed' WHERE id='auto-prompt'");
+  await store.updateMetadata('auto-root', { metadata: { autoArchiveAfterMinutes: 0 } });
+  await expect(store.updateMetadata('auto-root', patch)).rejects.toThrow();
+  await store.updateMetadata('auto-root', { metadata: { autoArchiveAfterMinutes: 30 } });
+  await store.updateMetadata('auto-root', patch);
+  expect((await store.get('auto-root'))?.isArchived).toBe(true);
+  expect((await store.get('auto-child'))?.isArchived).toBe(true);
+  expect((await readSessionSubtree(sqlite, 'auto-root', '/p')).map(row => row.id)).toEqual(['auto-root', 'auto-child']);
+  await store.updateMetadata('auto-root', { isArchived: false });
+  expect((await store.get('auto-root'))?.metadata?.autoArchiveCompletedAt).toBeUndefined();
+});
+
+it('persists compact work summaries through SQLite list projection and registry mapping without changing message time', async () => {
+  const store = createPGLiteSessionStore(sqlite);
+  await store.create({ id: 'summary-session', provider: 'openai-codex', workspaceId: '/p' });
+  const before = (await store.get('summary-session'))!.updatedAt;
+  const workSummary = { scope: 'Session navigation and context visibility', remaining: 'Review the local build', attention: 'review', areas: ['Navigation'], state: 'ready', coverage: 'complete', updatedAt: 100, throughMessageId: 12 };
+  await store.updateMetadata('summary-session', { metadata: { workSummary } });
+  const listed = (await store.list('/p')).find(row => row.id === 'summary-session')!;
+  expect(listed.workSummary).toEqual(workSummary);
+  expect(projectSessionList([listed], new Map())[0].workSummary).toEqual(workSummary);
+  expect(sessionListMetadata(listed, '/p').workSummary).toEqual(workSummary);
+  expect((await store.get('summary-session'))!.updatedAt).toBe(before);
+  expect(readSessionWorkSummary(JSON.stringify(workSummary))).toEqual(workSummary);
+});
 
 beforeEach(async () => {
   tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'nim-meta-'));

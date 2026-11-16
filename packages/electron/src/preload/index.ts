@@ -570,9 +570,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // AI operations (new unified interface)
   aiHasApiKey: () => ipcRenderer.invoke('ai:hasApiKey'),
   aiInitialize: (provider?: string, apiKey?: string) => ipcRenderer.invoke('ai:initialize', provider, apiKey),
-  aiCreateSession: (provider: 'claude' | 'claude-code' | 'claude-code-cli' | 'openai' | 'openai-codex' | 'opencode' | 'copilot-cli' | 'lmstudio', documentContext?: any, workspacePath?: string, modelId?: string, sessionType?: string, worktreeId?: string) => {
+  aiCreateSession: (provider: 'claude' | 'claude-code' | 'claude-code-cli' | 'openai' | 'openai-codex' | 'opencode' | 'copilot-cli' | 'lmstudio', documentContext?: any, workspacePath?: string, modelId?: string, sessionType?: string, worktreeId?: string, policy?: { generateSummary?: boolean; autoArchiveAfterMinutes?: number }) => {
     // console.log('[Preload] aiCreateSession called:', { provider, workspacePath, sessionType, worktreeId });
-    return ipcRenderer.invoke('ai:createSession', provider, documentContext, workspacePath, modelId, sessionType, worktreeId);
+    return ipcRenderer.invoke('ai:createSession', provider, documentContext, workspacePath, modelId, sessionType, worktreeId, policy);
   },
   aiSendMessage: (message: string, documentContext?: any, sessionId?: string, workspacePath?: string) =>
     ipcRenderer.invoke('ai:sendMessage', message, documentContext, sessionId, workspacePath),
@@ -870,8 +870,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
   ai: {
     hasApiKey: () => ipcRenderer.invoke('ai:hasApiKey'),
     initialize: (provider?: string, apiKey?: string) => ipcRenderer.invoke('ai:initialize', provider, apiKey),
-    createSession: (provider: 'claude' | 'claude-code' | 'claude-code-cli' | 'openai' | 'openai-codex' | 'lmstudio', documentContext?: any, workspacePath?: string, modelId?: string, sessionType?: string, worktreeId?: string) =>
-      ipcRenderer.invoke('ai:createSession', provider, documentContext, workspacePath, modelId, sessionType, worktreeId),
+    createSession: (provider: 'claude' | 'claude-code' | 'claude-code-cli' | 'openai' | 'openai-codex' | 'lmstudio', documentContext?: any, workspacePath?: string, modelId?: string, sessionType?: string, worktreeId?: string, policy?: { generateSummary?: boolean; autoArchiveAfterMinutes?: number }) =>
+      ipcRenderer.invoke('ai:createSession', provider, documentContext, workspacePath, modelId, sessionType, worktreeId, policy),
     sendMessage: (message: string, documentContext?: any, sessionId?: string, workspacePath?: string) =>
       ipcRenderer.invoke('ai:sendMessage', message, documentContext, sessionId, workspacePath),
     getSessions: (workspacePath?: string) => ipcRenderer.invoke('ai:getSessions', workspacePath),
@@ -2095,6 +2095,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   agentGuidance: {
+    listSkills: (workspace: string) => ipcRenderer.invoke('openai-codex:skills-list', workspace) as Promise<import('../shared/codexSkills').CodexSkillCatalog>,
+    setSkillEnabled: (workspace: string, file: string, enabled: boolean) => ipcRenderer.invoke('openai-codex:skill-set-enabled', workspace, file, enabled) as Promise<import('../shared/codexSkills').CodexSkillCatalog>,
+    previewSkill: (workspace: string, file: string) => ipcRenderer.invoke('openai-codex:skill-preview', workspace, file) as Promise<string>,
     getCatalog: () => ipcRenderer.invoke('agent-guidance:get-catalog') as Promise<import('@nimbalyst/runtime/ai/builtInGuidance').BuiltInGuidanceEntry[]>,
     update: (settings: import('@nimbalyst/runtime/ai/builtInGuidance').BuiltInGuidanceSettings) =>
       ipcRenderer.invoke('agent-guidance:update', settings) as Promise<import('@nimbalyst/runtime/ai/builtInGuidance').BuiltInGuidanceEntry[]>,

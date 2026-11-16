@@ -43,6 +43,7 @@ import { extractMessageText, extractUserPrompts } from './metaAgentMessageText';
 import type { NotificationOptions, NotificationResult } from './NotificationService';
 import type { MobilePushResult } from '@nimbalyst/runtime/sync/types';
 import { composeNotificationTitle } from '../../shared/notificationTitle';
+import { sessionCreationPolicy } from '@nimbalyst/runtime/ai/sessionPolicy';
 
 type SessionStatusValue = 'idle' | 'running' | 'waiting_for_input' | 'error' | 'interrupted';
 type PromptType = 'permission_request' | 'ask_user_question_request' | 'exit_plan_mode_request';
@@ -82,6 +83,8 @@ interface SessionResultData {
 }
 
 interface CreateChildSessionArgs {
+  generateSummary?: boolean;
+  autoArchiveAfterMinutes?: number;
   title?: string;
   provider?: string;
   model?: string;
@@ -138,6 +141,8 @@ function normalizeStoredChildModelIdentifier(
 }
 
 interface SpawnSessionArgs {
+  generateSummary?: boolean;
+  autoArchiveAfterMinutes?: number;
   handoff?: HandoffBrief;
   title?: string;
   prompt: string;
@@ -498,6 +503,7 @@ export class MetaAgentService {
     // Validate before any side effect, so a bad effortLevel can't leave a
     // half-created worktree or session row behind.
     const requestedEffortLevel = validateRequestedEffortLevel(args.effortLevel);
+    const requestedPolicy = sessionCreationPolicy(args);
 
     // Defense-in-depth: a child-completion notification (built in
     // buildNotificationMessage) starts literally with '[Child Session Update]'.
@@ -676,6 +682,7 @@ export class MetaAgentService {
       // notify a parent that asked not to be told. A child of an extension-owned
       // session inherits the owner (never the directive).
       const childMetadata: Record<string, unknown> = {
+        ...requestedPolicy,
         ...(args.continuationHandoff ? { continuationHandoff: args.continuationHandoff } : {}),
         ...inheritedOwnership(callerMetadata),
         ...(childToolScope ? { toolScope: childToolScope } : {}),
@@ -807,6 +814,7 @@ export class MetaAgentService {
       : undefined;
 
     const childResult = await this.createChildSessionInternal(parentSessionId, workspaceKey, {
+      ...sessionCreationPolicy(args),
       title: args.title,
       prompt: continuation?.prompt ?? args.prompt,
       continuationHandoff: continuation?.state,

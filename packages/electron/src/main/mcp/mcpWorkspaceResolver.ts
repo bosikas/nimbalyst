@@ -316,23 +316,12 @@ export function unregisterExtensionTools(workspacePath: string) {
 }
 
 /**
- * Resolve a workspace path to the path under which extension tools are registered (sync).
+ * Read a known workspace identity without depending on any tool registry.
  */
 function resolveExtensionToolsWorkspacePathSync(
   workspacePath: string
 ): string {
-  // Direct lookup first
-  if (extensionToolsByWorkspace.has(workspacePath)) {
-    return workspacePath;
-  }
-
-  // Check if this is a worktree path that maps to a project path
-  const projectPath = worktreeToProjectPathCache.get(workspacePath);
-  if (projectPath && extensionToolsByWorkspace.has(projectPath)) {
-    return projectPath;
-  }
-
-  return workspacePath;
+  return worktreeToProjectPathCache.get(workspacePath) ?? workspacePath;
 }
 
 /**
@@ -342,10 +331,10 @@ function resolveExtensionToolsWorkspacePathSync(
 async function resolveExtensionToolsWorkspacePath(
   workspacePath: string
 ): Promise<string> {
-  // Try synchronous resolution first (cache hit)
-  const syncResolved = resolveExtensionToolsWorkspacePathSync(workspacePath);
-  if (syncResolved !== workspacePath || extensionToolsByWorkspace.has(workspacePath)) {
-    return syncResolved;
+  // Both positive and negative identities are authoritative cache entries.
+  // Backend-only extensions need the same identity even with no renderer tools.
+  if (worktreeToProjectPathCache.has(workspacePath)) {
+    return resolveExtensionToolsWorkspacePathSync(workspacePath);
   }
 
   // Cache miss - try async DB lookup for worktree resolution
@@ -359,9 +348,7 @@ async function resolveExtensionToolsWorkspacePath(
     if (worktree) {
       const projectPath = worktree.projectPath;
       worktreeToProjectPathCache.set(workspacePath, projectPath);
-      if (extensionToolsByWorkspace.has(projectPath)) {
-        return projectPath;
-      }
+      return projectPath;
     } else {
       worktreeToProjectPathCache.set(workspacePath, null);
     }
@@ -492,16 +479,15 @@ export async function getVoiceEnabledBackendToolsForWorkspace(
  * that contribute tools ONLY via a backend module (e.g. the memory engine), so
  * those get an endpoint even without any renderer-declared `aiTools`.
  *
- * Synchronous (reads the in-memory registries) so it can be called from
- * `getMcpServersConfig`. Resolves worktree paths to their project path via the
- * sync cache; an un-cached worktree returns the project's tools only after the
- * first async resolution elsewhere has warmed the cache.
+ * Await project identity before reading the registries, including on the first
+ * config build for a worktree. Discovery must not depend on another tool call
+ * having warmed the identity cache.
  */
-export function getActiveExtensionShortNames(
+export async function getActiveExtensionShortNames(
   workspacePath: string | undefined
-): string[] {
+): Promise<string[]> {
   if (!workspacePath) return [];
-  const resolvedPath = resolveExtensionToolsWorkspacePathSync(workspacePath);
+  const resolvedPath = await resolveExtensionToolsWorkspacePath(workspacePath);
   const shortNames = new Set<string>();
   const addFrom = (extensionId: string) => {
     const parts = extensionId.split(".");

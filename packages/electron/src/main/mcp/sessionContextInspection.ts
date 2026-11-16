@@ -1,5 +1,5 @@
 import { AISessionsRepository } from '@nimbalyst/runtime/storage/repositories/AISessionsRepository';
-import { readCodexContext } from '@nimbalyst/runtime/ai/server/providers/codex/codexContextInspection';
+import { readCodexContext, readCodexContextEvidence } from '@nimbalyst/runtime/ai/server/providers/codex/codexContextInspection';
 import { sameWorkspaceIdentity } from '../utils/workspaceIdentity';
 import { getToolBudgetSnapshot } from './toolBudgetService';
 
@@ -11,6 +11,7 @@ export async function getSessionContextInspection(sessionId: string, workspacePa
     sessionId,
     nativeUsage: { source: 'Stored provider-reported usage; not a local byte estimate. Current context and cumulative spend are different quantities.', value: session.tokenUsage ?? metadata?.tokenUsage ?? null },
     preparedRequest: readCodexContext(sessionId),
+    nativeEvidence: readCodexContextEvidence(sessionId),
     unavailable: 'No prepared-request snapshot until a Codex turn runs in this app process. Native context categories and active loaded-tool set are unavailable. Original transcript bytes are not current model context.',
     toolDefinitions: await getToolBudgetSnapshot(session.workspacePath),
   };

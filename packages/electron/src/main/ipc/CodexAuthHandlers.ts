@@ -50,6 +50,9 @@ function toCheckLoginResult(status: CodexAuthStatus): CheckLoginResult {
 }
 
 export function registerCodexAuthHandlers(): void {
+  safeHandle('openai-codex:skills-list', (_event, workspace: string) => codexAuthService.listSkills(workspace));
+  safeHandle('openai-codex:skill-set-enabled', (_event, workspace: string, file: string, enabled: boolean) => codexAuthService.setSkillEnabled(workspace, file, enabled));
+  safeHandle('openai-codex:skill-preview', (_event, workspace: string, file: string) => codexAuthService.previewSkill(workspace, file));
   safeHandle('openai-codex:sandbox-status', async () => codexAuthService.getWindowsSandboxStatus());
   safeHandle('openai-codex:sandbox-setup', async (_event, mode: unknown, workspacePath: unknown) => {
     if (mode !== 'elevated' && mode !== 'unelevated') throw new Error('Invalid Windows sandbox mode.');

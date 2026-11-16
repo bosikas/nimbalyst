@@ -216,6 +216,8 @@ export function usePullRequestPanel({
     const sessionId = await dispatchCreateNewSession({
       initialDraft: buildReviewContributionDraft(remote, selectedPr.number),
       launchSource: 'pull_request_panel',
+      generateSummary: false,
+      autoArchiveAfterMinutes: 30,
     });
     if (!sessionId) return;
     await linkSessionsToPrTrackers([sessionId], selectedPr);

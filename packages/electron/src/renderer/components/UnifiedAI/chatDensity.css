@@ -1,0 +1,14 @@
+.session-transcript[data-chat-density="compact"] .rich-transcript-message {
+  padding: 8px;
+  margin-bottom: 6px;
+}
+.session-transcript[data-chat-density="dense"] .rich-transcript-message {
+  padding: 5px 8px;
+  margin-bottom: 3px;
+}
+.session-transcript[data-chat-density="dense"] .rich-transcript-message-header {
+  margin-bottom: 3px;
+}
+.session-transcript[data-chat-density="dense"] .rich-transcript-tool-messages {
+  gap: 4px;
+}

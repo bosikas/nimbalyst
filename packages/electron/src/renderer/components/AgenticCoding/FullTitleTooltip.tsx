@@ -1,4 +1,4 @@
-import React, { useId, useState } from 'react';
+import React, { useEffect, useId, useState } from 'react';
 import {
   autoUpdate,
   FloatingPortal,
@@ -11,6 +11,7 @@ interface FullTitleTooltipProps {
   /** Full, untruncated label to reveal on hover. */
   label: string;
   className?: string;
+  disabled?: boolean;
   children: React.ReactNode;
 }
 
@@ -21,10 +22,11 @@ const VERTICAL_PADDING_PX = 2;
  * A session-pane label with a viewport-aware tooltip that wraps instead of
  * relying on Chromium's width-limited native `title` tooltip.
  */
-export function FullTitleTooltip({ label, className, children }: FullTitleTooltipProps) {
+export function FullTitleTooltip({ label, className, children, disabled = false }: FullTitleTooltipProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [textStyle, setTextStyle] = useState<React.CSSProperties>();
   const tooltipId = useId();
+  useEffect(() => { if (disabled) setIsOpen(false); }, [disabled]);
   const { refs, floatingStyles } = useFloating({
     open: isOpen,
     onOpenChange: setIsOpen,
@@ -49,7 +51,7 @@ export function FullTitleTooltip({ label, className, children }: FullTitleToolti
       <span
         ref={refs.setReference}
         className={className}
-        aria-describedby={isOpen ? tooltipId : undefined}
+        aria-describedby={isOpen && !disabled ? tooltipId : undefined}
         onMouseEnter={(event) => {
           const titleElement = event.currentTarget;
           const computedStyle = window.getComputedStyle(titleElement);
@@ -67,7 +69,7 @@ export function FullTitleTooltip({ label, className, children }: FullTitleToolti
       >
         {children}
       </span>
-      {isOpen && (
+      {isOpen && !disabled && (
         <FloatingPortal>
           <span
             ref={refs.setFloating}

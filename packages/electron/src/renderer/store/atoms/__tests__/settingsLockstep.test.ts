@@ -22,6 +22,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.setConfig({ testTimeout: 20000, hookTimeout: 20000 });
 
 describe('settings cross-window lockstep (legacy atoms)', () => {
+  it('hydrates chat density and mirrors another window without changing independent display preferences', async () => {
+    const { store } = await import('@nimbalyst/runtime/store');
+    const { settingAtom, hydrateSettingsAtoms, registerSettingsChangeListener } = await import('../settingAtomFamily');
+    hydrateSettingsAtoms({ 'ai.chatDensity': 'compact', 'ai.chatShowToolCalls': false } as any);
+    registerSettingsChangeListener();
+    expect(store.get(settingAtom('ai.chatDensity'))).toBe('compact');
+    fireBroadcast({ key: 'ai.chatDensity', value: 'dense' });
+    expect(store.get(settingAtom('ai.chatDensity'))).toBe('dense');
+    expect(store.get(settingAtom('ai.chatShowToolCalls'))).toBe(false);
+  });
   let fireBroadcast: (payload: { key: string; value: unknown }) => void;
 
   beforeEach(() => {

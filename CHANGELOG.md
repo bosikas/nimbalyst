@@ -10,6 +10,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 <!-- New features go here -->
+- Session scope summaries show the area of work and remaining steps, with search filters, per-session generation controls and recorded native usage when available
+- Sessions can automatically archive after an idle interval while preserving transcripts and worktrees; summaries default on and automatic archiving defaults off, while new built-in PR reviews use summaries off and a 30-minute archive timer
+- The session sidebar offers device-local typography, spacing and visibility controls with a live preview, and initially shows active children with older chats available on demand
+- Installed Codex skills can be searched, previewed and enabled or disabled through their native configuration in Agent Features settings
 - Agent Features settings now list Nimbalyst’s built-in guidance with searchable instruction previews and individual or bulk toggles, including commit proposals and session-naming reminders
 - Reviewed fresh-session handoffs preserve pending human requests, decisions, ownership and evidence without replaying full history; Codex context inspection separates measured request bytes from native token usage, and MCP configuration supports native on-demand exposure while keeping discovery and Core access
 - The Git panel's branch button switches branches: search local and remote branches (a remote-only branch gets a local tracking branch) or start a new one; uncommitted changes come along, a switch git refuses changes nothing, a running agent session in the checkout asks for confirmation first, and a branch checked out in another worktree offers to open that worktree's session
@@ -18,6 +22,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 <!-- Changes to existing functionality go here -->
+- Local macOS builds offer a lighter profile with artifact reuse, sequential compilation, lower process priority and a smaller heap allowance while retaining native package checks
+- The session sidebar uses a compact toolbar, activity sections and quieter details, with separate chat navigation and child expansion and fewer redundant worktree headings
 - Commit proposals can name a folder: it expands to the changed, deleted and new files under it for review, files under it that only another session edited start unchecked, and auto-commit waits for review when any are present
 - New worktrees start from the remote's default branch (such as origin/main) instead of the branch the main checkout is on, and their branches no longer track it; Project Settings > Worktrees can pick the current branch or a specific branch instead
 - The open menu bar island can be resized by dragging its left, right or bottom edge or a bottom corner; the width and the session list's maximum height are kept for the next time it opens
@@ -26,6 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 <!-- Bug fixes go here -->
+- Worktree sessions discover extension tools on their first start, including backend-only extensions, and retain their stored project identity when reopened
+- Codex context inspection retains supported native context notifications and makes available prepared-context fragments expandable while identifying unavailable native details
 - Moving a project across volumes now links copied worktrees to the copied repository while preserving the original repository and worktrees
 - Codex uses compact integration guidance and tool descriptions, and keeps coordinator messages as agent context instead of human requests
 - "Create Branch..." in the Git panel's commit menu did nothing; it now opens a form to name the branch
