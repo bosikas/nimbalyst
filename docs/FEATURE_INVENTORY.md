@@ -102,12 +102,12 @@ Twelve built-in provider lanes, plus any agent an extension contributes. Every l
 
 ## Workstreams
 
-- Nested session trees within a workspace or worktree, with collapsible orchestrators and subtree activity, unread, and uncommitted-file rollups; branches start collapsed and close after one minute without row interaction. Search temporarily reveals branches without changing collapse choices. Child metadata is available through Details, without context bars or inline phase labels
+- Nested session trees across checkouts within the same project, with collapsible orchestrators and subtree activity, unread, and uncommitted-file rollups; branches start collapsed and close after one minute without row interaction. Search temporarily reveals branches without changing collapse choices. Child metadata and its actual checkout are available through Details, without context bars or inline phase labels. Opening a child keeps its editor, terminal and transcript tabs in that child's checkout
 - Compact session navigation with search, new session and an overflow menu for Kanban, archive, sorting and creation variants; Today opens by default and older date sections start collapsed. The selected chat has the main highlight, with a quieter ancestor accent
 - Workstream containers: a named group with a folder icon that holds peer sessions with no parent or manager among them; created from the create menu or "Move to workstream..." (one or several selected sessions), filled by moving or dragging sessions in or by starting a session while it is selected
 - Workstream editor tabs (multi-file editing per session)
 - Workstream session tabs (switch between child sessions)
-- Agent-to-agent session spawning (`/launch-new-session`, `spawn_session`, and `create_session`) places workers beneath their caller and shares the tree's files, tabs, and overview; isolated sessions and workers launched into another worktree remain separate roots managed by their caller; each spawn chooses how the worker reports back (`reporting`: none by default, final response only, or mid-run messages)
+- Agent-to-agent session spawning (`/launch-new-session`, `spawn_session`, and `create_session`) places workers beneath their caller, including workers given their own worktree; checkout isolation does not detach the session family. Explicitly isolated sessions remain separate roots managed by their caller; each spawn chooses how the worker reports back (`reporting`: none by default, final response only, or mid-run messages)
 - Launching sessions can select a child session's reasoning effort, and coordinating sessions can interrupt a running session to deliver an instruction immediately
 
 ## Session Kanban Board

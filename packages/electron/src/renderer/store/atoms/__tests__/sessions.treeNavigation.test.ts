@@ -62,6 +62,33 @@ beforeEach(() => {
   } as any;
 });
 describe('tree navigation atoms', () => {
+  it('opens cross-worktree children in their own checkout panel while retaining the sidebar family', async () => {
+    rows = [row('coordinator', null, { childCount: 1 }), row('worker', 'coordinator', { worktreeId: 'own-tree' })];
+    store.set(sessionRegistryAtom, new Map(rows.map(r => [r.id, r])));
+    await store.set(selectSessionActionAtom, 'worker');
+    expect(store.get(sessionListRootAtom).map(r => r.id)).toEqual(['coordinator']);
+    expect(store.get(selectedWorkstreamAtom('/project'))).toEqual({ type: 'worktree', id: 'worker' });
+    expect(store.get(activeSessionIdAtom)).toBe('worker');
+    expect(store.get(workstreamStateAtom('worker')).worktreeId).toBe('own-tree');
+    expect(store.get(workstreamSessionsAtom('coordinator'))).toEqual(['coordinator']);
+    await store.set(selectChildSessionActionAtom, { childSessionId: 'worker', parentId: 'coordinator', parentType: 'workstream' });
+    expect(store.get(selectedWorkstreamAtom('/project'))?.id).toBe('worker');
+  });
+  it('keeps the selected checkout when attaching an existing standalone worker to its coordinator', async () => {
+    rows = [row('coordinator'), row('worker', null, { worktreeId: 'own-tree' })];
+    store.set(sessionRegistryAtom, new Map(rows.map(r => [r.id, r])));
+    await store.set(selectSessionActionAtom, 'worker');
+    window.electronAPI.invoke = vi.fn(async (channel, payload) => {
+      if (channel === 'sessions:set-parent') {
+        rows = rows.map(r => r.id === 'worker' ? { ...r, parentSessionId: payload.newParentId } : r);
+        return { success: true, previousParentId: null };
+      }
+      return channel === 'sessions:list' ? { success: true, sessions: rows } : { success: true };
+    });
+    expect(await store.set(reparentSessionAtom, { sessionId: 'worker', oldParentId: null, newParentId: 'coordinator', workspacePath: '/project' })).toBe(true);
+    expect(store.get(selectedWorkstreamAtom('/project'))).toEqual({ type: 'worktree', id: 'worker' });
+    expect(store.get(activeSessionIdAtom)).toBe('worker');
+  });
   it('lists only sessions of the current workspace, the same rule the send path enforces (GitHub #1887)', async () => {
     store.set(sessionRegistryAtom, new Map([...store.get(sessionRegistryAtom), ['foreign', row('foreign', null, { workspaceId: '/other' })]]));
     expect(store.get(sessionListRootAtom).map((r) => r.id)).not.toContain('foreign');

@@ -1,5 +1,7 @@
 import { z } from 'zod';
 
+const ActivityColorSchema = z.union([z.literal('theme'), z.string().regex(/^#[0-9a-f]{6}$/i)]).default('theme');
+
 export const SessionListAppearanceSchema = z.object({
   titleSize: z.number().min(11).max(22).default(15),
   childTitleSize: z.number().min(10).max(20).default(13),
@@ -10,6 +12,9 @@ export const SessionListAppearanceSchema = z.object({
   scopeLines: z.number().int().min(1).max(3).default(2),
   headingSize: z.number().min(10).max(16).default(12),
   headingBold: z.boolean().default(true),
+  runningColor: ActivityColorSchema,
+  needsYouColor: ActivityColorSchema,
+  idleColor: ActivityColorSchema,
   inactiveOpacity: z.number().min(0.4).max(1).default(0.7),
   showParentIcon: z.boolean().default(true),
   showChildIcon: z.boolean().default(false),
@@ -28,6 +33,12 @@ export const SessionListAppearanceSchema = z.object({
 export type SessionListAppearance = z.infer<typeof SessionListAppearanceSchema>;
 export const DEFAULT_SESSION_LIST_APPEARANCE = SessionListAppearanceSchema.parse({});
 export const COMPACT_SESSION_LIST_APPEARANCE: SessionListAppearance = { ...DEFAULT_SESSION_LIST_APPEARANCE, titleSize: 14, childTitleSize: 12, rowPadding: 3, childPadding: 1, scopeLines: 1, showModel: false };
+
+export const SESSION_ACTIVITY_APPEARANCE = {
+  Running: { key: 'runningColor', icon: 'play_arrow', color: 'var(--nim-success)' },
+  'Needs you': { key: 'needsYouColor', icon: 'front_hand', color: 'var(--nim-warning)' },
+  Idle: { key: 'idleColor', icon: 'pause', color: 'var(--nim-text-muted)' },
+} as const;
 
 export function sessionAppearanceVariables(s: SessionListAppearance): Record<string, string | number> {
   return {

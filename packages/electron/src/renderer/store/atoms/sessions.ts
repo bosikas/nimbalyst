@@ -1,4 +1,4 @@
-import { buildSessionTree, sessionTreeRootId } from '../../components/AgenticCoding/sessionTreeModel';
+import { buildSessionTree, sessionSelectionRootId } from '../../components/AgenticCoding/sessionTreeModel';
 import {selectedMachineAtom, machineSessionSelectionsAtom} from './remoteMachines';
 /**
  * AI Session Atoms
@@ -1194,7 +1194,7 @@ export const loadSessionChildrenAtom = atom(
       const listWorkspace = get(sessionListWorkspaceAtom);
       if (listWorkspace && listWorkspace !== workspacePath) return [];
       if (result.success && Array.isArray(result.children)) {
-        const childIds = result.children.map((c: any) => c.id);
+        const childIds: string[] = result.children.map((c: any) => c.id);
         // console.log('[loadSessionChildrenAtom] Setting children:', childIds);
         set(sessionChildrenAtom(parentSessionId), childIds);
 
@@ -1217,7 +1217,8 @@ export const loadSessionChildrenAtom = atom(
         // - If has children: use current active if valid, else first child
         // - If no children (single session): use the parent session itself
         const isWrapper = registry.get(parentSessionId)?.sessionType === 'workstream';
-        const tabIds = isWrapper ? childIds : [parentSessionId, ...childIds];
+        const tabIds = (isWrapper ? childIds : [parentSessionId, ...childIds]).filter(id =>
+          (registry.get(id)?.worktreeId ?? null) === (registry.get(parentSessionId)?.worktreeId ?? null));
         // A workstream container is never a transcript: with no visible sessions it has no active tab.
         const newActiveChild = currentActive && tabIds.includes(currentActive) ? currentActive : tabIds[0] ?? (isWrapper ? null : parentSessionId);
         // console.log('[loadSessionChildrenAtom] Setting activeChildId to:', newActiveChild);
@@ -1323,7 +1324,7 @@ export const createChildSessionAtom = atom(
         } as SessionData);
 
         await set(refreshSessionListAtom);
-        const rootId = sessionTreeRootId(parentSessionId, get(sessionRegistryAtom));
+        const rootId = sessionSelectionRootId(parentSessionId, get(sessionRegistryAtom));
         await set(loadSessionChildrenAtom, { parentSessionId: rootId, workspacePath });
         set(setActiveSessionInWorkstreamAtom, {workstreamId: rootId, sessionId: result.sessionId});
         set(setSelectedWorkstreamAtom, {workspacePath, selection: {type: 'workstream', id: rootId}});
@@ -1420,7 +1421,8 @@ export const reparentSessionAtom = atom(
         if (affectedIds.has(node.session.id)) {
           const id = node.session.id;
           const childIds = node.ids.filter(childId => childId !== id);
-          const tabIds = node.session.sessionType === 'workstream' ? childIds : node.ids;
+          const tabIds = (node.session.sessionType === 'workstream' ? childIds : node.ids).filter(childId =>
+            (updatedRegistry.get(childId)?.worktreeId ?? null) === (node.session.worktreeId ?? null));
           const previousActive = get(workstreamStateAtom(id)).activeChildId;
           set(sessionChildrenAtom(id), childIds);
           set(workstreamStateAtom(id), {
@@ -1434,7 +1436,7 @@ export const reparentSessionAtom = atom(
       };
       nodes.forEach(reconcile);
       if (selection && affectedIds.has(selection.id) && activeId && updatedRegistry.has(activeId)) {
-        const rootId = sessionTreeRootId(activeId, updatedRegistry);
+        const rootId = sessionSelectionRootId(activeId, updatedRegistry);
         if (rootId !== selection.id) {
           const state = get(workstreamStateAtom(rootId));
           set(setActiveSessionInWorkstreamAtom, { workstreamId: rootId, sessionId: activeId });
@@ -2381,11 +2383,13 @@ export const setSelectedWorkstreamAtom = atom(
 export const workstreamSessionsAtom = atomFamily((workstreamId: string) =>
   atom((get) => {
     const registry = get(sessionRegistryAtom);
-    // Archived per the loaded transcript or the list row; an unloaded child only has the row.
-    const filterArchived = (sessionIds: string[]) =>
-      sessionIds.filter(id => !get(sessionArchivedAtom(id)) && !registry.get(id)?.isArchived);
-
     const meta = registry.get(workstreamId);
+    // Archived per the loaded transcript or the list row; an unloaded child only has the row.
+    // Family links may cross checkouts; editor/terminal tabs may not.
+    const filterArchived = (sessionIds: string[]) =>
+      sessionIds.filter(id => !get(sessionArchivedAtom(id)) && !registry.get(id)?.isArchived &&
+        (registry.get(id)?.worktreeId ?? null) === (meta?.worktreeId ?? null));
+
     const subtree = buildSessionTree([...registry.values()]).find(node => node.session.id === workstreamId);
     const loadedChildren = get(sessionChildrenAtom(workstreamId));
     if (subtree && subtree.ids.length > 1) {

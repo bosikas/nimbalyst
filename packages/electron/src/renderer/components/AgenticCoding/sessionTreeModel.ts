@@ -6,6 +6,7 @@ export interface TreeSession {
   workspaceId?: string;
   remoteHostDeviceId?: string;
   sessionType?: string;
+  agentRole?: string;
   /** A workstream the user created on purpose; never merged into its child. */
   userWorkstream?: boolean;
   isPinned?: boolean;
@@ -26,6 +27,11 @@ export interface SessionTreeNode<T extends TreeSession> {
 /** Mirrors MAX_SESSION_DEPTH in main/services/sessionHierarchy.ts, which enforces it. */
 export const MAX_TREE_DEPTH = 256;
 
+function sameProject(a: TreeSession, b: TreeSession): boolean {
+  return (a.remoteHostDeviceId ?? '') === (b.remoteHostDeviceId ?? '') &&
+    (!a.workspaceId || !b.workspaceId || a.workspaceId === b.workspaceId);
+}
+
 export function treeIndent(depth: number) {
   return { level: Math.min(Math.max(0, depth), 3), rail: depth > 3 };
 }
@@ -45,7 +51,7 @@ export function buildSessionTree<T extends TreeSession>(rows: readonly T[]): Ses
       ids: [row.id],
     });
     const parent = row.parentSessionId && byId.get(row.parentSessionId);
-    if (!parent || parent.id === row.id || (parent.worktreeId ?? null) !== (row.worktreeId ?? null)) continue;
+    if (!parent || parent.id === row.id || !sameProject(parent, row)) continue;
     const seen = new Set([row.id]);
     let cursor: string | undefined = parent.id;
     while (cursor && !seen.has(cursor)) {
@@ -128,13 +134,34 @@ export function sessionTreeRootId(id: string, rows: ReadonlyMap<string, TreeSess
       !row ||
       !parent ||
       parent.sessionType === 'blitz' ||
-      (row.worktreeId ?? null) !== (parent.worktreeId ?? null) ||
+      !sameProject(row, parent) ||
       visited.has(parent.id)
     )
       break;
     current = parent.id;
   }
   return current;
+}
+
+/** Sidebar container follows the family root; execution still uses each row's worktree. */
+export function sessionFamilyWorktreeId(id: string, rows: ReadonlyMap<string, TreeSession>): string | null {
+  return rows.get(sessionTreeRootId(id, rows))?.worktreeId ?? null;
+}
+
+/** Keep the editor/terminal panel inside one checkout and below the nearest meta agent. */
+export function sessionSelectionRootId(id: string, rows: ReadonlyMap<string, TreeSession>): string {
+  const rootId = sessionTreeRootId(id, rows);
+  const visited = new Set<string>();
+  let current = id;
+  while (current !== rootId && !visited.has(current)) {
+    visited.add(current);
+    const child = rows.get(current);
+    const parent = child?.parentSessionId && rows.get(child.parentSessionId);
+    if (!parent) break;
+    if (parent.agentRole === 'meta-agent' || (child?.worktreeId ?? null) !== (parent.worktreeId ?? null)) return current;
+    current = parent.id;
+  }
+  return rootId;
 }
 
 /** Server is authoritative; this check supplies immediate drag and picker feedback. */
@@ -156,8 +183,6 @@ export function sessionMoveError(
   )
     return 'Sessions must stay in the same workspace and machine';
   if (parent.sessionType === 'blitz') return 'Blitz sessions cannot receive moved sessions';
-  if ((source.worktreeId ?? null) !== (parent.worktreeId ?? null))
-    return 'Sessions must stay in the same worktree';
   let depth = 1;
   let cursor: TreeSession | undefined = parent;
   const seen = new Set<string>();

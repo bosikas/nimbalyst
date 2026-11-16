@@ -16,7 +16,7 @@ import { CollapsibleGroup } from './CollapsibleGroup';
 import { WorktreeBaseBranchPicker } from './WorktreeBaseBranchPicker';
 import { SessionListItem } from './SessionListItem';
 import { SessionTreeRow, useVisibleSessionTreeRows, type VisibleSessionTreeRow } from './SessionTree.tsx';
-import { visibleSessionTreeIds, sessionTreeRootId, rendersAsSessionTree } from './sessionTreeModel';
+import { visibleSessionTreeIds, sessionTreeRootId, sessionFamilyWorktreeId, rendersAsSessionTree } from './sessionTreeModel';
 import { resolveSessionArchiveSelection, sessionArchiveSubtreeIds } from './sessionArchiveSelection';
 import { WorkstreamGroup } from './WorkstreamGroup';
 import { BlitzGroup } from './BlitzGroup';
@@ -2087,15 +2087,18 @@ const SessionHistoryComponent: React.FC = () => {
     return { rootOf, membersByRoot };
   }, [sessionRegistry]);
 
-  // Group worktree sessions by worktreeId and compute worktree timestamps
+  // Keep families together before grouping roots by checkout. A worker's own
+  // execution checkout never splits it from its coordinator in the sidebar.
   const worktreeGroupsData = useMemo(() => {
     const groups = new Map<string, { sessions: SessionItem[]; timestamp: number }>();
     const allowedRoots = new Set(sessions.map(session => session.id));
     for (const session of sessionRegistry.values()) {
       if (!allowedRoots.has(sessionTreeIndex.rootOf.get(session.id) ?? session.id)) continue;
       if (!showArchived && session.isArchived) continue;
-      if (session.worktreeId) {
-        const existing = groups.get(session.worktreeId);
+      const rootId = sessionTreeIndex.rootOf.get(session.id) ?? session.id;
+      const familyWorktreeId = sessionFamilyWorktreeId(rootId, sessionRegistry);
+      if (familyWorktreeId) {
+        const existing = groups.get(familyWorktreeId);
         if (existing) {
           existing.sessions.push(session);
           // For 'updated', track the latest session update. For 'created', we'll use worktree.createdAt later
@@ -2106,7 +2109,7 @@ const SessionHistoryComponent: React.FC = () => {
         } else {
           // Initial timestamp (will be replaced with worktree.createdAt for 'created' sort)
           const initialTimestamp = sortBy === 'updated' ? getDisplayedOrderTimestamp(session) : 0;
-          groups.set(session.worktreeId, { sessions: [session], timestamp: initialTimestamp });
+          groups.set(familyWorktreeId, { sessions: [session], timestamp: initialTimestamp });
         }
       }
     }
@@ -2399,7 +2402,7 @@ const SessionHistoryComponent: React.FC = () => {
           for (const item of sectionItems) {
             if (item.type === 'workstream') {
               for (const row of workstreamTreeRows.get(item.session.id) ?? []) {
-                flat.push({ kind: 'tree-row', key: `tree:${row.node.session.id}${row.olderCount ? ':older' : ''}`, groupKey, row });
+                flat.push({ kind: 'tree-row', key: `tree:${row.node.session.id}`, groupKey, row });
               }
               continue;
             }
@@ -2421,7 +2424,7 @@ const SessionHistoryComponent: React.FC = () => {
     );
     for (const entry of flatVirtuosoItems) {
       if (entry.kind === 'tree-row') {
-        if (!entry.row.olderCount) ids.push(entry.row.node.session.id);
+        ids.push(entry.row.node.session.id);
         continue;
       }
       if (entry.kind !== 'item') continue;

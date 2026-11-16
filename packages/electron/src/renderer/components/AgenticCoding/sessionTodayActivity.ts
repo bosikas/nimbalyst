@@ -39,11 +39,9 @@ function members(get: Getter, roots: readonly string[]): string[] {
 
 export function createWorkAttentionCountAtom(roots: readonly string[], descendantsOnly = false) {
   return atom(get => {
-    const registry = get(sessionRegistryAtom);
     return members(get, roots).filter(id => {
       if (descendantsOnly && roots.includes(id)) return false;
-      const attention = registry.get(id)?.workSummary?.attention;
-      return get(sessionHasPendingInteractivePromptAtom(id)) || attention === 'blocked' || attention === 'review';
+      return get(sessionHasPendingInteractivePromptAtom(id));
     }).length;
   });
 }
@@ -57,15 +55,12 @@ export function createTodayActivityGroupsAtom<T>(items: readonly T[], sessionIds
     const groups: Record<TodayActivity, T[]> = { Running: [], 'Needs you': [], Idle: [] };
     if (!items.length) return groups;
 
-    const registry = get(sessionRegistryAtom);
     for (const item of items) {
       let running = false;
       let waiting = false;
       for (const id of members(get, sessionIds(item))) {
         const blocked = get(sessionHasPendingInteractivePromptAtom(id));
         waiting ||= blocked;
-        const attention = registry.get(id)?.workSummary?.attention;
-        waiting ||= attention === 'blocked' || attention === 'review';
         // A queued prompt is work awaiting dispatch, not a request for human input.
         const processing = get(sessionProcessingAtom(id));
         const queued = get(sessionPendingPromptAtom(id));

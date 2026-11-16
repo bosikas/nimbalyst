@@ -91,7 +91,6 @@ export function assertHierarchyPlacement(rows: HierarchyRow[], node: HierarchyRo
     ancestors.add(ancestorId);
     const ancestor = byId.get(ancestorId);
     if (!ancestor || ancestor.workspace_id !== node.workspace_id) throw new Error('Parent session is not in this workspace');
-    if (ancestor.session_type !== 'blitz' && (ancestor.worktree_id ?? null) !== (node.worktree_id ?? null)) throw new Error('Parent session is in a different worktree');
     targetDepth++;
     if (targetDepth > MAX_SESSION_DEPTH) throw new SessionDepthLimitError(`Session hierarchy depth exceeds ${MAX_SESSION_DEPTH}`);
     ancestorId = ancestor.parent_session_id;
@@ -112,8 +111,6 @@ export function assertHierarchyPlacement(rows: HierarchyRow[], node: HierarchyRo
     if (depth > MAX_SESSION_DEPTH) throw new SessionDepthLimitError(`Session subtree depth exceeds ${MAX_SESSION_DEPTH}`);
     const row = byId.get(id)!;
     if (row.workspace_id !== node.workspace_id) throw new Error('Session subtree spans different workspaces');
-    const parent = row.parent_session_id ? byId.get(row.parent_session_id) : null;
-    if (parent && parent.session_type !== 'blitz' && (row.worktree_id ?? null) !== (parent.worktree_id ?? null)) throw new Error('Session subtree spans different worktrees');
     for (const child of children.get(id) ?? []) pending.push([child, depth + 1]);
   }
 }

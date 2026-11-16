@@ -1,5 +1,5 @@
 import { sessionListMetadata } from '../atoms/sessionListMetadata';
-import { sessionTreeRootId } from '../../components/AgenticCoding/sessionTreeModel';
+import { sessionTreeRootId, sessionSelectionRootId as selectionRootId } from '../../components/AgenticCoding/sessionTreeModel';
 import { sessionArchiveSubtreeIds } from '../../components/AgenticCoding/sessionArchiveSelection';
 import {selectedMachineAtom, machineSessionSelectionsAtom} from '../atoms/remoteMachines';
 /**
@@ -213,26 +213,6 @@ export const openSessionInTabActionAtom = atom(null, async (get, set, sessionId:
 // ============================================================
 // Action atoms — these replace the callback props
 // ============================================================
-
-/**
- * The tree root a selection opens at. A meta agent renders its own
- * orchestration view rather than its tree's transcript tabs, so a session
- * below a meta agent opens at the subtree directly beneath the nearest one
- * (#1906). Meta agents may nest, so the nearest, not the outermost, decides.
- */
-function selectionRootId(sessionId: string, registry: Map<string, SessionMeta>): string {
-  const rootId = sessionTreeRootId(sessionId, registry);
-  const visited = new Set<string>();
-  let current = sessionId;
-  while (current !== rootId && !visited.has(current)) {
-    visited.add(current);
-    const parentId = registry.get(current)?.parentSessionId;
-    if (!parentId) break;
-    if (registry.get(parentId)?.agentRole === 'meta-agent') return current;
-    current = parentId;
-  }
-  return rootId;
-}
 
 async function openUnderRoot(set: Setter, workspacePath: string, childSessionId: string, rootId: string) {
   await set(loadSessionChildrenAtom, { parentSessionId: rootId, workspacePath });

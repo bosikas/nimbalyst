@@ -72,7 +72,9 @@ it.each(['pglite', 'sqlite'] as const)('%s executes recursive fetch/count/archiv
     await expect(store.updateMetadata('wrapper', { parentSessionId: 'root' })).rejects.toThrow(/roots/i);
     await db.query("INSERT INTO worktrees (id, workspace_id, name, branch, path) VALUES ('wt', '/p', 'wt', 'wt', '/p-wt')");
     await store.create({ id: 'foreign', provider: 'claude-code', workspaceId: '/p', worktreeId: 'wt' });
-    await expect(store.updateMetadata('child', { parentSessionId: 'foreign' })).rejects.toThrow(/worktree/i);
+    await store.updateMetadata('child', { parentSessionId: 'foreign' });
+    expect((await store.get('child'))?.worktreeId ?? null).toBeNull();
+    await store.updateMetadata('child', { parentSessionId: 'root' });
     await store.create({ id: 'blitz', provider: 'claude-code', workspaceId: '/p', sessionType: 'blitz' });
     await store.create({ id: 'blitz-worker', provider: 'claude-code', workspaceId: '/p', parentSessionId: 'blitz', worktreeId: 'wt' });
     await store.updateMetadata('root', { isArchived: true });
@@ -100,6 +102,26 @@ it.each(['pglite', 'sqlite'] as const)('%s executes recursive fetch/count/archiv
     }
     expect(await findSessionTreeRoot(db, 'chain-20', '/p')).toBe('chain-0');
     expect(Number((await readSessionSubtree(db, 'chain-0', '/p')).find(row => row.id === 'chain-20')?.depth)).toBe(20);
+  } finally { await close(); }
+});
+
+it.each(['pglite', 'sqlite'] as const)('%s preserves separate checkouts through family creation, remote moves and archive', async backend => {
+  const { db, close } = await openBackend(backend);
+  try {
+    const store = createPGLiteSessionStore(db);
+    await db.query("INSERT INTO worktrees (id, workspace_id, name, branch, path) VALUES ('worker-wt', '/p', 'worker', 'worker', '/p-worker')");
+    await store.create({ id: 'coordinator', provider: 'openai-codex', workspaceId: '/p' });
+    await store.create({ id: 'worker', provider: 'openai-codex', workspaceId: '/p', worktreeId: 'worker-wt', parentSessionId: 'coordinator', createdBySessionId: 'coordinator' });
+    expect(await findSessionTreeRoot(db, 'worker', '/p')).toBe('coordinator');
+    expect((await readSessionSubtree(db, 'coordinator', '/p')).map(r => r.id)).toEqual(['coordinator', 'worker']);
+    await store.create({ id: 'review', provider: 'openai-codex', workspaceId: '/p' });
+    const result = await store.applyRemoteHierarchySnapshot!([{ sessionId: 'review', parentSessionId: 'worker' }], () => true);
+    expect(result[0]).toMatchObject({ accepted: true, parentSessionId: 'worker', createdBySessionId: null });
+    await store.updateMetadata('coordinator', { isArchived: true });
+    expect((await store.get('worker'))).toMatchObject({ worktreeId: 'worker-wt', createdBySessionId: 'coordinator', isArchived: true });
+    await store.create({ id: 'outsider', provider: 'openai-codex', workspaceId: '/other' });
+    await expect(store.updateMetadata('worker', { parentSessionId: 'outsider' })).rejects.toThrow(/workspace/);
+    await expect(store.updateMetadata('coordinator', { parentSessionId: 'review' })).rejects.toThrow(/cycle/);
   } finally { await close(); }
 });
 

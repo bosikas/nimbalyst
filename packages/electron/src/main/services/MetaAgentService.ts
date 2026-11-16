@@ -395,7 +395,7 @@ export class MetaAgentService {
     // canonicalized one the tool dispatcher handed us (#1551).
     const workspaceKey = resolveStoredWorkspaceId(parent.workspacePath, workspaceId);
 
-    const workstreamId = args.useWorktree ? null : parent.id;
+    const workstreamId = parent.id;
     const inheritedWorktreeId = args.useWorktree ? undefined : parent.worktreeId ?? undefined;
 
     // Explicit model wins; otherwise inherit caller's model (e.g. keep "opus"
@@ -645,8 +645,8 @@ export class MetaAgentService {
         worktreePath = worktree.path;
       }
 
-      // create_session shares the caller's container just like spawn_session.
-      // Explicit isolation or a different worktree keeps the manager but no tree edge.
+      // Checkout placement and the session family are independent. Only explicit
+      // isolation detaches a worker; a new worktree must keep its coordinator.
       if (!args.useWorktree && !args.worktreeId && parentSession?.worktreeId) {
         worktreeId = parentSession.worktreeId;
         worktreePath = parentSession.worktreePath ?? null;
@@ -654,7 +654,7 @@ export class MetaAgentService {
       // Beside the caller = under the caller's own parent (top level for a root caller).
       const besideCallerParentId = parentSession?.parentSessionId ?? null;
       const preferredParentId = args.parentSessionIdOverride === null ? null
-        : !parentSession || (parentSession.worktreeId ?? null) !== (worktreeId ?? null) ? null
+        : !parentSession ? null
         : args.besideCaller ? besideCallerParentId : metaSessionId;
 
       // NIM-858: do NOT auto-promote the spawning parent to agent_role='meta-agent'.
@@ -688,7 +688,7 @@ export class MetaAgentService {
         ...(childToolScope ? { toolScope: childToolScope } : {}),
         ...(childEffortLevel ? { effortLevel: childEffortLevel } : {}),
         ...childReportingMetadata(args.childReporting, metaSessionId),
-        ...(args.parentSessionIdOverride === null && !args.useWorktree ? { isolated: true } : {}),
+        ...(args.parentSessionIdOverride === null ? { isolated: true } : {}),
       };
 
       const treeParentId = await createUnderParentOrBeside(parentSessionId => AISessionsRepository.create({
@@ -785,7 +785,7 @@ export class MetaAgentService {
       );
     }
 
-    const workstreamId = isolated || args.useWorktree ? null : parent.id;
+    const workstreamId = isolated ? null : parent.id;
     const promotedParent = false;
 
     // Inherit the caller's worktree by default. spawn_session means "continue

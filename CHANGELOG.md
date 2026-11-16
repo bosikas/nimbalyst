@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 <!-- New features go here -->
 - Session scope summaries show the area of work and remaining steps, with search filters, per-session generation controls and recorded native usage when available
 - Sessions can automatically archive after an idle interval while preserving transcripts and worktrees; summaries default on and automatic archiving defaults off, while new built-in PR reviews use summaries off and a 30-minute archive timer
-- The session sidebar offers device-local typography, spacing and visibility controls with a live preview, and initially shows active children with older chats available on demand
+- The session sidebar offers device-local typography, spacing, visibility and activity-label color controls with a live preview, shows icons beside activity sections, and initially shows active children with older chats available through expansion arrows
 - Installed Codex skills can be searched, previewed and enabled or disabled through their native configuration in Agent Features settings
 - Agent Features settings now list Nimbalyst’s built-in guidance with searchable instruction previews and individual or bulk toggles, including commit proposals and session-naming reminders
 - Reviewed fresh-session handoffs preserve pending human requests, decisions, ownership and evidence without replaying full history; Codex context inspection separates measured request bytes from native token usage, and MCP configuration supports native on-demand exposure while keeping discovery and Core access
@@ -32,6 +32,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 <!-- Bug fixes go here -->
+- Workers given a separate worktree stay grouped under their coordinator while opening files and terminals in their own checkout; explicitly standalone sessions remain separate
+- The session list's "Needs you" section follows pending questions and permissions instead of generated review or blocker summaries, and hiding provider icons removes their reserved space
 - Worktree sessions discover extension tools on their first start, including backend-only extensions, and retain their stored project identity when reopened
 - Codex context inspection retains supported native context notifications and makes available prepared-context fragments expandable while identifying unavailable native details
 - Moving a project across volumes now links copied worktrees to the copied repository while preserving the original repository and worktrees

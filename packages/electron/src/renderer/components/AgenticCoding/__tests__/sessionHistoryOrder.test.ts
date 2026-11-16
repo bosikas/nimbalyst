@@ -124,12 +124,17 @@ describe('Today live activity sections', () => {
     expect(store.get(sections)).toEqual({ Running: [], 'Needs you': [], Idle: [] });
   });
 
-  it('surfaces a nested review/blocker without marking idle work complete, while running still wins', () => {
+  it.each(['review', 'blocked'] as const)('does not turn a generated %s summary into a human input request', attention => {
     const { store, sections } = setup();
     const registry = new Map(store.get(sessionRegistryAtom));
-    registry.set('grandchild', { ...registry.get('grandchild')!, workSummary: { attention: 'review' } as SessionWorkSummary });
+    registry.set('grandchild', { ...registry.get('grandchild')!, workSummary: { attention } as SessionWorkSummary });
     store.set(sessionRegistryAtom, registry);
+    expect(store.get(sections)['Needs you']).toEqual([]);
+    expect(store.get(sections).Idle).toEqual([group, idle]);
+    expect(store.get(createWorkAttentionCountAtom(['root']))).toBe(0);
+    store.set(sessionHasPendingInteractivePromptAtom('grandchild'), true);
     expect(store.get(sections)['Needs you']).toEqual([group]);
+    expect(store.get(createWorkAttentionCountAtom(['root']))).toBe(1);
     store.set(sessionProcessingAtom('sibling'), true);
     expect(store.get(sections).Running).toEqual([group]);
     expect(store.get(sections).Idle).toEqual([idle]);

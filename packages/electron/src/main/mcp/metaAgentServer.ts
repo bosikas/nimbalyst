@@ -262,7 +262,7 @@ export const META_AGENT_TOOL_DEFS: Array<{
       "- Unrelated work (\"start a new session to fix that other bug\", \"track this down separately\"): isolated=true and reporting \"none\". It is an independent top-level session that does and commits its own work; do not wait for it or check on it.\n" +
       "- The same work continued in a fresh session (context is too long, or a handoff to a successor): besideCaller=true and reporting \"none\". It sits beside you, so a chain of handoffs stays flat.\n" +
       "- Workers for one task you are coordinating (the user asked you to orchestrate, split up or parallelize a piece of work): omit both flags so it nests under you in the session tree, and set reporting \"final\" so you get its result.\n" +
-      "The new session runs in your working directory (your worktree, if you are in one); pass useWorktree=true only when the user asks for a separate branch. Reporting defaults to \"none\" (fire and forget). Used by /launch-new-session.",
+      "The new session runs in your working directory (your worktree, if you are in one); pass useWorktree=true only when the user asks for a separate branch. A separate worktree keeps the worker nested under you; only isolated=true detaches it. Reporting defaults to \"none\" (fire and forget). Used by /launch-new-session.",
     inputSchema: {
       type: "object",
       properties: {

@@ -415,7 +415,7 @@ export const SessionListItem = memo<SessionListItemProps>(function SessionListIt
       aria-current={isActive ? 'page' : undefined}
     >
       {treeLeading}
-      <div style={{ visibility: (isChild ? appearance.showChildIcon : appearance.showParentIcon) ? undefined : 'hidden' }} className={`session-list-item-icon shrink-0 ${compact ? "" : "mt-0.5"} text-[var(--nim-text-muted)] flex items-center relative ${isActive ? '[&]:text-[var(--nim-primary)] [&_svg]:text-[var(--nim-primary)]' : '[&_svg]:text-[var(--nim-text-muted)]'} ${isWorkstream ? 'workstream-icon' : ''} ${isWorktreeSession ? 'worktree-icon' : ''}`}>
+      {(isChild ? appearance.showChildIcon : appearance.showParentIcon) && <div className={`session-list-item-icon shrink-0 ${compact ? "" : "mt-0.5"} text-[var(--nim-text-muted)] flex items-center relative ${isActive ? '[&]:text-[var(--nim-primary)] [&_svg]:text-[var(--nim-primary)]' : '[&_svg]:text-[var(--nim-text-muted)]'} ${isWorkstream ? 'workstream-icon' : ''} ${isWorktreeSession ? 'worktree-icon' : ''}`}>
         {sessionType === 'voice' ? (
           // Voice session: OpenAI icon with mic badge
           <div className="relative">
@@ -435,7 +435,7 @@ export const SessionListItem = memo<SessionListItemProps>(function SessionListIt
         ) : (
           <SessionProviderIcon sessionId={id} provider={provider} size={14} isActive={isActive} hideLaunchCount={treeContext} />
         )}
-      </div>
+      </div>}
       <div className="session-list-item-content flex-1 min-w-0 overflow-hidden">
         {isRenaming ? (
           <input

@@ -57,6 +57,17 @@ const STORE_FALLBACK = path.join(
 );
 
 describe('SettingsService', () => {
+  it('persists activity-label colors with older appearance preferences and rejects invalid colors', async () => {
+    const { getSettingsService } = await import('../SettingsService');
+    const svc = getSettingsService();
+    const saved = { ...svc.get('ui.sessionListAppearance'), runningColor: '#12ab34', needsYouColor: '#eeb122', idleColor: 'theme' };
+    svc.set('ui.sessionListAppearance', saved as any);
+    vi.resetModules();
+    const reloaded = (await import('../SettingsService')).getSettingsService();
+    expect(reloaded.get('ui.sessionListAppearance')).toMatchObject({ runningColor: '#12ab34', needsYouColor: '#eeb122', idleColor: 'theme' });
+    expect(() => reloaded.set('ui.sessionListAppearance', { ...saved, runningColor: 'url(bad)' } as any)).toThrow();
+    expect(reloaded.get('ui.sessionListAppearance')).toMatchObject({ runningColor: '#12ab34' });
+  });
   it('persists chat density independently and rejects unsupported presets', async () => {
     const { getSettingsService } = await import('../SettingsService');
     const svc = getSettingsService();

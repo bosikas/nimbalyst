@@ -420,6 +420,7 @@
   }
 }
 .session-activity-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 9px 12px 5px 24px; color: var(--nim-text-muted); font-size: 10px; line-height: 14px; font-weight: 500; }
+.session-activity-label { display: inline-flex; align-items: center; gap: 6px; min-width: 0; }
 .session-activity-count { color: var(--nim-text-faint); font-size: 9px; font-weight: 400; }
 
 /* Device-local appearance preferences; typography and padding stay independent. */
@@ -436,9 +437,6 @@
 .session-history .session-list-item.is-child.context-hidden .session-context-usage-bar,
 .session-history .session-list-item.is-child.context-hidden .session-context-usage-unknown { display: none; }
 .session-list-item-eyebrow[hidden] { display: none; }
-.session-tree-older { padding: 3px 8px 7px 42px; }
-.session-tree-older button { border: 0; background: transparent; color: var(--nim-text-faint); font-size: 10px; cursor: pointer; padding: 4px 0; }
-.session-tree-older button:hover { color: var(--nim-text); }
 .session-custom-overlay { z-index: 10010; display: grid; place-items: center; padding: 24px; background: color-mix(in srgb, var(--nim-bg) 65%, transparent); backdrop-filter: blur(5px); }
 .session-customization { width: min(440px, 100%); max-height: min(780px, calc(100vh - 48px)); display: flex; flex-direction: column; overflow: hidden; border: 1px solid var(--nim-border); border-radius: 16px; background: var(--nim-bg); color: var(--nim-text); box-shadow: 0 24px 80px color-mix(in srgb, var(--nim-text) 16%, transparent); font-size: 12px; }
 .session-customization header { display: flex; justify-content: space-between; align-items: start; padding: 22px 24px 14px; }
@@ -451,8 +449,8 @@
 .session-custom-presets > span { color: var(--nim-text-faint); margin-right: 8px; }
 .session-custom-presets button:last-child { margin-left: auto; }
 .session-custom-preview { margin: 0 24px 16px; border: 1px solid var(--nim-border); border-radius: 10px; padding: 14px 16px; background: var(--nim-bg-secondary); overflow: hidden; }
-.session-custom-preview-heading { display: flex; justify-content: space-between; font-size: var(--session-heading-size); font-weight: var(--session-heading-weight); color: var(--nim-text-muted); }
-.session-custom-preview-heading > span { font-size: 9px; font-weight: 400; color: var(--nim-text-faint); }
+.session-custom-preview-activities { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 6px; }
+.session-custom-preview-activities .session-activity-header { padding: 0; gap: 6px; }
 .session-custom-preview-row { padding-block: var(--session-row-padding); }
 .session-custom-preview-title { font-size: var(--session-title-size); line-height: 20px; }
 .session-custom-preview-summary { margin: 3px 0; font-size: var(--session-summary-size); line-height: var(--session-summary-leading); color: var(--nim-text-muted); }
@@ -465,6 +463,11 @@
 .session-custom-controls { overflow-y: auto; min-height: 0; padding: 8px 24px 16px; }
 .session-custom-control { display: flex; justify-content: space-between; align-items: center; gap: 12px; min-height: 36px; font-size: 11px; color: var(--nim-text-muted); }
 .session-custom-control input[type=checkbox] { accent-color: var(--nim-primary); width: 13px; height: 13px; }
+.session-custom-colors { display: inline-flex; align-items: center; gap: 8px; }
+.session-custom-color-swatch { width: 24px; height: 20px; border: 1px solid var(--nim-border); border-radius: 5px; overflow: hidden; }
+.session-custom-color-swatch:focus-within { outline: 2px solid var(--nim-border-focus); outline-offset: 2px; }
+.session-custom-color-swatch input { opacity: 0; cursor: pointer; width: 100%; height: 100%; padding: 0; border: 0; }
+.session-custom-colors button:disabled { opacity: 0.5; cursor: default; }
 .session-custom-number { display: flex; align-items: center; gap: 5px; }
 .session-custom-number > span { width: 24px; font-size: 9px; color: var(--nim-text-faint); }
 .session-custom-control input[type=number], .session-custom-control select { border: 1px solid var(--nim-border); border-radius: 5px; background: var(--nim-bg-secondary); color: var(--nim-text); padding: 4px 6px; font-size: 11px; }

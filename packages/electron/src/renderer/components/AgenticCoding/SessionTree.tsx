@@ -12,6 +12,7 @@ import {
 } from '../../store/atoms/sessions';
 import { workspaceSessionTurnActivityAtom } from '../../store/atoms/sessionActivity';
 import { workstreamStateAtom } from '../../store/atoms/workstreamState';
+import { worktreeRecordAtom } from '../../store/atoms/worktrees';
 import { compactRowsAtom } from '../../store/atoms/agentMode';
 import { SessionListItem } from './SessionListItem';
 import { settingAtom } from '../../store/atoms/settingAtomFamily';
@@ -40,7 +41,6 @@ export type SessionTreeRowHandlers = Omit<SessionTreeProps, 'sessions' | 'root'>
 
 /** One visible row of a flattened tree; virtual lists render one of these per item. */
 export interface VisibleSessionTreeRow {
-  olderCount?: number;
   node: SessionTreeNode<SessionMeta>;
   baseDepth: number;
   /** Set on a tree's top row: a merged wrapper keeps the pin identity of the hidden root. */
@@ -140,7 +140,6 @@ export function useVisibleSessionTreeRows(
           const shown = full ? node.children : [...active, ...older.slice(0, appearance.olderChildren)];
           const ordered = appearance.activeChildrenFirst ? [...active.filter(child => shown.includes(child)), ...older.filter(child => shown.includes(child))] : node.children.filter(child => shown.includes(child));
           ordered.forEach(child => visit(child));
-          if (!full && older.length > appearance.olderChildren) rows.push({ node, baseDepth: header.depth, olderCount: older.length - appearance.olderChildren });
         };
         visit(header, root.session);
       }
@@ -161,20 +160,14 @@ export function SessionTree(props: SessionTreeProps) {
   return (
     <div className="session-tree" role="tree" aria-label="Session tree">
       {rows.map((row) => (
-        <SessionTreeRow key={`${row.node.session.id}${row.olderCount ? ':older' : ''}`} {...props} {...row} />
+        <SessionTreeRow key={row.node.session.id} {...props} {...row} />
       ))}
     </div>
   );
 }
 
 export function SessionTreeRow(props: SessionTreeRowHandlers & VisibleSessionTreeRow) {
-  return props.olderCount ? <OlderChildrenRow {...props} /> : <SessionTreeSessionRow {...props} />;
-}
-
-function OlderChildrenRow(props: SessionTreeRowHandlers & VisibleSessionTreeRow) {
-  const [, setState] = useAtom(workstreamStateAtom(props.node.session.id));
-  const appearance = useAtomValue(settingAtom('ui.sessionListAppearance'));
-  return <div className="session-tree-older" style={{ marginLeft: (props.node.depth - props.baseDepth) * appearance.indent }}><button type="button" onClick={() => setState({ treeExpanded: true, treeExpandedUntil: appearance.autoCollapseSeconds ? Date.now() + appearance.autoCollapseSeconds * 1000 : null })}>Show {props.olderCount} older {props.olderCount === 1 ? 'chat' : 'chats'}</button></div>;
+  return <SessionTreeSessionRow {...props} />;
 }
 
 function SessionTreeSessionRow(props: SessionTreeRowHandlers & VisibleSessionTreeRow) {
@@ -192,6 +185,10 @@ function SessionTreeSessionRow(props: SessionTreeRowHandlers & VisibleSessionTre
     }
   }
   const row = node.session;
+  const worktree = useAtomValue(worktreeRecordAtom(row.worktreeId ?? ''));
+  const worktreeLabel = row.worktreeId
+    ? worktree ? `${worktree.displayName || worktree.name} · ${worktree.path}` : row.worktreeId
+    : 'Project checkout';
   const pinSession = props.pinSession ?? row;
   const [, setState] = useAtom(workstreamStateAtom(row.id));
   const compact = useAtomValue(compactRowsAtom);
@@ -278,7 +275,7 @@ function SessionTreeSessionRow(props: SessionTreeRowHandlers & VisibleSessionTre
     >
       <SessionListItem
         {...row}
-        worktreeLabel={props.worktreeLabel}
+        worktreeLabel={worktreeLabel}
         onWorktreeMenu={node.depth === baseDepth ? props.onWorktreeMenu : undefined}
         isPinned={pinSession.isPinned}
         title={row.title || 'Untitled Session'}

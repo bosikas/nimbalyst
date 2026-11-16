@@ -417,7 +417,7 @@ describe('MetaAgentService workspace-alias resolution (#1551)', () => {
     });
 
     expect(result.worktreeId).toBe('wt-own');
-    expect(result.parentSessionId).toBeNull();
+    expect(result.parentSessionId).toBe('meta');
     expect(result.createdBySessionId).toBe('meta');
     expect(result.worktreePath).toBe(fixture.worktree);
     expect(createdWorkspaceIds()).toEqual([fixture.alias]);
@@ -444,6 +444,19 @@ describe('MetaAgentService workspace-alias resolution (#1551)', () => {
     // The name-collision scan has to look at the same checkout the worktree is
     // created in, or it can hand back a name that is already taken.
     expect(gitWorktreeCalls.map((call) => call.projectPath)).toEqual([fixture.alias, fixture.alias, fixture.alias]);
+  });
+
+  it.each([false, true])('keeps a new-worktree worker nested unless explicitly isolated=%s', async isolated => {
+    vi.mocked(AISessionsRepository.get).mockImplementation(async (id: string) =>
+      id === 'parent' ? sessionRow({ id: 'parent', workspacePath: fixture.alias }) : null,
+    );
+    const result = JSON.parse(await service.spawnSession('parent', fixture.canonical, {
+      prompt: CHILD_PROMPT, useWorktree: true, isolated,
+    }));
+    expect(result).toMatchObject({ parentSessionId: isolated ? null : 'parent', worktreeId: 'wt-new' });
+    expect(vi.mocked(AISessionsRepository.create).mock.calls[0][0]).toMatchObject({
+      parentSessionId: isolated ? null : 'parent', createdBySessionId: 'parent', worktreeId: 'wt-new',
+    });
   });
 
   it('scopes the workspace-keyed queries behind get_session_status and list_spawned_sessions to the stored spelling', async () => {

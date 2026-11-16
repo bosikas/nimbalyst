@@ -116,6 +116,7 @@ describe('tree interactions', () => {
     store.set(sessionUnreadAtom('leaf'), true);
     store.set(sessionProcessingAtom('leaf'), true);
     tree();
+    expect(screen.queryByRole('button', { name: /^Show \d+ older/ })).toBeNull();
     screen.getByText('leaf');
     act(() => store.set(sessionProcessingAtom('leaf'), false));
     expect(screen.queryByText('leaf')).toBeNull();
@@ -312,7 +313,7 @@ describe('tree interactions', () => {
     const { result } = renderHook(() => useVisibleSessionTreeRows(trees, null, '/project'), {
       wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
     });
-    const visible = () => result.current.get('root')!.filter(r => !r.olderCount).map((r) => [r.node.session.id, r.node.depth - r.baseDepth]);
+    const visible = () => result.current.get('root')!.map((r) => [r.node.session.id, r.node.depth - r.baseDepth]);
     expect(visible()).toEqual([['root', 0]]);
     act(() => store.set(sessionProcessingAtom('leaf'), true));
     expect(visible()).toEqual([['root', 0], ['middle', 1], ['leaf', 2]]);
@@ -498,7 +499,9 @@ describe('tree interactions', () => {
     expect(moves()).toBe(before);
     expect(store.get(sessionRegistryAtom).get('target')?.parentSessionId).toBe('middle');
   });
-  it('rejects descendant and foreign-worktree drops, and dropping between rows adopts their parent', async () => {
+  it('rejects descendant and foreign-project drops, and dropping between rows adopts their parent', async () => {
+    store.set(sessionRegistryAtom, new Map([...store.get(sessionRegistryAtom)].map(([id, row]) =>
+      [id, id === 'foreign' ? { ...row, workspaceId: '/other-project' } : row])));
     function DragRow({ id }: { id: string }) {
       const drag = useSessionTreeMove(id, '/project');
       return (

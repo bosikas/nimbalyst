@@ -21,15 +21,11 @@ export function useSessionTreeMove(id: string, workspacePath?: string) {
   const sessionType = useAtomValue(
     useMemo(() => atom((get) => get(sessionRegistryAtom).get(id)?.sessionType), [id])
   );
-  const inWorktree = useAtomValue(
-    useMemo(() => atom((get) => !!get(sessionRegistryAtom).get(id)?.worktreeId), [id])
-  );
   const reparent = useSetAtom(reparentSessionAtom);
   const [isDragging, setDragging] = useState(false);
   const [hint, setHint] = useState<{ valid: boolean; label: string; between: boolean } | null>(null);
   const isDraggable = !!workspacePath && sessionType !== 'workstream' && sessionType !== 'blitz';
-  // Workstreams never live in a worktree, so a worktree session cannot join one.
-  const canJoinWorkstream = isDraggable && !inWorktree;
+  const canJoinWorkstream = isDraggable;
 
   const move = useCallback(
     async (sourceId: string, newParentId: string | null, undo = false, restoreManagerId?: string | null) => {

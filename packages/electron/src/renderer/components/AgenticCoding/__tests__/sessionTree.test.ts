@@ -7,6 +7,7 @@ import {
   rendersAsSessionTree,
   sessionMoveError,
   sessionTreeRootId,
+  sessionFamilyWorktreeId,
   treeIndent,
   visibleSessionTreeIds,
   type TreeSession,
@@ -72,7 +73,7 @@ describe('session tree projection', () => {
       'older',
     ]);
   });
-  it('resolves deep tab roots and rejects cycles, containers, cross-worktree and subtree depth overflow', () => {
+  it('resolves deep tab roots and rejects cycles, containers and subtree depth overflow', () => {
     const D = MAX_TREE_DEPTH;
     const rows = new Map(
       Array.from({ length: D + 1 }, (_, i) => row(String(i), i ? String(i - 1) : null)).map((r) => [r.id, r])
@@ -84,7 +85,27 @@ describe('session tree projection', () => {
     expect(sessionMoveError(rows, 'branch', String(D - 1))).toMatch(new RegExp(`${D} levels`));
     expect(sessionMoveError(rows, 'branch', String(D - 2))).toBeNull();
     rows.set('foreign', row('foreign', null, { worktreeId: 'other' }));
-    expect(sessionMoveError(rows, 'branch', 'foreign')).toMatch(/same worktree/);
+    expect(sessionMoveError(rows, 'branch', 'foreign')).toBeNull();
     expect(sessionMoveError(rows, String(D), null)).toBeNull();
+  });
+  it('keeps cross-worktree families together without combining projects or machines', () => {
+    const rows = [
+      row('coordinator', null, { workspaceId: '/p' }),
+      row('worker', 'coordinator', { workspaceId: '/p', worktreeId: 'own', updatedAt: 10 }),
+      row('review', 'worker', { workspaceId: '/p', worktreeId: 'review' }),
+      row('other-project', 'coordinator', { workspaceId: '/other' }),
+      row('other-machine', 'coordinator', { workspaceId: '/p', remoteHostDeviceId: 'remote' }),
+    ];
+    const forest = buildSessionTree(rows);
+    const root = forest.find(node => node.session.id === 'coordinator')!;
+    expect(root.ids).toEqual(['coordinator', 'worker', 'review']);
+    expect(root.activity).toBe(10);
+    expect(sessionTreeRootId('review', new Map(rows.map(r => [r.id, r])))).toBe('coordinator');
+    const registry = new Map(rows.map(r => [r.id, r]));
+    expect(sessionFamilyWorktreeId('worker', registry)).toBeNull();
+    registry.set('coordinator', row('coordinator', null, { workspaceId: '/p', worktreeId: 'coordinator-wt' }));
+    expect(sessionFamilyWorktreeId('review', registry)).toBe('coordinator-wt');
+    expect(registry.get('review')?.worktreeId).toBe('review');
+    expect(forest).toHaveLength(3);
   });
 });
