@@ -104,6 +104,7 @@ Twelve built-in provider lanes, plus any agent an extension contributes. Every l
 
 - Nested session trees across checkouts within the same project, with collapsible orchestrators and subtree activity, unread, and uncommitted-file rollups; branches start collapsed and close after one minute without row interaction. Search temporarily reveals branches without changing collapse choices. Child metadata and its actual checkout are available through Details, without context bars or inline phase labels. Opening a child keeps its editor, terminal and transcript tabs in that child's checkout
 - Compact session navigation with search, new session and an overflow menu for Kanban, archive, sorting and creation variants; Today opens by default and older date sections start collapsed. The selected chat has the main highlight, with a quieter ancestor accent
+- Collapse all / Expand all commands in the session list overflow menu control parent sessions and workstreams without changing session selection
 - Workstream containers: a named group with a folder icon that holds peer sessions with no parent or manager among them; created from the create menu or "Move to workstream..." (one or several selected sessions), filled by moving or dragging sessions in or by starting a session while it is selected
 - Workstream editor tabs (multi-file editing per session)
 - Workstream session tabs (switch between child sessions)
@@ -125,6 +126,7 @@ Twelve built-in provider lanes, plus any agent an extension contributes. Every l
 - Suggested next prompt for Claude Code sessions (on by default, toggle under Agent Features): shown in the empty input after a turn you started, Tab fills it in; skipped for turns started by agents or automations
 - Model-aware reasoning effort selector, including Ultra for supported Codex models
 - Model selector (per-session or per-workstream)
+- Codex model list includes models reported by the bundled codex binary's catalog (`model/list`), so a model it supports appears before Nimbalyst's built-in list is updated
 - Context window usage display with pace tracking
 - Codex context inspector in the token meter: measured UTF-8 bytes and inclusion reasons for the last Nimbalyst-prepared request, separate from provider-reported tokens; native instructions, history, compaction and loaded-tool categories are explicitly opaque. Available after a Codex turn in the current app process
 - Codex context evidence: compare provider-reported context-token samples around the latest 20 native compactions observed in this app process, with missing samples explicit and no inferred text or isolated savings; inspect configured tool groups and deferred discovery separately from verified MCP calls (up to 200 tool names). Native loaded schemas remain unknown and canonical transcripts remain intact

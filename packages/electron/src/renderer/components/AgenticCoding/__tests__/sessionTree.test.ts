@@ -9,6 +9,7 @@ import {
   sessionTreeRootId,
   sessionFamilyWorktreeId,
   treeIndent,
+  treeParentIds,
   visibleSessionTreeIds,
   type TreeSession,
 } from '../sessionTreeModel';
@@ -107,5 +108,17 @@ describe('session tree projection', () => {
     expect(sessionFamilyWorktreeId('review', registry)).toBe('coordinator-wt');
     expect(registry.get('review')?.worktreeId).toBe('review');
     expect(forest).toHaveLength(3);
+  });
+});
+
+describe('treeParentIds', () => {
+  it('lists every node that has children, at any depth, and skips leaves', () => {
+    const rows = [row('root'), row('middle', 'root'), row('leaf', 'middle'), row('sibling', 'root'), row('solo')];
+    expect(treeParentIds(rows).sort()).toEqual(['middle', 'root']);
+  });
+
+  it('does not depend on what is expanded', () => {
+    expect(treeParentIds([row('a'), row('b', 'a')])).toEqual(['a']);
+    expect(treeParentIds([row('a')])).toEqual([]);
   });
 });

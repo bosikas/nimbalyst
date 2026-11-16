@@ -23,7 +23,7 @@ import { ModelIdentifier, type ChatAttachment, type SessionData } from '@nimbaly
 import { stripMcpPrefix } from '@nimbalyst/runtime/ai/server/interactivePromptTools';
 import type { SessionMeta } from '@nimbalyst/runtime';
 import deepEqual from 'fast-deep-equal';
-import { captureTranscriptMessages, preserveTranscriptMessageIdentity, reconcileTranscriptMessages } from '../transcriptReconciliation';
+import { captureTranscriptMessages, preserveTranscriptMessageIdentity, reconcileTranscriptMessages, warnOnDuplicateUserPrompt } from '../transcriptReconciliation';
 import { sessionLaunchCountsAtom } from './sessionLaunchCounts';
 import { sessionListMetadata } from './sessionListMetadata';
 import { workstreamStateAtom, setWorkstreamActiveChildAtom } from './workstreamState';
@@ -107,9 +107,22 @@ export const activeSessionIdAtom = atom<string | null>(null);
  * Set when AI is actively generating a response.
  * SessionListItem subscribes to show processing indicator.
  */
-export const sessionProcessingAtom = atomFamily((_sessionId: string) =>
-  atom(false)
+// Each write gets a fresh identity, including same-value lifecycle writes.
+// Async reconciliation uses it to avoid overwriting newer turn/composer state.
+export const sessionProcessingStateAtom = atomFamily((_sessionId: string) =>
+  atom<Readonly<{ processing: boolean; hasLocalWrite: boolean }>>({ processing: false, hasLocalWrite: false })
 );
+
+export const sessionProcessingAtom = atomFamily((sessionId: string) => {
+  const state = sessionProcessingStateAtom(sessionId);
+  return atom(
+    get => get(state).processing,
+    (get, set, update: boolean | ((previous: boolean) => boolean)) => {
+      const processing = typeof update === 'function' ? update(get(state).processing) : update;
+      set(state, { processing, hasLocalWrite: true });
+    },
+  );
+});
 
 /**
  * Per-session unread state.
@@ -726,6 +739,7 @@ export const updateSessionStoreAtom = atom(
       if (updates.tokenUsage !== undefined && deepEqual(current.tokenUsage, updates.tokenUsage)) {
         normalizedUpdates.tokenUsage = current.tokenUsage;
       }
+      if (updates.messages) warnOnDuplicateUserPrompt(sessionId, 'update', updates.messages);
       set(sessionStoreAtom(sessionId), { ...current, ...normalizedUpdates });
     }
 
@@ -1667,6 +1681,7 @@ export const loadSessionDataAtom = atom(
           get(sessionStoreAtom(sessionId))?.messages ?? [], sessionData.messages ?? [],
           { startedWith: messagesAtStart },
         );
+        warnOnDuplicateUserPrompt(sessionId, 'load', sessionData.messages);
         // Set sessionStoreAtom - derived atoms (mode, model, archived) will automatically sync
         set(sessionStoreAtom(sessionId), sessionData);
 
@@ -1836,6 +1851,7 @@ export const reloadSessionDataAtom = atom(
         sessionData.messages = reconcileTranscriptMessages(
           current?.messages ?? [], sessionData.messages ?? [], { startedWith: messagesAtStart },
         );
+        warnOnDuplicateUserPrompt(sessionId, 'reload', sessionData.messages);
         if (current) {
           // Preserve read state
           const preservedTimestamp = current.lastReadMessageTimestamp || 0;
@@ -1883,6 +1899,7 @@ export const cleanupSessionAtom = atom(null, (get, set, sessionId: string) => {
   sessionModelAtom.remove(sessionId);
   sessionArchivedAtom.remove(sessionId);
   sessionProcessingAtom.remove(sessionId);
+  sessionProcessingStateAtom.remove(sessionId);
   sessionUnreadAtom.remove(sessionId);
   sessionPendingPromptAtom.remove(sessionId);
   sessionHasPendingInteractivePromptAtom.remove(sessionId);

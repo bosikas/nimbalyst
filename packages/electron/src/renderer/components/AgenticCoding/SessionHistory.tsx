@@ -16,7 +16,7 @@ import { CollapsibleGroup } from './CollapsibleGroup';
 import { WorktreeBaseBranchPicker } from './WorktreeBaseBranchPicker';
 import { SessionListItem } from './SessionListItem';
 import { SessionTreeRow, useVisibleSessionTreeRows, type VisibleSessionTreeRow } from './SessionTree.tsx';
-import { visibleSessionTreeIds, sessionTreeRootId, sessionFamilyWorktreeId, rendersAsSessionTree } from './sessionTreeModel';
+import { visibleSessionTreeIds, sessionTreeRootId, sessionFamilyWorktreeId, rendersAsSessionTree, treeParentIds } from './sessionTreeModel';
 import { resolveSessionArchiveSelection, sessionArchiveSubtreeIds } from './sessionArchiveSelection';
 import { WorkstreamGroup } from './WorkstreamGroup';
 import { BlitzGroup } from './BlitzGroup';
@@ -49,7 +49,7 @@ import {
 import { alphaFeatureEnabledAtom, worktreesFeatureAvailableAtom } from '../../store/atoms/appSettings';
 import { activeWorkspacePathAtom } from '../../store/atoms/openProjects';
 import { useGitRepoProbe } from '../../hooks/useGitRepoProbe';
-import { workstreamStateAtom } from '../../store/atoms/workstreamState';
+import { workstreamStateAtom, setTreeExpandedForAtom } from '../../store/atoms/workstreamState';
 import { sessionProcessingAtom, sessionUnreadAtom, sessionHasPendingInteractivePromptAtom, activeSessionIdAtom as globalActiveSessionIdAtom, sessionPinnedUpdateAtom, createWorkstreamAtom } from '../../store/atoms/sessions';
 import { collapsedGroupsAtom, compactRowsAtom, setCompactRowsAtom, showContextUsageAtom, setShowContextUsageAtom, sortOrderAtom, setCollapsedGroupsAtom, setSortOrderAtom } from '../../store/atoms/agentMode';
 import {
@@ -2388,6 +2388,23 @@ const SessionHistoryComponent: React.FC = () => {
   }, [groupKeys, groupedItems, collapsedGroups, sessionRegistry, revealMatches]);
   const workstreamTreeRows = useVisibleSessionTreeRows(workstreamTrees, activeSessionId, workspacePath, revealMatches);
 
+  // Every parent with children in the list, expanded or not, for Collapse all / Expand all.
+  const allTreeParentIds = useMemo(() => {
+    const ids: string[] = [];
+    for (const groupKey of groupKeys) {
+      for (const item of groupedItems[groupKey]) {
+        if (item.type === 'workstream') {
+          const root = sessionRegistry.get(item.session.id) ?? item.session;
+          ids.push(...treeParentIds([root, ...item.sessions]));
+        } else if (item.type === 'worktree') {
+          ids.push(...treeParentIds(item.sessions));
+        }
+      }
+    }
+    return ids;
+  }, [groupKeys, groupedItems, sessionRegistry]);
+  const setTreeExpandedFor = useSetAtom(setTreeExpandedForAtom);
+
   const flatVirtuosoItems = useMemo(() => {
     const flat: FlatVirtuosoItem[] = [];
     for (const groupKey of groupKeys) {
@@ -2690,6 +2707,10 @@ const SessionHistoryComponent: React.FC = () => {
     }} compact={compactRows} onCompact={() => setCompactRows(!compactRows)}
     context={showContextUsage} onContext={() => setShowContextUsage(!showContextUsage)} count={iosMatchCount}
     actions={[
+      ...(allTreeParentIds.length ? [
+        { label: 'Collapse all', run: () => setTreeExpandedFor({ ids: allTreeParentIds, expanded: false }) },
+        { label: 'Expand all', run: () => setTreeExpandedFor({ ids: allTreeParentIds, expanded: true }) },
+      ] : []),
       { label: 'New workstream', run: onNewWorkstream },
       ...(onNewWorktreeSession ? [{ label: 'New worktree', run: openWorktreeBaseBranchPicker, disabled: isNotGitRepo }] : []),
       ...(onNewTerminal ? [{ label: 'New terminal', run: onNewTerminal }] : []),
@@ -2996,6 +3017,7 @@ const SessionHistoryComponent: React.FC = () => {
         )}
       </div>
       )}
+
       {(selectedSessionIds.size > 0 || selectedGroupIds.size > 0) && (
         <div className="session-history-bulk-actions flex items-center justify-between px-3 py-2 bg-[var(--nim-bg-selected)] border-b border-[var(--nim-border)] gap-2">
           <span className="session-history-bulk-count text-xs font-medium text-[var(--nim-text)]">{selectedSessionIds.size + selectedGroupIds.size} selected</span>

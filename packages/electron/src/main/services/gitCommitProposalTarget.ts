@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { readFileSync, realpathSync } from 'node:fs';
-import { dirname, isAbsolute, join, resolve } from 'node:path';
+import { dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { AISessionsRepository } from '@nimbalyst/runtime/storage/repositories/AISessionsRepository';
 import { SessionFilesRepository } from '@nimbalyst/runtime/storage/repositories/SessionFilesRepository';
 import { getDatabase } from '../database/initialize';
@@ -122,6 +122,20 @@ async function findRegisteredWorktree(checkout: string, candidate: string): Prom
   return { path: requested, branch: registered.branch };
 }
 
+/**
+ * #1968: whether `root` is the toplevel of the very checkout `dir` sits in.
+ * Same toplevel and same per-checkout git dir; a shared common dir alone only
+ * proves the same repository, not the same checkout.
+ */
+async function isOwnCheckoutRoot(dir: string, root: string): Promise<boolean> {
+  try {
+    const [inner, outer] = await Promise.all([repoIdentity(dir), repoIdentity(root)]);
+    return inner.toplevel === root && inner.toplevel === outer.toplevel && inner.gitDir === outer.gitDir;
+  } catch {
+    return false;
+  }
+}
+
 /** The checkout a session commits from: its bound worktree, else its workspace. */
 export async function getSessionCommitCheckout(sessionId: string): Promise<string> {
   const session = await AISessionsRepository.get(sessionId);
@@ -185,6 +199,13 @@ export async function resolveGitCommitProposalTarget(
       const groups = groupFilesByRepo(requested, files, []);
       const outside = [...groups].filter(([repo]) => !repo || realpathOrNull(repo) !== requested).flatMap(([, list]) => list);
       if (outside.length) throw new Error(`Selected files are outside the worktree ${requested}: ${outside.join(', ')}. Call developer_git_commit_proposal once per checkout.`);
+      // #1968: a session opened on a subfolder of a checkout that names that
+      // checkout's root is committing in its own checkout, not a sibling. Keep
+      // the session checkout as the record's workspace (execution re-checks it)
+      // and commit in the root, without the sibling marker that forces manual approval.
+      if (await isOwnCheckoutRoot(workspacePath, requested)) {
+        return expandTarget({ workspacePath, repoPath: requested, files }, sessionId, [session.workspacePath, workspacePath], excludePaths);
+      }
       return expandTarget(
         { workspacePath: requested, repoPath: requested, files, worktree: { path: requested, branch: registered.branch } },
         sessionId, [session.workspacePath, requested], excludePaths,
@@ -215,6 +236,38 @@ function parseExcludePaths(value: unknown): string[] {
 }
 
 /**
+ * Epoch ms just past each file's newest commit (git dates are whole seconds),
+ * from one `git log` bounded by the oldest edit time. Files with no commit in
+ * that window are absent. A failed lookup returns nothing, which keeps every
+ * flag: pausing auto-commit is the safe side.
+ */
+async function lastCommitTimes(
+  repoPath: string,
+  files: ProposalFileDetail[],
+  editorsByFile: Map<string, Map<string, number | undefined>>,
+): Promise<Map<string, number>> {
+  const result = new Map<string, number>();
+  const editTimes = files.flatMap(file => [...editorsByFile.get(file.path)!.values()]);
+  if (files.length === 0 || editTimes.some(time => time === undefined)) return result;
+  const since = Math.floor(Math.min(...(editTimes as number[])) / 1000);
+  const byRelative = new Map(files.map(file => [relative(repoPath, file.path).split(sep).join('/'), file.path]));
+  let output: string;
+  try {
+    output = await runGit(repoPath, ['-c', 'core.quotePath=false', 'log', `--since=@${since}`, '--format=\x1f%ct', '--name-only', '--no-renames', '--', ...byRelative.keys()]);
+  } catch (error) {
+    console.warn('[gitCommitProposalTarget] git log for other-session edit check failed; keeping all flags', error);
+    return result;
+  }
+  let commitMs = 0;
+  for (const line of output.split('\n')) {
+    if (line.startsWith('\x1f')) { commitMs = (Number(line.slice(1)) + 1) * 1000; continue; }
+    const absolute = byRelative.get(line);
+    if (absolute && commitMs > (result.get(absolute) ?? 0)) result.set(absolute, commitMs);
+  }
+  return result;
+}
+
+/**
  * #1955: expand directory entries into concrete files, then flag files under an
  * expanded directory that another session edited and this one did not. Those
  * arrive unchecked in the widget and stop auto-commit (D-A2). An all-file
@@ -235,23 +288,33 @@ async function expandTarget(
   const details: ProposalFileDetail[] = expansion.files.map(file => ({ ...file }));
   const expanded = details.filter(file => file.fromDirectory);
   if (expanded.length > 0) {
-    let links: Array<{ sessionId: string; filePath: string }>;
+    let links: Array<{ sessionId: string; filePath: string; lastLinkedAt?: number }>;
     try {
       links = await SessionFilesRepository.getSessionsByFiles(workspaceIds, expanded.map(file => file.path), 'edited');
     } catch (error) {
       throw new Error(`Could not check which sessions edited the files under ${Object.keys(expansion.expandedFrom).join(', ')}, so the directory cannot be expanded safely. List the files explicitly. (${error instanceof Error ? error.message : String(error)})`);
     }
-    const editorsByFile = new Map<string, Set<string>>();
+    const editorsByFile = new Map<string, Map<string, number | undefined>>();
     for (const link of links) {
-      const editors = editorsByFile.get(link.filePath) ?? new Set<string>();
-      editors.add(link.sessionId);
+      const editors = editorsByFile.get(link.filePath) ?? new Map<string, number | undefined>();
+      editors.set(link.sessionId, link.lastLinkedAt);
       editorsByFile.set(link.filePath, editors);
     }
-    const flagged = new Map<ProposalFileDetail, string>();
-    for (const file of expanded) {
+    const candidates = expanded.filter(file => {
       const editors = editorsByFile.get(file.path);
-      if (!editors || editors.has(sessionId)) continue;
-      flagged.set(file, [...editors].sort()[0]);
+      return !!editors && !editors.has(sessionId);
+    });
+    // An edit made before the file's last commit is already in history; only
+    // edits newer than that commit are another session's pending work.
+    const lastCommitted = await lastCommitTimes(target.repoPath, candidates, editorsByFile);
+    const flagged = new Map<ProposalFileDetail, string>();
+    for (const file of candidates) {
+      const committedAt = lastCommitted.get(file.path);
+      const pending = [...editorsByFile.get(file.path)!]
+        .filter(([, editedAt]) => committedAt === undefined || editedAt === undefined || editedAt >= committedAt)
+        .map(([id]) => id)
+        .sort();
+      if (pending.length > 0) flagged.set(file, pending[0]);
     }
     if (flagged.size > 0) {
       const titles = new Map<string, string>();

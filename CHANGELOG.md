@@ -16,19 +16,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Installed Codex skills can be searched, previewed and enabled or disabled through their native configuration in Agent Features settings
 - Agent Features settings now list Nimbalyst’s built-in guidance with searchable instruction previews and individual or bulk toggles, including commit proposals and session-naming reminders
 - Reviewed fresh-session handoffs preserve pending human requests, decisions, ownership and evidence without replaying full history; Codex context inspection separates measured request bytes from native token usage, and MCP configuration supports native on-demand exposure while keeping discovery and Core access
-- The Git panel's branch button switches branches: search local and remote branches (a remote-only branch gets a local tracking branch) or start a new one; uncommitted changes come along, a switch git refuses changes nothing, a running agent session in the checkout asks for confirmation first, and a branch checked out in another worktree offers to open that worktree's session
-- Workstreams: a named group in the session list, shown with a folder icon, that holds sessions as peers without making one of them the parent. Create one from the New menu or with "Move to workstream..." on one or several selected sessions, drag sessions onto it, or start a session while it is selected. A workstream holding a single session shows as a group only on the desktop that created it
-- `nim wiki publish` copies a project's local wiki into a team project for review while the files stay the source: each publish updates the team pages, never overwrites a page someone edited there, and moves pages deleted locally to the team Trash. Reviewers are invited with the new Commenter project role, which reads and comments on that one project but cannot edit pages, and `nim wiki comments` lists their open comments with the local file each belongs to (requires the updated sync server)
 
 ### Changed
 <!-- Changes to existing functionality go here -->
 - Local macOS builds offer a lighter profile with artifact reuse, sequential compilation, lower process priority and a smaller heap allowance while retaining native package checks
 - The session sidebar uses a compact toolbar, activity sections and quieter details, with separate chat navigation and child expansion and fewer redundant worktree headings
-- Commit proposals can name a folder: it expands to the changed, deleted and new files under it for review, files under it that only another session edited start unchecked, and auto-commit waits for review when any are present
-- New worktrees start from the remote's default branch (such as origin/main) instead of the branch the main checkout is on, and their branches no longer track it; Project Settings > Worktrees can pick the current branch or a specific branch instead
-- The open menu bar island can be resized by dragging its left, right or bottom edge or a bottom corner; the width and the session list's maximum height are kept for the next time it opens
-- The daily cleanup of old tool output now also replaces images in tool results older than the retention window (30 days by default) with a short marker naming the image type and size, and removes the duplicate copy of a tool result that older sessions stored alongside it
-- Team guests now see only the projects they are granted, instead of reading every project like a viewer (requires the updated sync server)
 
 ### Fixed
 <!-- Bug fixes go here -->
@@ -38,12 +30,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Codex context inspection retains supported native context notifications and makes available prepared-context fragments expandable while identifying unavailable native details
 - Moving a project across volumes now links copied worktrees to the copied repository while preserving the original repository and worktrees
 - Codex uses compact integration guidance and tool descriptions, and keeps coordinator messages as agent context instead of human requests
-- "Create Branch..." in the Git panel's commit menu did nothing; it now opens a form to name the branch
-- In Files mode, the chat's "Context:" label kept naming a file after its tab was closed; it now follows the active tab and disappears when no tab is open
-- Moving a session under another session on desktop, by dragging or with "Move under...", recorded the new parent as its manager; a move now leaves the manager as it was unless the session leaves its manager's tree
-- On the SQLite backend, database backups no longer stop rotating after the database shrinks to under half its previous size while still holding its sessions; a smaller backup is now rejected only when it also holds fewer sessions than the current one
-- The daily cleanup of old tool output could skip past recent rows and never return to them once they aged; it now stops at the first row still inside the retention window and resumes there the next day
-- An agent edit to a shared document next to a comment on part of a bold run or inline code no longer writes broken markdown (such as an extra pair of `**` or backticks), and exporting such a document to a file keeps its formatting intact
+
+### Removed
+<!-- Removed features go here -->
+
+
+## [0.84.1] - 2026-11-15
+
+
+### Added
+<!-- New features go here -->
+- Collapse all and Expand all buttons in the agent session list close or open every parent session and workstream at once
+- The Codex model picker also lists models reported by the bundled Codex CLI, so newly released Codex models can be selected before Nimbalyst's built-in list includes them
+
+### Changed
+<!-- Changes to existing functionality go here -->
+- Queued messages delivered in one turn each open with the time they were queued and who sent them; same-named senders are distinguishable.
+- The Extension Dev indicator moved to the outer project rail, and the navigation button menus use the shared floating menu positioning.
+
+### Fixed
+<!-- Bug fixes go here -->
+- Sessions started in a subfolder that names its own checkout root keep commit auto-approval.
+- Projects without a team no longer show tracker publish notices that cannot be resolved.
+- With many sessions busy at once, an agent transcript no longer loses its opening prompt and earlier messages until the session is reopened.
+- Delayed session-status refreshes no longer hide Cancel during a newer turn or show it after completion, including when opening a running session.
+- With many sessions busy at once, an agent transcript now stays on screen while the app reloads the session, instead of going blank and replaying from older messages.
+- The new tracker item popup no longer pushes its title field off screen in fullscreen when many items are waiting to publish; the list of saved items now scrolls.
+- When an agent works with a local HTML file that is not open in a tab, its page no longer appears as a box over the top-left of the window that cannot be closed.
+- In a project with no team, new bug, decision, milestone and release items no longer show a "team sync is not connected" publication notice with a Retry that cannot succeed. This includes items created before this fix.
+- Deleting tracker items now shows an error when a delete fails, including how many items failed in a multi-select delete, instead of failing silently.
+- With auto-approve on, a commit proposal from a session opened on a subfolder of a git checkout that names that checkout's root is now auto-approved instead of waiting for approval as if it targeted another worktree.
+
+### Removed
+<!-- Removed features go here -->
+
+## [0.84.0] - 2026-11-14
+
+
+### Added
+<!-- New features go here -->
+- Switch branches from the Git panel, including remote-only branches and new branches.
+- Workstreams: a named folder in the session list that groups peer sessions.
+- `nim wiki publish` copies a local wiki into a team project for review, with a Commenter role (requires the updated sync server).
+
+### Changed
+<!-- Changes to existing functionality go here -->
+- Commit proposals can name a folder, which expands to its changed files for review.
+- New worktrees start from the remote's default branch instead of the main checkout's branch.
+- The open menu bar island can be resized by dragging its edges.
+- Daily tool-output cleanup now also replaces aged images and drops the duplicate result copy.
+- Team guests see only the projects they are granted (requires the updated sync server).
+
+### Fixed
+<!-- Bug fixes go here -->
+- "Create Branch..." in the Git panel's commit menu now opens a name form.
+- Files-mode chat "Context:" label clears when the file's tab is closed.
+- Moving a session under another no longer changes its manager unless it leaves the manager's tree.
+- SQLite backups keep rotating after the database shrinks to under half its size.
+- Tool-output cleanup no longer skips recent rows that age into the window later.
+- Agent edits next to a comment on part of bold or inline code no longer write broken markdown.
 
 ### Removed
 <!-- Removed features go here -->
@@ -58,7 +103,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 <!-- Changes to existing functionality go here -->
-- Messages queued while an agent is working, typed by you or sent by other sessions, are now delivered together in one turn, each labeled with its author; slash commands and messages with a different document context still go as their own turn, and Send Now delivers everything that can share a turn in one press
+- Messages queued while an agent is working, typed by you or sent by other sessions, are now delivered together in one turn, each opening with the time it was queued and who sent it (you, or the sending session by name); slash commands and messages with a different document context still go as their own turn, and Send Now delivers everything that can share a turn in one press
 - On macOS and Linux, processes Nimbalyst starts (agent sessions, MCP servers, CLIs, git) now put the login shell's PATH ahead of the system defaults, so tools from version managers such as mise are found before `/usr/bin` versions, and PATH is deduplicated per folder
 
 ### Fixed
