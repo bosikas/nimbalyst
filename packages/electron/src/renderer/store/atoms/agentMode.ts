@@ -82,7 +82,7 @@ export function clampAgentRightPanelWidth(width: number, availableWidth: number)
 // ============================================================
 
 const DEFAULT_SESSION_HISTORY_LAYOUT: SessionHistoryLayout = {
-  width: 240,
+  width: 304,
   collapsed: false,
   preCollapseWidth: undefined,
   collapsedGroups: ['Yesterday', 'This Week', 'Last Week', 'This Month', 'Last Month', 'Older'],

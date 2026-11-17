@@ -103,6 +103,8 @@ export interface CreateNewWorktreeSessionOptions {
 }
 
 export interface CreateNewSessionOptions {
+  instructionFile?: string;
+  skipDefaultInstructions?: boolean;
   generateSummary?: boolean;
   autoArchiveAfterMinutes?: number;
   initialDraft?: string;
@@ -443,9 +445,8 @@ export const createNewSessionActionAtom = atom(
     const title = options.title ?? 'New Session';
     const host = get(selectedMachineAtom(workspacePath));
     if (host) {
-      if (options.generateSummary === false || (options.autoArchiveAfterMinutes ?? 0) > 0) {
-        errorNotificationService.showError('Session policies are local-only', 'Create this session on this Mac to configure summaries or auto-archive.');
-        return undefined;
+      if (options.generateSummary === false || (options.autoArchiveAfterMinutes ?? 0) > 0 || options.instructionFile?.trim() || options.skipDefaultInstructions) {
+        throw new Error('Create this session on this Mac to configure instructions, summaries or auto-archive.');
       }
       try {
       const id = await window.electronAPI.invoke('ai:createRemoteSession', workspacePath, host, {model: options.model ?? (model?.startsWith('claude-code:') ? model : undefined)});
@@ -469,7 +470,7 @@ export const createNewSessionActionAtom = atom(
           model,
           title,
           mode: options.mode,
-          metadata: { ...options.metadata, ...(options.generateSummary !== undefined ? { generateSummary: options.generateSummary } : {}), ...(options.autoArchiveAfterMinutes !== undefined ? { autoArchiveAfterMinutes: options.autoArchiveAfterMinutes } : {}) },
+          metadata: { ...options.metadata, ...(options.instructionFile !== undefined ? { instructionFile: options.instructionFile } : {}), ...(options.skipDefaultInstructions !== undefined ? { skipDefaultInstructions: options.skipDefaultInstructions } : {}), ...(options.generateSummary !== undefined ? { generateSummary: options.generateSummary } : {}), ...(options.autoArchiveAfterMinutes !== undefined ? { autoArchiveAfterMinutes: options.autoArchiveAfterMinutes } : {}) },
           ...(parentSessionId ? { parentSessionId } : {}),
         },
         workspaceId: workspacePath,
@@ -519,8 +520,12 @@ export const createNewSessionActionAtom = atom(
 
         return result.id;
       }
+      if (options.instructionFile?.trim() || options.skipDefaultInstructions) {
+        throw new Error(result.error || 'Could not create the session with the selected instructions.');
+      }
     } catch (error) {
       console.error('[sessionHistoryActions] Failed to create session:', error);
+      if (options.instructionFile?.trim() || options.skipDefaultInstructions) throw error;
     }
     return undefined;
   },

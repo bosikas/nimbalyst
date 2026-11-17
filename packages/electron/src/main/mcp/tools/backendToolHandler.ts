@@ -19,6 +19,8 @@ import {
 } from '../backendToolRegistry';
 import { getPrivilegedExtensionHost } from '../../extensions/PrivilegedExtensionHost';
 import { readSessionOwner } from '../../services/extensionSessions/sessionOwnership';
+import { issueSessionWakeGrant, revokeSessionWakeGrant } from '../../services/extensionSessions/sessionWakeGrants';
+import { sameWorkspaceIdentity } from '../../utils/workspaceIdentity';
 
 type McpToolResult = {
   content: Array<{ type: string; text: string }>;
@@ -117,6 +119,15 @@ export async function handleBackendTool(
     // The tool's RPC execution is not itself a catalog-gated broker capability
     // (the module's own grants gate what it can do inside the handler), so
     // requiredPermission is null. The host throws if the module isn't running.
+    if (entry.grantsSessionWake && call.caller === 'agent' && call.sessionId) {
+      const session = await AISessionsRepository.get(call.sessionId);
+      if (!session || !sameWorkspaceIdentity(session.workspacePath, workspacePath)) {
+        throw new Error('Calling session is unavailable in this workspace');
+      }
+      callContext.sessionWakeToken = issueSessionWakeGrant(
+        { extensionId: entry.extensionId, workspacePath }, call.sessionId
+      );
+    }
     const result = await getPrivilegedExtensionHost().request<unknown>({
       extensionId: entry.extensionId,
       moduleId: entry.moduleId,
@@ -131,6 +142,10 @@ export async function handleBackendTool(
       typeof result === 'string' ? result : JSON.stringify(result, null, 2);
     return { content: [{ type: 'text', text }], isError: false };
   } catch (error) {
+    if (callContext.sessionWakeToken) {
+      // The handler might already have consumed or revoked it before failing.
+      try { revokeSessionWakeGrant({ extensionId: entry.extensionId, workspacePath }, callContext.sessionWakeToken); } catch { /* already invalid */ }
+    }
     const message = error instanceof Error ? error.message : String(error);
     return {
       content: [

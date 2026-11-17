@@ -31,11 +31,23 @@ build_arch() {
     local arch=$1
     local outfile=$2
     echo "Building dictation helper for $arch..."
+    local sdk="$(xcrun --sdk macosx --show-sdk-path)"
+    local extra_flags=()
+    if [ "${NIMBALYST_LOCAL_BUILD:-}" = "1" ]; then
+        sdk="${NIMBALYST_LOCAL_SWIFT_SDK:-$sdk}"
+        if [ -n "${NIMBALYST_LOCAL_SWIFT_OVERLAY:-}" ]; then
+            extra_flags+=(-vfsoverlay "$NIMBALYST_LOCAL_SWIFT_OVERLAY")
+        fi
+        if [ -n "${NIMBALYST_LOCAL_SWIFT_MODULE_CACHE:-}" ]; then
+            extra_flags+=(-module-cache-path "$NIMBALYST_LOCAL_SWIFT_MODULE_CACHE")
+        fi
+    fi
     xcrun swiftc \
         -O \
         -swift-version 5 \
         -target "$arch-apple-macos$MIN_MACOS" \
-        -sdk "$(xcrun --sdk macosx --show-sdk-path)" \
+        -sdk "$sdk" \
+        "${extra_flags[@]}" \
         -framework Speech -framework AVFoundation \
         -Xlinker -sectcreate -Xlinker __TEXT -Xlinker __info_plist -Xlinker "$SRC_DIR/Info.plist" \
         "$SRC_DIR/main.swift" \
@@ -57,4 +69,8 @@ chmod +x "$OUTPUT"
 codesign --force --sign - "$OUTPUT"
 
 file "$OUTPUT"
-"$OUTPUT" --probe || echo "Warning: dictation helper probe failed"
+if [ "${NIMBALYST_LOCAL_BUILD:-}" = "1" ]; then
+    "$OUTPUT" --probe
+else
+    "$OUTPUT" --probe || echo "Warning: dictation helper probe failed"
+fi

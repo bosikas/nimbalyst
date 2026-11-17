@@ -132,15 +132,24 @@ describe('MetaAgentService child-spawn provider inheritance', () => {
     vi.mocked(AISessionsRepository.create).mockReset();
     vi.mocked(AISessionsRepository.get).mockReset();
   });
+  it('forwards explicit instruction choices through spawn_session to child creation', async () => {
+    const service = MetaAgentService.getInstance();
+    vi.mocked(AISessionsRepository.get).mockResolvedValue({ ...CODEX_PARENT, workspacePath: '/workspace/path' } as any);
+    const create = vi.spyOn(service as any, 'createChildSessionInternal').mockResolvedValue({ sessionId: 'reviewer' });
+    try {
+      await (service as any).spawnSession(CODEX_PARENT.id, '/workspace/path', { prompt: 'Review only', instructionFile: 'profiles/reviewer.md', skipDefaultInstructions: true });
+      expect(create).toHaveBeenCalledWith(CODEX_PARENT.id, '/workspace/path', expect.objectContaining({ instructionFile: 'profiles/reviewer.md', skipDefaultInstructions: true }));
+    } finally { create.mockRestore(); }
+  });
 
   it('writes summary/archive policy in the child insert before any queued prompt and validates values', async () => {
     const service = MetaAgentService.getInstance();
     (service as any).aiService = { queuePromptForSession: vi.fn() };
     vi.mocked(AISessionsRepository.get).mockResolvedValue(CODEX_PARENT as any);
-    await (service as any).createChildSessionInternal(CODEX_PARENT.id, '/workspace/path', { generateSummary: false, autoArchiveAfterMinutes: 30 });
-    expect(vi.mocked(AISessionsRepository.create).mock.calls[0][0].metadata).toMatchObject({ generateSummary: false, autoArchiveAfterMinutes: 30 });
+    await (service as any).createChildSessionInternal(CODEX_PARENT.id, '/workspace/path', { generateSummary: false, autoArchiveAfterMinutes: 30, skipDefaultInstructions: true });
+    expect(vi.mocked(AISessionsRepository.create).mock.calls[0][0].metadata).toMatchObject({ generateSummary: false, autoArchiveAfterMinutes: 30, skipDefaultInstructions: true });
     await (service as any).createChildSessionInternal(CODEX_PARENT.id, '/workspace/path', {});
-    expect(vi.mocked(AISessionsRepository.create).mock.calls[1][0].metadata).toMatchObject({ generateSummary: true, autoArchiveAfterMinutes: 0 });
+    expect(vi.mocked(AISessionsRepository.create).mock.calls[1][0].metadata).toMatchObject({ generateSummary: true, autoArchiveAfterMinutes: 0, skipDefaultInstructions: false });
     await expect((service as any).createChildSessionInternal(CODEX_PARENT.id, '/workspace/path', { autoArchiveAfterMinutes: -1 })).rejects.toThrow(/autoArchiveAfterMinutes/);
     expect(AISessionsRepository.create).toHaveBeenCalledTimes(2);
   });

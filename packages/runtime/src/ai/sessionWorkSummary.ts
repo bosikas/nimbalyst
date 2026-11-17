@@ -1,4 +1,6 @@
 /** Small, derived sidebar state. The canonical transcript remains authoritative. */
+export const SESSION_WORK_SUMMARY_GUIDANCE = 'Before your final response each turn, call update_session_summary on server nimbalyst: scope is the stable whole-session purpose (6–16 words), remaining is concrete outstanding work/review (empty only if none), attention is next/blocked/review/none/unknown, and areas are up to six topics. Preserve unresolved human requests. Metadata only; do not repeat it in your reply. If disabled, continue normally.';
+
 export interface SessionWorkSummary {
   scope: string;
   remaining: string;
@@ -9,6 +11,7 @@ export interface SessionWorkSummary {
   state: 'ready' | 'updating' | 'stale' | 'unavailable';
   coverage: 'complete' | 'partial';
   evidencePath?: string;
+  source?: 'agent' | 'background';
   error?: string;
   tokenUsage?: { inputTokens: number; cachedInputTokens?: number; outputTokens: number };
 }
@@ -19,6 +22,7 @@ export function readSessionWorkSummary(value: unknown): SessionWorkSummary | und
   }
   if (!value || typeof value !== 'object') return undefined;
   const s = value as SessionWorkSummary;
+  if (s.source !== undefined && s.source !== 'agent' && s.source !== 'background') return undefined;
   if (s.tokenUsage && (!Number.isSafeInteger(s.tokenUsage.inputTokens) || s.tokenUsage.inputTokens < 0 || !Number.isSafeInteger(s.tokenUsage.outputTokens) || s.tokenUsage.outputTokens < 0
     || (s.tokenUsage.cachedInputTokens !== undefined && (!Number.isSafeInteger(s.tokenUsage.cachedInputTokens) || s.tokenUsage.cachedInputTokens < 0)))) return undefined;
   if (typeof s.scope !== 'string' || s.scope.length > 220 || typeof s.remaining !== 'string' || s.remaining.length > 280
@@ -37,7 +41,7 @@ export function matchesWorkSummaryFilter(summary: SessionWorkSummary | undefined
   if (filter === 'all') return true;
   if (!summary) return false;
   if (filter.startsWith('area:')) return summary.areas.some(area => area.toLocaleLowerCase() === filter.slice(5).toLocaleLowerCase());
-  if (filter === 'remaining') return summary.attention !== 'none' || summary.coverage !== 'complete' || summary.state !== 'ready';
+  if (filter === 'remaining') return summary.attention !== 'none' || (summary.source !== 'agent' && summary.coverage !== 'complete') || summary.state !== 'ready';
   return summary.attention === filter;
 }
 

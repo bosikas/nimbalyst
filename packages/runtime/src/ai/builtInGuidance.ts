@@ -11,6 +11,7 @@ export const BUILT_IN_GUIDANCE = [
   { id: 'worktree', title: 'Worktree guidance', description: 'Tell agents to stay in their assigned worktree and preserve shared edits.' },
   { id: 'repository-context', title: 'Repository snapshot', description: 'Include the session-start Git snapshot supplied by Claude Code.' },
   { id: 'session-metadata', title: 'Session names, tags and phase', description: 'Ask agents to maintain session metadata and commit-status tags.' },
+  { id: 'session-naming-reminder', title: 'First-turn naming reminder', description: 'Extra Codex reminder if the first turn ends without naming the session.' },
   { id: 'voice-mode', title: 'Voice conversation guidance', description: 'Keep spoken answers brief in voice mode. Your custom voice instructions remain separate.' },
   { id: 'coordination', title: 'Coordinator workflows', description: 'Built-in delegation, child-report and workflow-preset instructions for coordinator sessions.' },
   { id: 'dev-agent', title: 'Extension coding-agent guidance', description: 'Built-in workflow and grounding instructions for tool-loop coding agents.' },
@@ -19,9 +20,18 @@ export const BUILT_IN_GUIDANCE = [
 
 export type BuiltInGuidanceId = typeof BUILT_IN_GUIDANCE[number]['id'];
 export type BuiltInGuidanceSettings = Partial<Record<BuiltInGuidanceId, boolean>>;
+export type BuiltInGuidanceText = Partial<Record<BuiltInGuidanceId, string>>;
+export type AgentSetupProvider = 'claude-code' | 'openai-codex';
+export interface AgentGuidancePreview {
+  provider: AgentSetupProvider;
+  role: string;
+  text: string;
+  scope: string;
+}
 export interface GuidanceRenderOptions {
   guidanceSettings?: BuiltInGuidanceSettings;
-  /** Collect the exact rendered fragments for Settings previews, including disabled fragments. */
+  guidanceText?: BuiltInGuidanceText;
+  /** Collect provider-default fragments for Settings, including disabled/replaced sections. */
   onGuidance?: (id: BuiltInGuidanceId, text: string) => void;
 }
 export interface BuiltInGuidanceEntry {
@@ -29,15 +39,31 @@ export interface BuiltInGuidanceEntry {
   title: string;
   description: string;
   enabled: boolean;
+  /** A replacement for this section in every provider variant, when applicable. */
+  customText?: string;
   previews: Array<{ provider: string; text: string }>;
 }
 
 const ids = new Set<string>(BUILT_IN_GUIDANCE.map(({ id }) => id));
 let settingsLoader: (() => unknown) | undefined;
+let textLoader: (() => unknown) | undefined;
 
 /** The desktop host installs its persisted settings reader during handler registration. */
-export function setBuiltInGuidanceSettingsLoader(loader?: () => unknown): void {
+export function setBuiltInGuidanceSettingsLoader(loader?: () => unknown, loadText?: () => unknown): void {
   settingsLoader = loader;
+  textLoader = loadText;
+}
+
+export function normalizeBuiltInGuidanceText(value: unknown): BuiltInGuidanceText {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(Object.entries(value).filter(([id, text]) => ids.has(id) && typeof text === 'string' && text.trim().length > 0));
+}
+
+export function validateBuiltInGuidanceTextUpdate(id: unknown, text: unknown): asserts id is BuiltInGuidanceId {
+  if (typeof id !== 'string' || !ids.has(id)) throw new Error('Unknown guidance section.');
+  if (text !== null && (typeof text !== 'string' || !text.trim() || text.length > 100_000)) {
+    throw new Error('Instructions must contain 1–100,000 characters. Use the toggle to disable a section.');
+  }
 }
 
 export function isBuiltInGuidanceEnabled(id: BuiltInGuidanceId): boolean {
@@ -59,8 +85,9 @@ export function validateBuiltInGuidanceUpdates(value: unknown): BuiltInGuidanceS
 
 export function createGuidanceRenderer(options: GuidanceRenderOptions = {}) {
   const settings = normalizeBuiltInGuidanceSettings(options.guidanceSettings ?? settingsLoader?.());
+  const customText = normalizeBuiltInGuidanceText(options.guidanceText ?? textLoader?.());
   return (id: BuiltInGuidanceId, text: string): string => {
     options.onGuidance?.(id, text);
-    return settings[id] === false ? '' : text;
+    return settings[id] === false ? '' : customText[id] === undefined ? text : `\n\n${customText[id]}\n\n`;
   };
 }

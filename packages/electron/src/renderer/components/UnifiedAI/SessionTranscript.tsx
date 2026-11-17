@@ -24,6 +24,7 @@ import { agentCapabilitiesForProviderType } from '@nimbalyst/runtime/ai/server/a
 import type { ToolCallDiffLoadResult } from '@nimbalyst/runtime/ai/server/transcript';
 import { AgentTranscriptPanel } from '@nimbalyst/runtime/ui/AgentTranscript/components/AgentTranscriptPanel';
 import './chatDensity.css';
+import './chatAppearance.css';
 import type { TranscriptFileLocation } from '@nimbalyst/runtime/ui/AgentTranscript/components/MarkdownRenderer';
 import { ClaudeCliTerminalStrip } from './ClaudeCliTerminalStrip';
 import { ClaudeCliNotInstalledNotice } from './ClaudeCliNotInstalledNotice';
@@ -416,6 +417,7 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
   const loadError = useAtomValue(sessionLoadErrorAtom(sessionId));
   const chatShowToolCalls = useAtomValue(chatShowToolCallsAtom);
   const chatDensity = useAtomValue(settingAtom('ai.chatDensity'));
+  const chatAppearance = useAtomValue(settingAtom('ui.chatAppearance'));
   const [aiMode, setAiMode] = useAtom(sessionModeAtom(sessionId));
   const [currentModel, setCurrentModel] = useAtom(sessionModelAtom(sessionId));
   const [isArchived, setIsArchived] = useAtom(sessionArchivedAtom(sessionId));
@@ -2551,7 +2553,7 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
 
   return (
     <div
-      style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', minHeight: 0 }}
+      style={{ display: 'flex', flexDirection: 'column', flex: 1, overflow: 'hidden', minHeight: 0, '--chat-text-size': `${chatAppearance.textSize}px`, '--chat-reading-width': `${chatAppearance.readingWidth}px` } as React.CSSProperties}
       className="session-transcript"
       data-chat-density={chatDensity}
       data-session-id={sessionId}
@@ -2599,6 +2601,7 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
             workspacePath={workspacePath}
             initialSettings={{
               showToolCalls: chatShowToolCalls,
+              groupToolActivity: chatAppearance.groupToolActivity,
               compactMode: false,
               collapseTools: false,
               showThinking: true,

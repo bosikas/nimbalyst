@@ -660,6 +660,12 @@ methods: {
 
 The host resolves the context; the module cannot supply it. `ctx.call` is absent for plain RPC calls.
 
+### Watch callbacks to calling sessions
+
+Register a backend MCP tool with `grantsSessionWake: true` and describe its callback behavior in the tool description. When an agent calls it, the host supplies `ctx.call.sessionWakeToken`: permission to queue one prompt for that specific calling session, even if the extension does not own it. Panel, voice and plain RPC calls receive no token. The module needs `ai-sessions` to redeem or revoke it.
+
+Store the token with the watch. When CI fails or completes, call `ctx.services.sessions.wake(token, message)`; the normal prompt queue delivers the callback when the session can run. Canceling a watch should call `ctx.services.sessions.revokeWake(token)`. The token grants no transcript access, metadata changes, or ownership; existing owned-session APIs retain their ownership checks. Tokens are scoped to the receiving extension and workspace, expire after 24 hours or host restart, and are revoked if tool execution throws. A token is consumed before delivery, so concurrent callbacks cannot both queue, and queue errors cannot be retried with the same token. Deleted, archived, moved and workstream-container targets are rejected. Monitoring runs in the extension while its backend module is active; this API does not itself poll CI or provide durable watches across app restarts.
+
 ### Panel-only tools
 
 Register a tool with `panelOnly: true` to reach it from the extension's own renderer via `callBackendTool` without offering it to agents. Panel-only tools are left out of the MCP tool list and the voice agent's tools, and an agent that names one gets `Unknown tool`.

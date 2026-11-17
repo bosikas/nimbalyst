@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { MCP_CORE, MCP_TRACKERS } from '@nimbalyst/runtime/ai/server';
+import { MCP_CORE, MCP_TRACKERS } from '@nimbalyst/runtime/ai/server/services/mcpTopology';
 
 vi.mock('../../utils/store', () => ({
   isSettingsAgentToolsDisabled: vi.fn(() => false),
@@ -120,5 +120,16 @@ describe('getToolBudgetSnapshot', () => {
     const snapshot = await getToolBudgetSnapshot('/trackers-off');
     const trackers = snapshot.groups.find((g) => g.configKey === MCP_TRACKERS);
     expect(trackers!.enabled).toBe(false);
+  });
+
+  it('returns inspectable schemas only on request and keeps external schemas unavailable', async () => {
+    const report = await getToolBudgetSnapshot('/some/workspace');
+    expect(report.groups.every(group => group.tools === undefined)).toBe(true);
+    const inspected = await getToolBudgetSnapshot('/some/workspace', true);
+    const core = inspected.groups.find(group => group.configKey === MCP_CORE)!;
+    expect(core.tools?.some(tool => tool.name === 'AskUserQuestion' && tool.inputSchema)).toBe(true);
+    const extension = inspected.groups.find(group => group.configKey === 'nimbalyst-excalidraw')!;
+    expect(extension.tools).toEqual([{ name: 'excalidraw_add_rectangle', description: 'Add a rectangle to the canvas', inputSchema: { type: 'object', properties: {} } }]);
+    expect(inspected.groups.find(group => group.configKey === 'my-remote')?.tools).toBeUndefined();
   });
 });

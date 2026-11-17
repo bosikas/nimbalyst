@@ -31,9 +31,6 @@ export function SessionWorkCaption({ sessionId }: { sessionId: string }) {
     {appearance.showRemaining && summary.attention !== 'none' && <div className={`session-work-remaining attention-${summary.attention}`} title={summary.remaining}>
       <span className="session-work-label">{labels[summary.attention]}</span><span>{summary.remaining || 'Remaining work needs review.'}</span>
     </div>}
-    {stale && <span className="session-work-freshness" title={summary.error || (summary.coverage === 'partial' ? 'Some earlier evidence needs review. The transcript is preserved.' : 'Showing the previous summary while this update is pending.')}>
-      {summary.state === 'updating' ? 'Updating…' : summary.coverage === 'partial' ? 'Partial history' : 'Update pending'}
-    </span>}
   </div>;
 }
 
@@ -50,8 +47,8 @@ export function SessionWorkSummaryDetails({ sessionId, workspacePath }: { sessio
     {summary?.attention === 'none' ? <p>No remaining work reported.</p> : <p><strong>{labels[summary?.attention ?? 'unknown']}:</strong> {summary?.remaining || 'Remaining work has not been assessed.'}</p>}
     {summary?.areas.length ? <p className="session-work-areas">{summary.areas.join(' · ')}</p> : null}
     {summary?.updatedAt ? <p className="session-work-provenance">Updated {new Date(summary.updatedAt).toLocaleString()} · through message {summary.throughMessageId}</p> : null}
-    {summary?.tokenUsage ? <p className="session-work-provenance">Last summary native usage: {summary.tokenUsage.inputTokens.toLocaleString()} input{summary.tokenUsage.cachedInputTokens !== undefined ? ` (${summary.tokenUsage.cachedInputTokens.toLocaleString()} cached)` : ''} · {summary.tokenUsage.outputTokens.toLocaleString()} output tokens</p> : summary?.updatedAt ? <p className="session-work-provenance">Token usage was not recorded for this summary.</p> : null}
-    {summary?.coverage === 'partial' && <p>Partial evidence; review the transcript before assuming completion.</p>}
+    {summary?.source === 'agent' ? <p className="session-work-provenance">Written by this session’s agent; no separate summary inference. Usage is part of the working turn.</p> : summary?.tokenUsage ? <p className="session-work-provenance">Last summary native usage: {summary.tokenUsage.inputTokens.toLocaleString()} input{summary.tokenUsage.cachedInputTokens !== undefined ? ` (${summary.tokenUsage.cachedInputTokens.toLocaleString()} cached)` : ''} · {summary.tokenUsage.outputTokens.toLocaleString()} output tokens</p> : summary?.updatedAt ? <p className="session-work-provenance">Token usage was not recorded for this summary.</p> : null}
+    {summary?.coverage === 'partial' && <p>{summary.source === 'agent' ? 'Agent-reported scope and remaining work; review the transcript before assuming completion.' : 'Partial evidence; review the transcript before assuming completion.'}</p>}
     {summary?.error && <p role="status">{summary.error}</p>}
     {summary?.evidencePath && <button type="button" className="session-work-refresh" title="Open the source checkpoint and links to earlier summaries" onClick={async event => {
       event.stopPropagation();

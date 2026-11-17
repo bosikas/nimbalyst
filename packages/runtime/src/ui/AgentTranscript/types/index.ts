@@ -13,6 +13,8 @@ export type { AIProviderType } from '../../../ai/server/types';
  * UI-specific settings for transcript display
  */
 export interface TranscriptSettings {
+  /** Opt-in for desktop; interactive prompts are never grouped. */
+  groupToolActivity?: boolean;
   showToolCalls: boolean;
   showThinking: boolean;
   compactMode: boolean;

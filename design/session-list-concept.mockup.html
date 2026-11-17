@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Marilyst · Session list concept</title>
+<style>
+:root{color-scheme:dark;--bg:#12171e;--chrome:#0f141a;--panel:#1b222b;--raised:#232a34;--text:#e6e9ed;--muted:#98a2ae;--faint:#84909f;--line:#2c3540;--line-strong:#3a4550;--accent:#6e9be8;--accent-line:#4a6aa3;--good:#4fb07c;--warn:#d9a441;--danger:#e08b80;--list:340px;--row-pad:9px}
+body.light{color-scheme:light;--bg:#f6f8fa;--chrome:#eceff3;--panel:#fff;--raised:#e9edf2;--text:#1b222b;--muted:#56616e;--faint:#66717e;--line:#dde2e8;--line-strong:#c3cbd5;--accent:#2f5fb3;--accent-line:#8aa8dc;--good:#2e7d55;--warn:#8a6414;--danger:#b04a3e}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased;font-size:13px}
+::selection{background:color-mix(in srgb,var(--accent) 28%,transparent)}
+button,input{font:inherit}
+button{cursor:pointer;color:inherit;background:none;border:0;padding:0;text-align:left}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+svg{width:14px;height:14px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.symbols{position:absolute;width:0;height:0;overflow:hidden}
+.app{height:100dvh;min-height:480px;display:flex;flex-direction:column}
+.concept-bar{min-height:44px;flex-shrink:0;display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;padding:6px 24px;background:var(--chrome);border-bottom:1px solid var(--line);gap:8px 16px;font-size:11px;color:var(--muted)}
+.concept-name span{color:var(--faint)}
+.controls{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center}
+.seg{display:flex;gap:2px}
+.seg button{font-size:11px;padding:0 10px;height:28px;border-radius:6px;color:var(--muted)}
+.seg button:hover{color:var(--text)}
+.seg button[aria-pressed=true]{background:var(--raised);color:var(--text)}
+body.light .seg button[aria-pressed=true]{background:var(--panel);box-shadow:0 0 0 1px var(--line)}
+.main{flex:1;min-height:0;display:flex}
+
+/* Session list */
+.sessions{width:var(--list);max-width:100%;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid var(--line);min-height:0}
+.tools{display:flex;align-items:center;gap:2px;margin:10px 8px 4px 12px}
+.tool{width:28px;height:28px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;color:var(--muted)}
+.tool:hover{background:var(--raised);color:var(--text)}
+.search{flex:1;min-width:0;margin-right:4px;display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;border:1px solid var(--line);border-radius:8px;color:var(--faint)}
+.search:focus-within{border-color:var(--accent-line)}
+.search input{flex:1;min-width:0;background:none;border:0;outline:none;color:var(--text);font-size:12px}
+.search input::placeholder{color:var(--faint)}
+.list{flex:1;overflow:auto;padding:0 8px 16px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+.date{display:flex;align-items:center;gap:6px;width:100%;padding:14px 8px 4px;font-size:11px;color:var(--faint);border-radius:5px}
+.date:hover{color:var(--text)}
+.date .count{margin-left:auto;font-variant-numeric:tabular-nums}
+.chev{width:12px;height:12px;transition:transform .15s}
+[aria-expanded=true]>.chev{transform:rotate(90deg)}
+.status-head{display:flex;align-items:center;gap:7px;padding:10px 8px 4px;font-size:11px;color:var(--muted)}
+.status-head .count{color:var(--faint);font-variant-numeric:tabular-nums}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--tone,var(--faint));flex-shrink:0}
+[data-tone=needs]{--tone:var(--warn)}[data-tone=running]{--tone:var(--good)}
+.spinner{width:9px;height:9px;border:1.5px solid var(--line-strong);border-top-color:var(--good);border-radius:50%;animation:spin 1.1s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.row{display:flex;align-items:flex-start;border-radius:8px;margin-bottom:1px}
+.row:hover{background:color-mix(in srgb,var(--raised) 55%,transparent)}
+.row[aria-current=true]{background:var(--raised)}
+.toggle{width:22px;height:22px;margin:calc(var(--row-pad) - 2px) 0 0 2px;display:flex;align-items:center;justify-content:center;border-radius:5px;color:var(--faint);flex-shrink:0}
+.toggle:hover{color:var(--text);background:var(--raised)}
+.toggle-space{width:24px;flex-shrink:0}
+.row-main{flex:1;min-width:0;display:block;padding:var(--row-pad) 10px var(--row-pad) 2px;border-radius:8px}
+.top{display:flex;align-items:baseline;gap:8px}
+.title{flex:1;min-width:0;font-size:13px;line-height:1.4;font-weight:450;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;text-wrap:pretty}
+.title svg{width:11px;height:11px;color:var(--faint);margin-left:5px;vertical-align:-1px}
+.note{font-size:11px;color:var(--faint);padding:0 14px 2px;min-height:16px}
+.row.unread .title{font-weight:620}
+.unread-dot{width:6px;height:6px;border-radius:50%;background:var(--accent);align-self:center;flex-shrink:0}
+.time{font-size:11px;color:var(--faint);white-space:nowrap;font-variant-numeric:tabular-nums}
+.summary{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:12px;line-height:1.5;color:var(--muted);margin-top:2px}
+.next{display:block;font-size:12px;line-height:1.5;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.next b{font-weight:550;color:var(--text);margin-right:3px}
+.next.blocked b{color:var(--warn)}
+.meta{display:flex;flex-wrap:wrap;align-items:center;gap:2px 10px;font-size:11px;line-height:1.5;color:var(--faint);margin-top:4px}
+.meta:empty{display:none}
+.meta>span{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.meta .state{color:var(--tone)}
+.meta .ctx.high{color:var(--warn)}.meta .ctx.full{color:var(--danger)}
+.meter{width:26px;height:3px;border-radius:2px;background:var(--line-strong);overflow:hidden}
+.meter i{display:block;height:100%;background:currentColor}
+body.hide-summary .summary,body.hide-summary .next{display:none}
+body.compact{--row-pad:6px}
+body.compact .summary{-webkit-line-clamp:1}
+
+.children{margin:0 0 6px 12px;padding-left:11px;border-left:1px solid var(--line)}
+.child{display:flex;align-items:center;gap:8px;width:100%;padding:5px 10px 5px 8px;border-radius:6px;font-size:12px;line-height:1.45;color:var(--muted)}
+.child:hover{background:color-mix(in srgb,var(--raised) 55%,transparent);color:var(--text)}
+.child[aria-current=true]{background:var(--raised);color:var(--text)}
+.child .lead{width:9px;display:flex;justify-content:center;flex-shrink:0}
+.child .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.child.unread .name{color:var(--text);font-weight:600}
+.child .lead .unread-dot{align-self:auto}
+.more{font-size:11px;color:var(--faint);padding:4px 10px 4px 25px;border-radius:5px}
+.more:hover{color:var(--text)}
+.empty{font-size:12px;color:var(--faint);padding:16px 10px}
+
+/* Notes */
+.notes{flex:1;min-width:0;overflow:auto;padding:28px 36px 40px}
+.notes-inner{max-width:560px}
+.notes h1{font-size:18px;font-weight:580;letter-spacing:-.4px;margin:0 0 8px}
+.notes p{font-size:13px;line-height:1.65;color:var(--muted);margin:0 0 20px}
+.notes h2{font-size:12px;font-weight:550;color:var(--muted);margin:24px 0 8px}
+.notes dl{margin:0;display:grid;grid-template-columns:132px 1fr;gap:9px 16px;font-size:12.5px;line-height:1.55}
+.notes dt{color:var(--text);display:flex;align-items:center;gap:7px;align-self:start;min-height:19px}
+.notes dd{margin:0;color:var(--muted)}
+.notes .fine{font-size:11px;color:var(--faint);margin-top:24px;padding-top:14px;border-top:1px solid var(--line)}
+@media(max-width:760px){.main{flex-direction:column;overflow:auto}.sessions{width:100%;border-right:0;border-bottom:1px solid var(--line);min-height:70dvh}.notes{overflow:visible;padding:22px 18px 32px}.concept-bar{padding:6px 12px}.concept-name span{display:none}}
+@media(max-width:420px){.notes dl{grid-template-columns:1fr;gap:2px}.notes dd{margin-bottom:8px}}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}.spinner{animation-duration:2.4s}}
+</style>
+</head>
+<body>
+<svg class="symbols" aria-hidden="true"><defs><symbol id="chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol><symbol id="filter" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></symbol><symbol id="plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol><symbol id="more" viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01" stroke-width="2.6"/></symbol><symbol id="pin" viewBox="0 0 24 24"><path d="M9 3h6l-1 6 4 4H6l4-4Zm3 10v8"/></symbol><symbol id="search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/></symbol></defs></svg>
+<div class="app">
+  <div class="concept-bar">
+    <div class="concept-name">Marilyst <span>/ Session list concept · illustrative data</span></div>
+    <div class="controls">
+      <div class="seg" id="density" role="group" aria-label="Density"><button data-v="" aria-pressed="true">Comfortable</button><button data-v="compact" aria-pressed="false">Compact</button></div>
+      <div class="seg" id="summary" role="group" aria-label="Summaries"><button data-v="" aria-pressed="true">Summaries</button><button data-v="hide-summary" aria-pressed="false">Titles only</button></div>
+      <div class="seg" id="width" role="group" aria-label="List width"><button data-v="280px" aria-pressed="false">Narrow</button><button data-v="340px" aria-pressed="true">Default</button><button data-v="420px" aria-pressed="false">Wide</button></div>
+      <div class="seg" id="theme" role="group" aria-label="Appearance"><button data-v="" aria-pressed="true">Dark</button><button data-v="light" aria-pressed="false">Light</button></div>
+    </div>
+  </div>
+  <div class="main">
+    <aside class="sessions" aria-label="Sessions (sample)">
+      <div class="tools"><label class="search"><svg aria-hidden="true"><use href="#search"/></svg><input id="filter" type="search" placeholder="Search…" title="Search sessions, work or #tags" aria-label="Search sessions"></label><button class="tool" data-note="Filter menu: remaining work, blocked, needs review, areas. Unchanged." aria-label="Filter sessions" title="Filter sessions"><svg aria-hidden="true"><use href="#filter"/></svg></button><button class="tool" data-note="New session. Nothing was created in this preview." aria-label="New session" title="New session"><svg aria-hidden="true"><use href="#plus"/></svg></button><button class="tool" data-note="Options menu: view, sort, archived, customize. Unchanged." aria-label="List options" title="List options"><svg aria-hidden="true"><use href="#more"/></svg></button></div><div class="note" id="note" role="status"></div>
+      <div class="list" id="list"></div>
+    </aside>
+    <section class="notes"><div class="notes-inner">
+      <h1>One row, read top to bottom.</h1>
+      <p>Title and time share the first line. The summary sits under it. Everything else is one quiet line that only appears when it has something to say. Nothing floats above the title, and nothing is drawn under the row.</p>
+      <h2>What each mark means</h2>
+      <dl>
+        <dt><span class="unread-dot"></span>Bold title</dt><dd>Unread. New output since you last opened it.</dd>
+        <dt><span class="dot" data-tone="needs"></span>Needs you</dt><dd>A question, plan or permission is waiting, in this session or one under it.</dd>
+        <dt><span class="spinner"></span>Running</dt><dd>Working now. Shown on the session that is working; the parent says how many.</dd>
+        <dt>13 sessions</dt><dd>Everything nested under this one, at any depth. Replaces the number and robot icon.</dd>
+        <dt>23 uncommitted</dt><dd>Files this session edited that are not committed yet.</dd>
+        <dt>Context 86%</dt><dd>Shown only from 80%, amber, then red from 90%. Below that it is in the tooltip. Replaces the bar under every row, which read as progress.</dd>
+        <dt>Next / Blocked</dt><dd>The agent’s own one-line note about what remains.</dd>
+      </dl>
+      <h2>What changed from today’s list</h2>
+      <dl>
+        <dt>Section labels</dt><dd>Running, Needs you and Idle are small labels, not headings larger than the titles. Needs you comes first because it is the only one asking for action.</dd>
+        <dt>Expand arrow</dt><dd>Sits beside the title it opens, not in a far-left column.</dd>
+        <dt>Nested sessions</dt><dd>One line each: mark, title, time. The first five show, the rest are one click away.</dd>
+        <dt>Long titles</dt><dd>Wrap to two lines before truncating; the full title is in the tooltip.</dd>
+        <dt>Toolbar and menus</dt><dd>Filter, new session and options stay beside search. The right-click menu and hover details are unchanged; a pin shows after the title.</dd>
+        <dt>Time</dt><dd>Short form (3m, 4h) on the title line, right-aligned so it forms a column.</dd>
+      </dl>
+      <div class="fine">Prototype only. Sample sessions, statuses and percentages; nothing is read from your app. Rows select, arrows expand, date groups collapse, search filters.</div>
+    </div></section>
+  </div>
+</div>
+<script>
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const kids=(names,time,o={})=>names.map((t,i)=>({t,time,unread:(o.unread||[]).includes(i),state:(o.running||[]).includes(i)?'running':(o.needs||[]).includes(i)?'needs':''}));
+const groups=[
+ {date:'Today',open:true,items:[
+  {id:'gp',t:'GP privacy controls design across consent, export and audit log PRs',pinned:true,time:'4m',state:'needs',note:'Plan approval waiting',s:'Deliver GP privacy controls across four PRs and prevent worktree tool discovery failures',uncommitted:6,
+   kids:kids(['GP controls plan review','GP consent toggle PR','GP export controls PR','GP audit log PR','GP worktree discovery check','GP controls UI review','GP copy review'],'1h',{needs:[0],unread:[1]}).concat(kids(Array.from({length:18},(_,i)=>'GP review pass '+(i+1)),'2h'))},
+  {id:'aif201',t:'AIF-201 privacy foundation and requests',time:'3m',state:'running',open:true,current:true,s:'Deliver stacked AIF-201 privacy foundation, request management, erasure and retention execution PRs',next:'Rebase the stack after the portal boundary fix',uncommitted:23,
+   kids:kids(['PR review: AIF-201 portal boundary fix','AIF-201 link format recheck','AIF-201 investor link UI recheck','AIF-201 final UI review','AIF-201 final PR recheck','AIF-201 requests UI recheck','AIF-201 requests PR review','AIF-201 requests UI review','AIF-201 erasure PR review','AIF-201 retention PR review','AIF-201 foundation UI review','AIF-201 foundation PR review','AIF-201 stack plan'],'3h',{running:[0,1],unread:[2,3]})},
+  {id:'wf',t:'Workflow session lookup and agent setup verification for stacked PRs',time:'3m',s:'Prepare and verify agent setup improvements, Nimbalyst prompts, stack rebasing guidance, and subagent testing',kids:kids(['Subagent prompt test'],'20m')},
+  {id:'ninth',t:'chore: agent setup ninth PR',time:'3m',ctx:47,kids:kids(['Ninth PR review','Ninth PR recheck','Setup lint pass','Setup docs pass'],'40m')},
+  {id:'tool',t:'AI tooling migration',time:'2h',unread:true,s:'Migrate AI tooling to private AI-Setup and analyze review subagent efficiency',kids:kids(['Migration dry run','Review subagent timing','Skill inventory','Hook migration','Prompt migration'],'2h',{unread:[0]})},
+  {id:'sep',t:'AI configuration separation assessment',time:'3h',s:'Move all reusable AI setup from Aifredas into the private AI-Setup repository'},
+  {id:'stack',t:'PR comments and stacking',time:'4h',s:'Fix PR review comments and assemble one coordinated stack while preserving ongoing feature work',blocked:'Waiting on review of the base PR'},
+  {id:'fixes',t:'chore: PR fixes and stack',time:'4h',s:'Fix review feedback and deliver one linear stack of open, non-draft PRs',kids:kids(Array.from({length:8},(_,i)=>'Stack PR '+(i+1)+' review'),'4h')},
+  {id:'603',t:'AIF-603 Portal fixes and improvements',time:'4h',s:'Implement AIF-603 portal audit fixes and UI improvements in two stacked PRs',kids:kids(['AIF-603 fixes PR review','AIF-603 UI PR review'],'4h')},
+  {id:'inv',t:'Investor portal audit',time:'4h',ctx:86,s:'Audit and improve investor portal through separate bug-fix and UI improvement PRs',kids:kids(['Portal bug-fix PR','Portal UI PR','Portal audit notes'],'4h')},
+  {id:'new',t:'New Session',time:'4h'},
+  {id:'prc',t:'PR comments fixes',time:'5h',unread:true,ctx:93}
+ ]},
+ {date:'Yesterday',open:false,items:[
+  {id:'y1',t:'Retention schedule review',time:'1d',s:'Check retention periods against the request management design'},
+  {id:'y2',t:'Portal copy pass',time:'1d',s:'Tighten investor portal labels and empty states',uncommitted:2}
+ ]}
+];
+const sections=[['needs','Needs you'],['running','Running'],['','Idle']];
+const shown={};let current='aif201',query='';
+const all=g=>g.items;
+const rollState=it=>it.state||'';
+const lead=c=>c.state==='running'?'<span class="spinner"></span>':c.state==='needs'?'<span class="dot" data-tone="needs"></span>':c.unread?'<span class="unread-dot"></span>':'';
+function meta(it){
+  const m=[],k=it.kids||[];
+  if(it.state==='needs')m.push(`<span class="state" data-tone="needs"><i class="dot"></i>${esc(it.note||'Needs you')}</span>`);
+  const run=k.filter(c=>c.state==='running').length;
+  if(it.state==='running')m.push(`<span class="state" data-tone="running"><span class="spinner"></span>${run?run+' running':'Running'}</span>`);
+  if(k.length)m.push(`<span>${k.length} session${k.length>1?'s':''}</span>`);
+  const un=k.filter(c=>c.unread).length;if(un&&!it.open)m.push(`<span>${un} unread</span>`);
+  if(it.uncommitted)m.push(`<span>${it.uncommitted} uncommitted</span>`);
+  if(it.ctx>=80)m.push(`<span class="ctx ${it.ctx>=90?'full':'high'}"><span class="meter" aria-hidden="true"><i style="width:${it.ctx}%"></i></span>Context ${it.ctx}%</span>`);
+  return m.join('');
+}
+function row(it){
+  const k=it.kids||[],limit=shown[it.id]?k.length:5,tip=it.t+(it.ctx?` · Context ${it.ctx}% (sample)`:'');
+  let h=`<div class="row${it.unread?' unread':''}" ${it.id===current?'aria-current="true"':''}>`+
+   (k.length?`<button class="toggle" data-toggle="${it.id}" aria-expanded="${!!it.open}" aria-label="${it.open?'Collapse':'Expand'} ${esc(it.t)}, ${k.length} sessions"><svg class="chev" aria-hidden="true"><use href="#chevron"/></svg></button>`:'<span class="toggle-space"></span>')+
+   `<button class="row-main" data-select="${it.id}" title="${esc(tip)}"><span class="top"><span class="title">${esc(it.t)}${it.pinned?'<svg role="img" aria-label="Pinned"><use href="#pin"/></svg>':''}</span>${it.unread?'<span class="unread-dot" role="img" aria-label="Unread"></span>':''}<span class="time">${it.time}</span></span>`+
+   (it.s?`<span class="summary">${esc(it.s)}</span>`:'')+
+   (it.blocked?`<span class="next blocked"><b>Blocked</b> ${esc(it.blocked)}</span>`:it.next?`<span class="next"><b>Next</b> ${esc(it.next)}</span>`:'')+
+   `<span class="meta">${meta(it)}</span></button></div>`;
+  if(k.length&&it.open){
+    h+='<div class="children">'+k.slice(0,limit).map((c,i)=>{const id=it.id+':'+i;return `<button class="child${c.unread?' unread':''}" data-select="${id}" ${id===current?'aria-current="true"':''}><span class="lead">${lead(c)}</span><span class="name" title="${esc(c.t)}">${esc(c.t)}</span><span class="time">${c.time}</span></button>`}).join('')+
+     (k.length>5?`<button class="more" data-more="${it.id}">${shown[it.id]?'Show fewer':'Show '+(k.length-5)+' more'}</button>`:'')+'</div>';
+  }
+  return h;
+}
+function render(){
+  const match=it=>!query||(it.t+' '+(it.s||'')+' '+(it.kids||[]).map(c=>c.t).join(' ')).toLowerCase().includes(query);
+  let h='',any=false;
+  groups.forEach((g,gi)=>{
+    const items=g.items.filter(match);if(!items.length)return;any=true;
+    h+=`<button class="date" data-date="${gi}" aria-expanded="${g.open}"><svg class="chev" aria-hidden="true"><use href="#chevron"/></svg>${g.date}<span class="count">${items.length}</span></button>`;
+    if(!g.open)return;
+    if(gi===0)sections.forEach(([key,label])=>{const part=items.filter(it=>rollState(it)===key);if(!part.length)return;
+      h+=`<div class="status-head" data-tone="${key}">${key==='running'?'<span class="spinner"></span>':'<i class="dot"></i>'}<span>${label}</span><span class="count">${part.length}</span></div>`+part.map(row).join('');});
+    else h+=items.map(row).join('');
+  });
+  $('#list').innerHTML=any?h:'<div class="empty">No sample sessions match.</div>';
+}
+const find=id=>groups.flatMap(all).find(it=>it.id===id);
+$('#list').addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;let focus;
+  if(b.dataset.toggle){const it=find(b.dataset.toggle);it.open=!it.open;focus=`[data-toggle="${it.id}"]`;}
+  else if(b.dataset.more){shown[b.dataset.more]=!shown[b.dataset.more];focus=`[data-more="${b.dataset.more}"]`;}
+  else if(b.dataset.date){const g=groups[b.dataset.date];g.open=!g.open;focus=`[data-date="${b.dataset.date}"]`;}
+  else if(b.dataset.select){current=b.dataset.select;const [pid,ci]=current.split(':');const it=find(pid);if(ci!==undefined)it.kids[ci].unread=false;else it.unread=false;focus=`[data-select="${current}"]`;}
+  const top=$('#list').scrollTop;render();$('#list').scrollTop=top;$(focus)?.focus({preventScroll:true});
+});
+$('#filter').oninput=e=>{query=e.target.value.trim().toLowerCase();render();};
+const seg=(id,apply)=>$('#'+id).onclick=e=>{const b=e.target.closest('button');if(!b)return;$$(`#${id} button`).forEach(x=>{x.setAttribute('aria-pressed',x===b);if(x.dataset.v&&id!=='width')document.body.classList.remove(x.dataset.v);});apply(b.dataset.v);};
+seg('density',v=>v&&document.body.classList.add(v));seg('summary',v=>v&&document.body.classList.add(v));seg('theme',v=>v&&document.body.classList.add(v));
+seg('width',v=>document.documentElement.style.setProperty('--list',v));
+$$('[data-note]').forEach(b=>b.onclick=()=>$('#note').textContent=b.dataset.note);
+render();
+</script>
+</body></html>

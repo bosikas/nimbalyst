@@ -14,6 +14,8 @@ import { isAppleMobileWebKit } from '../../../utils/platform';
 import { usePendingPermissionNavigation } from './usePendingPermissionNavigation';
 import { usePendingQuestionNavigation } from './usePendingQuestionNavigation';
 import { useElapsedTimeRef } from './CustomToolWidgets/useElapsedTime';
+import { findToolActivityTarget } from '../utils/toolActivity';
+import { getToolExpandId } from './TranscriptToolCard';
 import type { SubagentChildContext, TranscriptToolShared } from './TranscriptToolCard';
 import { TranscriptMessageRow, computeTranscriptRowInfos, type TranscriptRowInfo } from './TranscriptMessageRow';
 import { TranscriptImageGalleryProvider } from './TranscriptImageGallery';
@@ -526,6 +528,7 @@ export const RichTranscriptView = React.forwardRef<
 >(({ sessionId, sessionStatus, isProcessing, hasPendingInteractivePrompt, messages, provider, settings: propsSettings, onSettingsChange, showSettings, documentContext, workspacePath, renderEmptyExtra, hideEmptyHelp, readFile, onOpenFile, onOpenSession, onCompact, promptAdditions, currentTeammates, waitingForNoun, backgroundTasks, appStartTime, renderEmbeddedFile, canEmbedFile, loadToolCallDiffs, onSearchBarVisibilityChange, persistScrollState = true }, ref) => {
   const [collapsedMessages, setCollapsedMessages] = useState<Set<number>>(new Set());
   const [expandedTools, setExpandedTools] = useState<Set<string>>(new Set());
+  const [activityReveals, setActivityReveals] = useState<Record<number, { toolIndex: number; sequence: number }>>({});
   const scrollButtonRef = useRef<HTMLDivElement>(null);
   const scrollButtonElementRef = useRef<HTMLButtonElement>(null);
   const [copiedMessageIndex, setCopiedMessageIndex] = useState<number | null>(null);
@@ -809,37 +812,6 @@ export const RichTranscriptView = React.forwardRef<
     return indices;
   }, [messages]);
 
-  // Expose scroll method via ref
-  React.useImperativeHandle(ref, () => ({
-    scrollToMessage: (index: number, toolCallId?: string) => {
-      if (!vlistRef.current) return;
-      vlistRef.current.scrollToIndex(index, { align: toolCallId ? 'start' : 'center' });
-      // Highlight after scroll settles
-      setTimeout(() => {
-        // A question card can sit deep inside a long tool group; bring the
-        // card itself into view rather than the top of its row.
-        const container = scrollContainerRef.current;
-        const card = toolCallId
-          ? Array.from(container?.querySelectorAll<HTMLElement>('[data-transcript-tool-id]') ?? [])
-            .find(element => element.dataset.transcriptToolId === toolCallId)
-          : undefined;
-        if (card && container && vlistRef.current) {
-          vlistRef.current.scrollBy(card.getBoundingClientRect().top - container.getBoundingClientRect().top - 8);
-        }
-        const messageDiv = card ?? messageRefs.current.get(index);
-        if (messageDiv) {
-          messageDiv.classList.add('highlight-message');
-          setTimeout(() => {
-            messageDiv.classList.remove('highlight-message');
-          }, 2000);
-        }
-      }, 100);
-    },
-    scrollToTop: () => {
-      vlistRef.current?.scrollToIndex(0, { align: 'start' });
-    }
-  }), []);
-
   // Reset scroll-ready state when session changes or container hides
   useEffect(() => {
     setIsScrollReady(false);
@@ -1019,6 +991,7 @@ export const RichTranscriptView = React.forwardRef<
       messages,
       {
         showToolCalls: settings.showToolCalls,
+        groupToolActivity: settings.groupToolActivity,
         expandedTools,
         supersededToolIndices,
         skippedQuestionIds,
@@ -1030,11 +1003,51 @@ export const RichTranscriptView = React.forwardRef<
     );
     previousRowInfosRef.current = next;
     return next;
-  }, [messages, settings.showToolCalls, expandedTools, supersededToolIndices, skippedQuestionIds, subagentContext, isWaitingForResponse, restartAfterIndex]);
+  }, [messages, settings.showToolCalls, settings.groupToolActivity, expandedTools, supersededToolIndices, skippedQuestionIds, subagentContext, isWaitingForResponse, restartAfterIndex]);
+
+  // Expose scroll method via ref
+  React.useImperativeHandle(ref, () => ({
+    scrollToMessage: (index: number, toolCallId?: string) => {
+      if (!vlistRef.current) return;
+      const target = settings.groupToolActivity ? findToolActivityTarget(rowInfos, index, toolCallId) : undefined;
+      if (target) {
+        const toolId = getToolExpandId(target.entry.message, target.entry.index);
+        setExpandedTools(previous => new Set(previous).add(toolId));
+        setActivityReveals(previous => ({ ...previous, [target.owner]: { toolIndex: target.entry.index, sequence: (previous[target.owner]?.sequence ?? 0) + 1 } }));
+      }
+      const rowIndex = target?.owner ?? index;
+      vlistRef.current.scrollToIndex(rowIndex, { align: toolCallId ? 'start' : 'center' });
+      // Highlight after scroll settles
+      setTimeout(() => {
+        // A question card can sit deep inside a long tool group; bring the
+        // card itself into view rather than the top of its row.
+        const container = scrollContainerRef.current;
+        const card = toolCallId
+          ? Array.from(container?.querySelectorAll<HTMLElement>('[data-transcript-tool-id]') ?? [])
+            .find(element => element.dataset.transcriptToolId === toolCallId)
+          : undefined;
+        if (card && container && vlistRef.current) {
+          vlistRef.current.scrollBy(card.getBoundingClientRect().top - container.getBoundingClientRect().top - 8);
+        }
+        const messageDiv = card ?? messageRefs.current.get(rowIndex);
+        if (messageDiv) {
+          messageDiv.classList.add('highlight-message');
+          setTimeout(() => {
+            messageDiv.classList.remove('highlight-message');
+          }, 2000);
+        }
+      }, 100);
+    },
+    scrollToTop: () => {
+      vlistRef.current?.scrollToIndex(0, { align: 'start' });
+    }
+  }), [rowInfos, settings.groupToolActivity]);
 
   // Rendered message rows. Each row's outer div carries `data-message-index`
   // and registers its DOM node in `messageRefs` so imperative scroll and
   // selection helpers can find them.
+  let latestPromptIndex = messages.length - 1;
+  while (latestPromptIndex >= 0 && messages[latestPromptIndex].type !== 'user_message') latestPromptIndex--;
   const renderedMessages = messages.map((message, index) => (
     <TranscriptMessageRow
       key={getTranscriptMessageKey(sessionId, message, index)}
@@ -1045,6 +1058,9 @@ export const RichTranscriptView = React.forwardRef<
       isCopied={copiedMessageIndex === index}
       showThinking={settings.showThinking}
       compactMode={settings.compactMode}
+      groupToolActivity={settings.groupToolActivity}
+      toolActivityReveal={activityReveals[index]}
+      isProcessing={!!isProcessing && !!rowInfos[index].toolEntries?.some(entry => entry.index > latestPromptIndex)}
       provider={provider}
       documentContext={documentContext}
       appStartTime={appStartTime}

@@ -50,7 +50,7 @@ export function registerSessionHandlers(ctx: AIServiceContext): void {
     modelId?: string,
     sessionType?: string,
     worktreeId?: string,
-    policy?: { generateSummary?: boolean; autoArchiveAfterMinutes?: number }
+    policy?: { generateSummary?: boolean; autoArchiveAfterMinutes?: number; instructionFile?: string; skipDefaultInstructions?: boolean }
   ) => {
     // TODO: Debug logging - uncomment if needed
     //   provider,
@@ -162,6 +162,8 @@ export function registerSessionHandlers(ctx: AIServiceContext): void {
       }
     }
 
+    const { snapshotSessionInstructions } = await import('../../sessionInstructions');
+    const instructionSelection = await snapshotSessionInstructions(policy, worktreeProjectPath ?? workspacePath, provider, sessionType);
     // Create session with worktree association
     const session = await ctx.sessionManager.createSession(
       provider,
@@ -176,7 +178,7 @@ export function registerSessionHandlers(ctx: AIServiceContext): void {
       worktreeProjectPath,
       'standard',
       undefined,
-      { ...sessionCreationPolicy(policy) }
+      { ...sessionCreationPolicy(policy), ...instructionSelection }
     );
     await stampSessionHost(session.id, getLocalHostDeviceId());
 

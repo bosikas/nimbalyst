@@ -80,10 +80,10 @@ it('customizes typography separately from spacing, retains values on reopen, and
   setup();
   fireEvent.click(screen.getByRole('button', { name: 'Session options' }));
   fireEvent.click(await screen.findByRole('menuitem', { name: 'Customize session list…' }));
-  expect((screen.getByRole('spinbutton', { name: 'Summary size' }) as HTMLInputElement).value).toBe('9');
+  expect((screen.getByRole('spinbutton', { name: 'Summary size' }) as HTMLInputElement).value).toBe('12');
   fireEvent.change(screen.getByRole('spinbutton', { name: 'Title size' }), { target: { value: '17' } });
   await waitFor(() => expect(store.get(settingAtom('ui.sessionListAppearance')).titleSize).toBe(17));
-  expect(store.get(settingAtom('ui.sessionListAppearance')).rowPadding).toBe(6);
+  expect(store.get(settingAtom('ui.sessionListAppearance')).rowPadding).toBe(DEFAULT_SESSION_LIST_APPEARANCE.rowPadding);
   fireEvent.click(screen.getByRole('button', { name: 'Done' }));
   fireEvent.click(screen.getByRole('button', { name: 'Session options' }));
   fireEvent.click(await screen.findByRole('menuitem', { name: 'Customize session list…' }));
@@ -104,5 +104,5 @@ it('creates a review-style session with explicit policies without changing defau
   fireEvent.click(screen.getByRole('checkbox', { name: 'Generate session summaries' }));
   fireEvent.change(screen.getByRole('spinbutton', { name: 'Auto-archive minutes' }), { target: { value: '30' } });
   fireEvent.click(screen.getByRole('button', { name: 'Create session' }));
-  await waitFor(() => expect(props.onNew).toHaveBeenCalledWith({ generateSummary: false, autoArchiveAfterMinutes: 30 }));
+  await waitFor(() => expect(props.onNew).toHaveBeenCalledWith({ generateSummary: false, autoArchiveAfterMinutes: 30, instructionFile: '', skipDefaultInstructions: false }));
 });

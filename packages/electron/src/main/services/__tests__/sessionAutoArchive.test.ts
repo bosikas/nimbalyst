@@ -1,11 +1,12 @@
 // @vitest-environment node
 import { EventEmitter } from 'node:events';
-import { beforeEach, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
-const fake = vi.hoisted(() => ({ query: vi.fn(), update: vi.fn(), windows: [] as any[], states: new Map<string, any>(), visibility: null as any, events: null as any, cleanup: vi.fn() }));
+const fake = vi.hoisted(() => ({ query: vi.fn(), update: vi.fn(), windows: [] as any[], projectWindows: [] as any[], states: new Map<string, any>(), visibility: null as any, startup: null as any, events: null as any, cleanup: vi.fn() }));
 vi.mock('electron', () => ({ app: { once: vi.fn() }, BrowserWindow: { getAllWindows: () => fake.windows } }));
+vi.mock('../../window/windowState', () => ({ getProjectWindows: () => fake.projectWindows }));
 vi.mock('../../utils/ipcRegistry', () => ({ safeOn: (_channel: string, listener: any) => { fake.visibility = listener; } }));
-vi.mock('../startupMaintenanceGate', () => ({ runWhenFirstUsable: vi.fn() }));
+vi.mock('../startupMaintenanceGate', () => ({ runWhenFirstUsable: (_name: string, callback: any) => { fake.startup = callback; } }));
 vi.mock('../../database/initialize', () => ({ getDatabase: () => ({ query: fake.query }) }));
 vi.mock('@nimbalyst/runtime/storage/repositories/AISessionsRepository', () => ({ AISessionsRepository: { get: vi.fn(), updateMetadata: fake.update } }));
 vi.mock('@nimbalyst/runtime/ai/server/SessionStateManager', () => ({ getSessionStateManager: () => ({ on: (...args: any[]) => fake.events.on(...args), getSessionState: (id: string) => fake.states.get(id) }) }));
@@ -19,9 +20,42 @@ beforeEach(() => {
   configureSessionAutoArchive();
   fake.query.mockReset(); fake.update.mockReset(); fake.cleanup.mockReset(); fake.states.clear();
   fake.windows = [{ isDestroyed: () => false, webContents: { id: ++windowId, send: vi.fn() } }];
+  fake.projectWindows = [...fake.windows];
   fake.query.mockImplementation(async (sql: string) => ({ rows: sql.includes('jsonb_build_object')
     ? [{ id: 'parent', metadata: { autoArchiveAfterMinutes: 30, autoArchiveCompletedAt: Date.now() - 31 * 60_000 } }]
     : [{ id: 'parent' }, { id: 'child' }] }));
+});
+
+afterEach(() => vi.useRealTimers());
+
+it('archives an idle worktree review even when an auxiliary window never reports a selection', async () => {
+  fake.query.mockImplementation(async (sql: string) => ({ rows: sql.includes('jsonb_build_object')
+    ? [{ id: 'review', worktree_id: 'review-worktree', metadata: JSON.stringify({ autoArchiveAfterMinutes: 10, autoArchiveCompletedAt: Date.now() - 11 * 60_000 }) }]
+    : [{ id: 'review' }] }));
+  fake.visibility({ sender: fake.projectWindows[0].webContents }, 'coordinator');
+  fake.windows.push({ isDestroyed: () => false, webContents: { id: ++windowId, send: vi.fn() } });
+  await sweepSessionAutoArchive();
+  expect(fake.update).toHaveBeenCalledWith('review', expect.objectContaining({ isArchived: true, autoArchiveGuard: expect.objectContaining({ minutes: 10 }) }));
+  expect(fake.cleanup).toHaveBeenCalledWith('review', expect.any(Function), expect.any(Function));
+});
+
+it('still protects an unreported project window when auxiliary windows are present', async () => {
+  fake.visibility({ sender: fake.projectWindows[0].webContents }, null);
+  const unreported = { isDestroyed: () => false, webContents: { id: ++windowId, send: vi.fn() } };
+  fake.windows.push(unreported);
+  fake.projectWindows.push(unreported);
+  await sweepSessionAutoArchive();
+  expect(fake.update).not.toHaveBeenCalled();
+});
+
+it('waits for the startup sweep and continues checking on the idle timer', async () => {
+  vi.useFakeTimers();
+  fake.visibility({ sender: fake.projectWindows[0].webContents }, null);
+  await fake.startup();
+  expect(fake.update).toHaveBeenCalledOnce();
+  fake.update.mockClear();
+  await vi.advanceTimersByTimeAsync(60_000);
+  expect(fake.update).toHaveBeenCalledOnce();
 });
 
 it('defaults to disabled and requires a completed turn and elapsed timer, including after restart', () => {

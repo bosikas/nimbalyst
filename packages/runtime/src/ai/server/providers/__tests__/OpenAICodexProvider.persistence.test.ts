@@ -4,6 +4,7 @@ import { setBuiltInGuidanceSettingsLoader } from '../../../builtInGuidance';
 import { OpenAICodexProvider } from '../OpenAICodexProvider';
 import { configureMcpServers } from '../../services/mcpServerConfig';
 import { AgentMessagesRepository } from '../../../../storage/repositories/AgentMessagesRepository';
+import { AISessionsRepository } from '../../../../storage/repositories/AISessionsRepository';
 import type { CreateAgentMessageInput } from '../../types';
 
 describe('OpenAICodexProvider persistence', () => {
@@ -11,6 +12,7 @@ describe('OpenAICodexProvider persistence', () => {
 
   beforeEach(() => {
     createdMessages.length = 0;
+    vi.spyOn(AISessionsRepository, 'get').mockResolvedValue(null);
 
     OpenAICodexProvider.setTrustChecker(() => ({
       trusted: true,
@@ -31,6 +33,7 @@ describe('OpenAICodexProvider persistence', () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     setBuiltInGuidanceSettingsLoader();
     configureMcpServers({ mcpServerPort: null });
     AgentMessagesRepository.clearStore();
@@ -389,8 +392,12 @@ describe('OpenAICodexProvider persistence', () => {
     expect(outputRows).toHaveLength(0);
   });
 
-  it.each([true, false])('persists the session naming reminder only when its guidance is enabled: %s', async (enabled) => {
-    setBuiltInGuidanceSettingsLoader(() => ({ 'session-metadata': enabled }));
+  it.each([
+    { section: 'session-metadata', enabled: true },
+    { section: 'session-metadata', enabled: false },
+    { section: 'session-naming-reminder', enabled: false },
+  ])('persists the session naming reminder only when $section is enabled: $enabled', async ({ section, enabled }) => {
+    setBuiltInGuidanceSettingsLoader(() => ({ [section]: enabled }));
     // update_session_meta now rides on the eager core `nimbalyst` server (MCP
     // consolidation Phase 5); registering it triggers the naming-reminder gate.
     configureMcpServers({ mcpServerPort: 41001 });

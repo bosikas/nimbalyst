@@ -17,6 +17,7 @@
 export const INTERNAL_MCP_TOOLS: readonly string[] = [
   // Core (`nimbalyst`); some schemas defer through ToolSearch.
   'mcp__nimbalyst__update_session_meta',
+  'mcp__nimbalyst__update_session_summary',
   'mcp__nimbalyst__capture_editor_screenshot',
   'mcp__nimbalyst__display_to_user',
   'mcp__nimbalyst__get_session_edited_files',

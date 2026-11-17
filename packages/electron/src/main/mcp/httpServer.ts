@@ -717,7 +717,7 @@ function createSharedMcpServer(
             );
             return { content: [{ type: "text", text }], isError: false };
           }
-          if (toolName === "update_session_meta") {
+          if (toolName === "update_session_meta" || toolName === "update_session_summary") {
             return dispatchSessionMetaTool(name, args, sessionId ?? "");
           }
           // Backend-module tools execute IN the module (main↔backend RPC),

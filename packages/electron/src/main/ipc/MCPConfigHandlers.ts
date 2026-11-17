@@ -105,9 +105,9 @@ export function registerMCPConfigHandlers() {
     }
   });
 
-  safeHandle('mcp-config:get-tool-budget', async (_event, workspacePath?: string) => {
+  safeHandle('mcp-config:get-tool-budget', async (_event, workspacePath?: string, includeSchemas = false) => {
     try {
-      return await getToolBudgetSnapshot(workspacePath);
+      return await getToolBudgetSnapshot(workspacePath, includeSchemas === true);
     } catch (error) {
       logger.main.error('[MCP] Failed to build tool budget snapshot:', error);
       throw error;

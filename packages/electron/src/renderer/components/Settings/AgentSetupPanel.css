@@ -1,0 +1,47 @@
+.agent-setup-panel {
+  container-type: inline-size;
+  color: var(--nim-text);
+}
+
+.agent-setup-tab {
+  color: var(--nim-text-muted);
+  border-bottom: 2px solid transparent;
+}
+
+.agent-setup-tab[aria-selected="true"] {
+  color: var(--nim-text);
+  background: var(--nim-bg-secondary);
+  border-bottom-color: var(--nim-primary);
+}
+
+.agent-setup-tab:focus-visible {
+  outline: 2px solid var(--nim-border-focus);
+  outline-offset: -2px;
+}
+
+.agent-setup-prompt {
+  max-height: 32rem;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 0.75rem;
+  margin-top: 0.5rem;
+  border: 1px solid var(--nim-border);
+  border-radius: 0.375rem;
+  background: var(--nim-bg);
+  font-family: monospace;
+  font-size: 0.75rem;
+  user-select: text;
+}
+
+@container (max-width: 420px) {
+  .agent-setup-tab {
+    padding-inline: 0.5rem;
+  }
+
+  .agent-setup-panel .tool-group-row {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+}

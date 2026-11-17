@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { createRequire } from 'module';
 
 const require_ = createRequire(import.meta.url);
-const { walkDependencyTree } = require_('../generate-third-party-licenses.js');
+const { walkDependencyTree, serializeInventory } = require_('../generate-third-party-licenses.js');
 
 function collect(includeOptionalDependencies: boolean): string[] {
   const packages = {
@@ -40,6 +40,14 @@ function collect(includeOptionalDependencies: boolean): string[] {
 }
 
 describe('third-party license dependency traversal', () => {
+  it('retains identical audit bytes across repeated checks but emits changed license evidence', () => {
+    const old = { generatedAt: 'earlier', packages: [{ name: 'example', license: 'MIT' }] };
+    const text = JSON.stringify(old, null, 2) + '\n';
+    expect(serializeInventory({ ...old, generatedAt: 'later' }, text)).toBe(text);
+    const updated = { generatedAt: 'later', packages: [{ name: 'example', license: 'GPL-3.0' }] };
+    expect(JSON.parse(serializeInventory(updated, text))).toEqual(updated);
+    expect(JSON.parse(serializeInventory(updated, 'invalid metadata'))).toEqual(updated);
+  });
   it('includes direct optional dependencies of a packaged workspace', () => {
     expect(collect(true)).toEqual([
       'optional',

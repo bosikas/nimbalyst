@@ -11,6 +11,7 @@ import { formatToolDisplayName } from '../utils/toolNameFormatter';
 import { getCustomToolWidget, ToolWidgetErrorBoundary } from './CustomToolWidgets';
 import { useTranscriptToolWidgetRegistryVersion } from '../contributions';
 import { ToolCallChanges } from './ToolCallChanges';
+import { isToolActivityError } from '../utils/toolActivity';
 
 /**
  * One tool call in the transcript: a registered custom widget, an edit diff
@@ -571,7 +572,7 @@ const extractResultText = (result: any): string | null => {
 };
 
 export const TranscriptToolCard = React.memo(function TranscriptToolCard({
-  toolMsg,
+  toolMsg: sourceMessage,
   toolIndex,
   depth,
   isExpanded,
@@ -580,6 +581,11 @@ export const TranscriptToolCard = React.memo(function TranscriptToolCard({
   shared,
   subagentContext,
 }: TranscriptToolCardProps): JSX.Element | null {
+  // Custom widgets historically read the message flag. Keep that view aligned
+  // with the canonical tool status used by the activity group, without mutating history.
+  const toolMsg = !sourceMessage.isError && isToolActivityError(sourceMessage)
+    ? { ...sourceMessage, isError: true }
+    : sourceMessage;
   // The card is memoized, so it subscribes to the widget registry itself:
   // extension enable/disable must swap widgets without a session reload.
   useTranscriptToolWidgetRegistryVersion();

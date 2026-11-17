@@ -32,6 +32,8 @@ import {
 } from '../../../store/atoms/workstreamState';
 import { errorNotificationService } from '../../../services/ErrorNotificationService';
 import { setShowContextUsageAtom } from '../../../store/atoms/agentMode';
+import { settingAtom } from '../../../store/atoms/settingAtomFamily';
+import { DEFAULT_SESSION_LIST_APPEARANCE } from '../../../../shared/sessionListAppearance';
 const row = (
   id: string,
   parentSessionId: string | null = null,
@@ -93,6 +95,7 @@ beforeEach(() => {
     return { success: true };
   });
   window.electronAPI = { invoke } as any;
+  store.set(settingAtom('ui.sessionListAppearance'), DEFAULT_SESSION_LIST_APPEARANCE);
 });
 afterEach(() => {
   cleanup();
@@ -133,6 +136,7 @@ describe('tree interactions', () => {
     expect(store.get(workstreamStateAtom('root')).treeExpanded).toBe(false);
   });
   it('keeps an empty workstream distinct from an ordinary session when its children disappear', () => {
+    store.set(settingAtom('ui.sessionListAppearance'), { ...DEFAULT_SESSION_LIST_APPEARANCE, showParentIcon: true });
     const wrapper = row('workstream', null, { sessionType: 'workstream' });
     const child = row('child', 'workstream');
     const sibling = row('sibling', 'workstream');
@@ -328,7 +332,7 @@ describe('tree interactions', () => {
     expect(visible()).toEqual([['root', 0], ['middle', 1]]);
   });
 
-  it('collapse all and expand all set every parent, overriding auto-expand from unread children', () => {
+  it('collapse all and expand all set every parent without treating unread children as active work', () => {
     const trees = [{ key: 'root', rows: rows.slice(0, 3) }];
     const parents = ['root', 'middle'];
     act(() => store.set(sessionUnreadAtom('leaf'), true));
@@ -336,7 +340,7 @@ describe('tree interactions', () => {
       wrapper: ({ children }) => <Provider store={store}>{children}</Provider>,
     });
     const ids = () => result.current.get('root')!.map((r) => r.node.session.id);
-    expect(ids()).toEqual(['root', 'middle', 'leaf']);
+    expect(ids()).toEqual(['root']);
     act(() => store.set(setTreeExpandedForAtom, { ids: parents, expanded: false }));
     expect(ids()).toEqual(['root']);
     act(() => store.set(setTreeExpandedForAtom, { ids: [...parents, 'root'], expanded: true }));

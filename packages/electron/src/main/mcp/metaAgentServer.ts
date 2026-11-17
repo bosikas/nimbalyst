@@ -17,6 +17,8 @@ import { HANDOFF_BRIEF_SCHEMA, type HandoffBrief } from '../services/sessionHand
 import { resolveCallerWorkspaceId } from "../utils/workspaceIdentity";
 
 type CreateSessionArgs = {
+  instructionFile?: string;
+  skipDefaultInstructions?: boolean;
   generateSummary?: boolean;
   autoArchiveAfterMinutes?: number;
   title?: string;
@@ -31,6 +33,8 @@ type CreateSessionArgs = {
 };
 
 type SpawnSessionArgs = {
+  instructionFile?: string;
+  skipDefaultInstructions?: boolean;
   generateSummary?: boolean;
   autoArchiveAfterMinutes?: number;
   handoff?: HandoffBrief;
@@ -249,6 +253,8 @@ export const META_AGENT_TOOL_DEFS: Array<{
           description:
             "Optional reasoning effort for the child. Omit to leave it on the app-wide default — an omitted value is NOT inherited from the caller. Levels above the model's ceiling are clamped down (Claude models stop at max; only some Codex models reach ultra). Use a lower level for mechanical work and a higher one for hard reasoning.",
         },
+        instructionFile: { type: 'string', description: 'Optional Markdown instruction profile, absolute or relative to the project root. Snapshotted at creation, at most 24,000 UTF-8 bytes. Codex/Claude Agent on this Mac only; not inherited from the caller.' },
+        skipDefaultInstructions: { type: 'boolean', description: 'Default false. Set true to skip automatic AGENTS.md (Codex) or CLAUDE.md/rules (Claude Agent), independently of instructionFile. Tools/plugins, system guidance and managed policies remain.' },
         generateSummary: { type: 'boolean', description: 'Default true. Set false to disable background session summaries (recommended for PR-review workers).' },
         autoArchiveAfterMinutes: { type: 'integer', minimum: 0, maximum: 525600, description: 'Idle minutes after a finished turn before safe archival. Default 0 disables it; e.g. 30 for review workers. Transcript and worktree are preserved.' },
         reporting: REPORTING_SCHEMA,
@@ -286,6 +292,8 @@ export const META_AGENT_TOOL_DEFS: Array<{
             "Default false. Place beside you in the same checkout. For fresh continuation with reporting=none, requires a reviewed handoff from prepare_session_handoff. Source remains intact; coordinate its stop before successor edits.",
         },
         handoff: HANDOFF_BRIEF_SCHEMA,
+        instructionFile: { type: 'string', description: 'Optional Markdown instruction profile, absolute or relative to the project root. Snapshotted at creation, at most 24,000 UTF-8 bytes. Codex/Claude Agent on this Mac only; not inherited from the caller.' },
+        skipDefaultInstructions: { type: 'boolean', description: 'Default false. Set true to skip automatic AGENTS.md (Codex) or CLAUDE.md/rules (Claude Agent), independently of instructionFile. Tools/plugins, system guidance and managed policies remain.' },
         generateSummary: { type: 'boolean', description: 'Default true. Set false to disable background session summaries (recommended for PR-review workers).' },
         autoArchiveAfterMinutes: { type: 'integer', minimum: 0, maximum: 525600, description: 'Idle minutes after a finished turn before safe archival. Default 0 disables it; e.g. 30 for review workers. Transcript and worktree are preserved.' },
         useWorktree: {

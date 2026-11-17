@@ -16,6 +16,7 @@
 
 /** A backend-module-provided MCP tool, as advertised + routed by the host. */
 export interface BackendToolDefinition {
+  grantsSessionWake?: boolean;
   /**
    * Advertised, namespaced name shown to agents (e.g.
    * `memory.search_project_knowledge`). Namespaced with the extension's short
@@ -55,6 +56,7 @@ export type BackendToolAudience = 'all' | 'owned-sessions';
 
 /** The raw per-tool shape a backend module sends over `registerMcpTools`. */
 export interface RegisterBackendToolInput {
+  grantsSessionWake?: boolean;
   name: string;
   description?: string;
   inputSchema?: unknown;
@@ -124,6 +126,7 @@ export function registerBackendTools(
     inputSchema: normalizeSchema(t.inputSchema),
     extensionId,
     moduleId,
+    ...(t.grantsSessionWake === true ? { grantsSessionWake: true } : {}),
     voiceAgent: t.voiceAgent === true && t.panelOnly !== true && t.audience !== 'owned-sessions',
     scope: t.scope ?? 'global',
     ...(t.panelOnly === true ? { panelOnly: true } : {}),

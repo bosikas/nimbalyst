@@ -64,7 +64,7 @@ function main() {
 
   fs.mkdirSync(outputDir, { recursive: true });
   fs.writeFileSync(noticesPath, renderNotices(records, summary));
-  fs.writeFileSync(inventoryPath, `${JSON.stringify(inventory, null, 2)}\n`);
+  fs.writeFileSync(inventoryPath, serializeInventory(inventory, fs.existsSync(inventoryPath) ? fs.readFileSync(inventoryPath, 'utf8') : null));
   fs.writeFileSync(auditPath, renderAudit(records, summary));
 
   console.log(`[licenses] Wrote ${path.relative(repoRoot, noticesPath)}`);
@@ -610,8 +610,22 @@ function dedupeArtifacts(values) {
   return deduped;
 }
 
+// A verification run must not dirty source or invalidate build inputs just
+// because the wall clock changed. Real dependency/license changes still emit
+// the complete new inventory and retain the normal approval checks above.
+function serializeInventory(inventory, previousText) {
+  try {
+    const { generatedAt, ...previous } = JSON.parse(previousText);
+    const { generatedAt: _now, ...current } = inventory;
+    if (typeof generatedAt === 'string' && JSON.stringify(previous) === JSON.stringify(current)) return previousText;
+  } catch {
+    // Missing/unreadable metadata is regenerated; no installed packages change.
+  }
+  return `${JSON.stringify(inventory, null, 2)}\n`;
+}
+
 if (require.main === module) {
   main();
 }
 
-module.exports = { walkDependencyTree };
+module.exports = { walkDependencyTree, serializeInventory };

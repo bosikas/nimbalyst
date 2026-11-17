@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+// @vitest-environment node
+import { describe, expect, it, vi } from "vitest";
 
-import { buildSessionMetaToolSchemas } from "../sessionNamingServer";
+import { buildSessionMetaToolSchemas, dispatchSessionMetaTool, setUpdateSessionSummaryFn } from "../sessionNamingServer";
+import { CORE_TOOLS, CORE_ALWAYS_LOAD_TOOLS } from '@nimbalyst/runtime/ai/server/services/mcpTopology';
 
 describe("buildSessionMetaToolSchemas", () => {
   it("keeps the eager schema byte-stable across sessions and tag mutations", async () => {
@@ -14,5 +16,23 @@ describe("buildSessionMetaToolSchemas", () => {
       "Tags to add: lowercase hyphen-separated type of work (bug-fix, feature, refactor) and area/module (electron, runtime, ios). Reuse existing workspace tags when known."
     );
     expect(addDescription).not.toMatch(/\(\d+\)/);
+  });
+
+  it('registers summary submission on core without expanding the always-loaded set', async () => {
+    const schemas = await buildSessionMetaToolSchemas('caller-session');
+    const summary = schemas.find(tool => tool.name === 'update_session_summary');
+    expect(summary.inputSchema.required).toEqual(['scope', 'remaining', 'attention', 'areas']);
+    expect(CORE_TOOLS).toContain(summary.name);
+    expect(CORE_ALWAYS_LOAD_TOOLS).not.toContain(summary.name);
+  });
+
+  it('uses the authenticated calling session and reports invalid submissions as errors', async () => {
+    const submit = vi.fn().mockResolvedValue('Updated');
+    setUpdateSessionSummaryFn(submit);
+    const args = { scope: 'Navigation', sessionId: 'forged-peer' };
+    expect(await dispatchSessionMetaTool('mcp__nimbalyst__update_session_summary', args, 'caller-session')).toMatchObject({ isError: false });
+    expect(submit).toHaveBeenCalledWith('caller-session', args);
+    submit.mockRejectedValueOnce(new Error('Invalid summary'));
+    expect(await dispatchSessionMetaTool('update_session_summary', {}, 'caller-session')).toMatchObject({ isError: true });
   });
 });

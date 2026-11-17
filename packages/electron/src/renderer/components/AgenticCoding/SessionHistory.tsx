@@ -308,8 +308,9 @@ const SessionHistoryComponent: React.FC = () => {
   const onSessionBranch: ((sessionId: string) => void) | undefined = useCallback((sessionId: string) => {
     void dispatchBranchSession(sessionId);
   }, [dispatchBranchSession]);
-  const onNewSession = useCallback((policy?: { generateSummary?: boolean; autoArchiveAfterMinutes?: number }) => {
-    void dispatchCreateNewSession({ ...policy, launchSource: 'session_history', intoSelectedWorkstream: true });
+  const onNewSession = useCallback(async (policy?: { generateSummary?: boolean; autoArchiveAfterMinutes?: number; instructionFile?: string; skipDefaultInstructions?: boolean }) => {
+    const id = await dispatchCreateNewSession({ ...policy, launchSource: 'session_history', intoSelectedWorkstream: true });
+    if (!id && policy) throw new Error('Could not create the session. Check the instruction file and selected provider.');
   }, [dispatchCreateNewSession]);
   const dispatchCreateWorkstream = useSetAtom(createWorkstreamAtom);
   const onNewWorkstream = useCallback(() => {

@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { MaterialSymbol } from '@nimbalyst/runtime/ui/icons/MaterialSymbol';
 import { ToggleSwitch } from '../../GlobalSettings/SettingsToggle';
+import type { MeasurableToolSchema } from '@nimbalyst/runtime/ai/server/services/mcpTokenBudget';
 
 /**
  * Tools & MCP settings panel — the single place that answers "which tool
@@ -27,6 +28,7 @@ interface ToolGroupBudget {
   inclusionReason: string;
   enabled: boolean;
   lockedOn: boolean;
+  tools?: MeasurableToolSchema[];
 }
 
 interface ToolBudgetSnapshot {
@@ -86,31 +88,44 @@ export function ToolsMcpPanel({
   const [snapshot, setSnapshot] = useState<ToolBudgetSnapshot | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [trackersEnabled, setTrackersEnabled] = useState(true);
-
-  const loadSnapshot = useCallback(async () => {
-    try {
-      const result = await (window as any).electronAPI.invoke('mcp-config:get-tool-budget', workspacePath);
-      setSnapshot(result);
-      const trackers = result?.groups?.find((g: ToolGroupBudget) => g.configKey === 'nimbalyst-trackers');
-      if (trackers) setTrackersEnabled(trackers.enabled);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load tool information');
-    }
-  }, [workspacePath]);
+  const [saving, setSaving] = useState(false);
+  const generation = useRef(0);
 
   useEffect(() => {
+    const current = ++generation.current;
+    setSnapshot(null);
+    setError(null);
+    setSaving(false);
+    async function loadSnapshot() {
+      try {
+        const result = await window.electronAPI.invoke('mcp-config:get-tool-budget', workspacePath, true);
+        if (generation.current !== current) return;
+        setSnapshot(result);
+        const trackers = result?.groups?.find((g: ToolGroupBudget) => g.configKey === 'nimbalyst-trackers');
+        if (trackers) setTrackersEnabled(trackers.enabled);
+      } catch (err) {
+        if (generation.current === current) setError(err instanceof Error ? err.message : 'Failed to load tool information');
+      }
+    }
     void loadSnapshot();
-  }, [loadSnapshot]);
+    return () => { generation.current++; };
+  }, [workspacePath]);
 
-  const handleTrackersToggle = useCallback((enabled: boolean) => {
-    setTrackersEnabled(enabled);
-    if (workspacePath) {
-      // Same per-workspace state the Trackers config panel writes; the session
-      // MCP config reads it fresh on the next message.
-      (window as any).electronAPI.invoke('workspace:update-state', workspacePath, {
+  const handleTrackersToggle = useCallback(async (enabled: boolean) => {
+    if (!workspacePath) return;
+    const current = generation.current;
+    setSaving(true);
+    try {
+      await window.electronAPI.invoke('workspace:update-state', workspacePath, {
         trackersEnabled: enabled,
       });
+      if (generation.current !== current) return;
+      setTrackersEnabled(enabled);
+      setError(null);
+    } catch (err) {
+      if (generation.current === current) setError(err instanceof Error ? err.message : 'Could not save tool availability');
+    } finally {
+      if (generation.current === current) setSaving(false);
     }
   }, [workspacePath]);
 
@@ -151,6 +166,15 @@ export function ToolsMcpPanel({
           </div>
           <div className="tool-group-desc text-xs text-[var(--nim-text-muted)] truncate" title={group.inclusionReason}>{description}</div>
           <div className="text-[10px] text-[var(--nim-text-faint)]">{group.schemaBytes == null ? 'Schema bytes unavailable' : `${group.schemaBytes.toLocaleString()} UTF-8 schema bytes`} · estimate, not native usage</div>
+          {group.tools && <details className="tool-group-schemas mt-2 text-xs">
+            <summary className="cursor-pointer text-[var(--nim-link)]">Inspect {group.tools.length} tool definitions</summary>
+            <p className="my-2 text-[var(--nim-text-muted)]">Configured definitions for this group. Session and document conditions can change the available tools. Individual exposure switches are managed by the native provider; execution permissions are separate.</p>
+            {group.tools.map(tool => <details key={tool.name} className="tool-definition my-2">
+              <summary className="cursor-pointer break-all font-mono">{tool.name}</summary>
+              <p className="mt-1 whitespace-pre-wrap break-words text-[var(--nim-text-muted)]">{tool.description}</p>
+              <pre aria-label={`Schema for ${tool.name}`} className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded bg-[var(--nim-bg)] p-2 select-text">{JSON.stringify(tool.inputSchema, null, 2) ?? 'No input schema supplied.'}</pre>
+            </details>)}
+          </details>}
         </div>
         <div className="tool-group-meta flex items-center gap-2.5 shrink-0">
           {group.toolCount > 0 && (
@@ -161,9 +185,9 @@ export function ToolsMcpPanel({
           <TokenBadge estTokens={group.estTokens} />
           <PolicyBadge policy={group.loadPolicy} />
           {group.lockedOn ? (
-            <ToggleSwitch checked disabled onChange={() => undefined} />
+            <ToggleSwitch label={`${group.displayName} availability`} checked disabled onChange={() => undefined} />
           ) : isTrackers ? (
-            <ToggleSwitch checked={trackersEnabled} onChange={handleTrackersToggle} disabled={!workspacePath} />
+            <ToggleSwitch label={`${group.displayName} availability`} checked={trackersEnabled} onChange={enabled => void handleTrackersToggle(enabled)} disabled={!workspacePath || saving} />
           ) : group.source === 'extension' ? (
             <button
               className="manage-link text-xs text-[var(--nim-primary)] hover:underline whitespace-nowrap"
@@ -198,6 +222,7 @@ export function ToolsMcpPanel({
       {error && (
         <div className="tools-mcp-error text-sm text-[var(--nim-error,#ff4444)] mb-4">{error}</div>
       )}
+      {!snapshot && !error && <p role="status" className="mb-4 text-xs text-[var(--nim-text-muted)]">Loading tool definitions…</p>}
 
       {snapshot && (
         <div className="baseline-card flex items-start gap-3 py-3 px-4 mb-6 bg-[var(--nim-bg-secondary)] border border-[var(--nim-border)] rounded-lg">

@@ -22,6 +22,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 vi.setConfig({ testTimeout: 20000, hookTimeout: 20000 });
 
 describe('settings cross-window lockstep (legacy atoms)', () => {
+  it('hydrates chat appearance and mirrors another window without replacing custom session-list preferences', async () => {
+    const { store } = await import('@nimbalyst/runtime/store');
+    const { settingAtom, hydrateSettingsAtoms, registerSettingsChangeListener } = await import('../settingAtomFamily');
+    const { DEFAULT_SESSION_LIST_APPEARANCE } = await import('../../../../shared/sessionListAppearance');
+    const list = { ...DEFAULT_SESSION_LIST_APPEARANCE, titleSize: 17, summarySize: 9 };
+    const appearance = { textSize: 16, readingWidth: 880, groupToolActivity: false };
+    hydrateSettingsAtoms({ 'ui.chatAppearance': appearance, 'ui.sessionListAppearance': list } as any);
+    registerSettingsChangeListener();
+    expect(store.get(settingAtom('ui.chatAppearance'))).toEqual(appearance);
+    fireBroadcast({ key: 'ui.chatAppearance', value: { ...appearance, textSize: 14 } });
+    expect(store.get(settingAtom('ui.chatAppearance'))).toEqual({ ...appearance, textSize: 14 });
+    expect(store.get(settingAtom('ui.sessionListAppearance'))).toEqual(list);
+  });
   it('hydrates chat density and mirrors another window without changing independent display preferences', async () => {
     const { store } = await import('@nimbalyst/runtime/store');
     const { settingAtom, hydrateSettingsAtoms, registerSettingsChangeListener } = await import('../settingAtomFamily');

@@ -39,6 +39,11 @@ describe('mergeWithDefaults - sessionHistoryLayout.sortOrder (#924)', () => {
 });
 
 describe('mergeWithDefaults - sessionHistoryLayout.compactRows', () => {
+  it('fills an absent sidebar width without replacing a saved workspace width', () => {
+    expect(mergeWithDefaults(undefined).sessionHistoryLayout.width).toBe(304);
+    expect(mergeWithDefaults({ sessionHistoryLayout: { sortOrder: 'updated' } as never }).sessionHistoryLayout.width).toBe(304);
+    expect(mergeWithDefaults({ sessionHistoryLayout: { width: 420 } as never }).sessionHistoryLayout.width).toBe(420);
+  });
   it('keeps a saved compact preference and defaults older layouts to full rows', () => {
     expect(mergeWithDefaults({ sessionHistoryLayout: { compactRows: true } as never }).sessionHistoryLayout.compactRows).toBe(true);
     expect(mergeWithDefaults({ sessionHistoryLayout: { sortOrder: 'created' } as never }).sessionHistoryLayout.compactRows).toBe(false);

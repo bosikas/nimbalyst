@@ -3,24 +3,24 @@ import { z } from 'zod';
 const ActivityColorSchema = z.union([z.literal('theme'), z.string().regex(/^#[0-9a-f]{6}$/i)]).default('theme');
 
 export const SessionListAppearanceSchema = z.object({
-  titleSize: z.number().min(11).max(22).default(15),
-  childTitleSize: z.number().min(10).max(20).default(13),
-  rowPadding: z.number().int().min(0).max(12).default(6),
-  childPadding: z.number().int().min(0).max(10).default(3),
-  summarySize: z.number().min(8).max(14).default(9),
-  summaryLineHeight: z.number().min(10).max(22).default(12),
+  titleSize: z.number().min(11).max(22).default(13),
+  childTitleSize: z.number().min(10).max(20).default(12),
+  rowPadding: z.number().int().min(0).max(12).default(8),
+  childPadding: z.number().int().min(0).max(10).default(5),
+  summarySize: z.number().min(8).max(14).default(12),
+  summaryLineHeight: z.number().min(10).max(22).default(18),
   scopeLines: z.number().int().min(1).max(3).default(2),
-  headingSize: z.number().min(10).max(16).default(12),
-  headingBold: z.boolean().default(true),
+  headingSize: z.number().min(10).max(16).default(11),
+  headingBold: z.boolean().default(false),
   runningColor: ActivityColorSchema,
   needsYouColor: ActivityColorSchema,
   idleColor: ActivityColorSchema,
-  inactiveOpacity: z.number().min(0.4).max(1).default(0.7),
-  showParentIcon: z.boolean().default(true),
+  inactiveOpacity: z.number().min(0.4).max(1).default(1),
+  showParentIcon: z.boolean().default(false),
   showChildIcon: z.boolean().default(false),
   showSummary: z.boolean().default(true),
   showRemaining: z.boolean().default(true),
-  showModel: z.boolean().default(true),
+  showModel: z.boolean().default(false),
   showTimestamps: z.boolean().default(true),
   childContext: z.enum(['hover', 'always', 'hidden']).default('hover'),
   branchGuides: z.boolean().default(true),
@@ -32,7 +32,7 @@ export const SessionListAppearanceSchema = z.object({
 });
 export type SessionListAppearance = z.infer<typeof SessionListAppearanceSchema>;
 export const DEFAULT_SESSION_LIST_APPEARANCE = SessionListAppearanceSchema.parse({});
-export const COMPACT_SESSION_LIST_APPEARANCE: SessionListAppearance = { ...DEFAULT_SESSION_LIST_APPEARANCE, titleSize: 14, childTitleSize: 12, rowPadding: 3, childPadding: 1, scopeLines: 1, showModel: false };
+export const COMPACT_SESSION_LIST_APPEARANCE: SessionListAppearance = { ...DEFAULT_SESSION_LIST_APPEARANCE, titleSize: 12, childTitleSize: 11.5, rowPadding: 4, childPadding: 3, scopeLines: 1, showModel: false };
 
 export const SESSION_ACTIVITY_APPEARANCE = {
   Running: { key: 'runningColor', icon: 'play_arrow', color: 'var(--nim-success)' },

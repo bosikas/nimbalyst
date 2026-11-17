@@ -51,6 +51,7 @@ import { WorkstreamSessionTabs } from './WorkstreamSessionTabs';
 import { FilesEditedSidebar } from './FilesEditedSidebar';
 import { AgentReviewPanel } from './AgentReviewPanel';
 import { ChatSidebar } from '../ChatSidebar/ChatSidebar';
+import { ChatAppearanceControl } from '../UnifiedAI/ChatAppearanceControl';
 import { LayoutControls } from '../UnifiedAI/LayoutControls';
 import { ActiveSessionMcpStatusChip } from '../AgenticCoding/McpSessionStatusChip';
 import { WorktreeIcon } from '../common/WorktreeIcon';
@@ -771,6 +772,8 @@ const WorkstreamHeader: React.FC<{
         {filePlacement === 'above' && (
           <LayoutControls mode={layoutMode} hasTabs={hasTabs} onModeChange={handleLayoutChange} />
         )}
+
+        <ChatAppearanceControl />
 
         {/* Pin/Unpin toggle - routes to the worktree or the session per type */}
         <button

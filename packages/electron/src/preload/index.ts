@@ -2095,6 +2095,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
 
   agentGuidance: {
+    updateText: (id: import('@nimbalyst/runtime/ai/builtInGuidance').BuiltInGuidanceId, text: string | null) =>
+      ipcRenderer.invoke('agent-guidance:update-text', id, text) as Promise<import('@nimbalyst/runtime/ai/builtInGuidance').BuiltInGuidanceEntry[]>,
+    preview: (workspacePath: string, provider: import('@nimbalyst/runtime/ai/builtInGuidance').AgentSetupProvider) =>
+      ipcRenderer.invoke('agent-guidance:preview', workspacePath, provider) as Promise<import('@nimbalyst/runtime/ai/builtInGuidance').AgentGuidancePreview>,
     listSkills: (workspace: string) => ipcRenderer.invoke('openai-codex:skills-list', workspace) as Promise<import('../shared/codexSkills').CodexSkillCatalog>,
     setSkillEnabled: (workspace: string, file: string, enabled: boolean) => ipcRenderer.invoke('openai-codex:skill-set-enabled', workspace, file, enabled) as Promise<import('../shared/codexSkills').CodexSkillCatalog>,
     previewSkill: (workspace: string, file: string) => ipcRenderer.invoke('openai-codex:skill-preview', workspace, file) as Promise<string>,

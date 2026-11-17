@@ -5,13 +5,15 @@
  * runtime (its extension id and bound workspace). Nothing a module sends can
  * widen that scope: owner extension ids are stamped here, and every op that
  * names a session first proves the session is owned by the calling extension
- * in the calling workspace.
+ * in the calling workspace. `wake` instead accepts a host-issued single-use
+ * callback token, without granting ownership or read access.
  *
  * This module also feeds owned-session settles (completed / error / waiting /
  * interrupted) to the owning module through an event sink the privileged host
  * registers, so it never imports the host (which imports this module).
  */
 import { randomUUID } from 'crypto';
+import { consumeSessionWakeGrant, revokeSessionWakeGrant } from './sessionWakeGrants';
 import type {
   CreateOwnedSessionOptions,
   CreateOwnedWorkstreamOptions,
@@ -162,6 +164,18 @@ export async function dispatchExtensionSessionsOp(
 ): Promise<unknown> {
   const args = (rawArgs && typeof rawArgs === 'object' ? rawArgs : {}) as Args;
   switch (op) {
+    case 'wake': {
+      const prompt = requireString(args, 'prompt').trim();
+      const sessionId = consumeSessionWakeGrant(scope, requireString(args, 'token'));
+      const session = await AISessionsRepository.get(sessionId);
+      if (!session || !sameWorkspaceIdentity(session.workspacePath, scope.workspacePath) || session.sessionType === 'workstream' || session.isArchived) {
+        throw new Error('Wake target is unavailable in this workspace');
+      }
+      return enqueue(sessionId, session.worktreePath || session.workspacePath || scope.workspacePath, prompt);
+    }
+    case 'revokeWake':
+      revokeSessionWakeGrant(scope, requireString(args, 'token'));
+      return;
     case 'create':
       return createOwnedSession(scope, args as unknown as CreateOwnedSessionOptions);
     case 'createWorkstream':

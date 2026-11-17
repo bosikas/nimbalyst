@@ -12,9 +12,9 @@
  * incapable of acquiring a network or collaboration dependency through its
  * chrome.
  *
- * The class strings below are byte-identical to the ones AskUserQuestionWidget
- * emitted before the extraction; `rootClassName` is optional so that widget can
- * keep its exact markup while new consumers attach their own DOM marker.
+ * Semantic classes let desktop themes adjust presentation without changing
+ * the widgets’ selection, submission or transport behavior. `rootClassName`
+ * remains optional for widget-specific markers.
  */
 
 import React from 'react';
@@ -52,8 +52,10 @@ export const InteractiveWidgetCard: React.FC<InteractiveWidgetCardProps> = ({
   <div
     data-testid={testId}
     data-state={state}
+    data-tone={tone}
     className={joinClasses(
       rootClassName,
+      'interactive-widget-card',
       'rounded-lg bg-nim-secondary border',
       tone === 'active' ? 'border-nim-primary' : 'border-nim',
       'overflow-hidden',
@@ -81,7 +83,7 @@ export const InteractiveWidgetHeader: React.FC<InteractiveWidgetHeaderProps> = (
   title,
   trailing,
 }) => (
-  <div className="flex items-center gap-2 py-3 px-4 border-b border-nim bg-nim-tertiary">
+  <div className="interactive-widget-header flex items-center gap-2 py-3 px-4 border-b border-nim bg-nim-tertiary">
     <div className="w-5 h-5 text-nim-primary shrink-0">{icon}</div>
     <span className="text-sm font-semibold text-nim flex-1">{title}</span>
     {trailing}
@@ -123,7 +125,7 @@ export const WidgetStatusPill: React.FC<WidgetStatusPillProps> = ({
 
 export const InteractiveWidgetBody: React.FC<{ children: React.ReactNode }> = ({
   children,
-}) => <div className="p-3 flex flex-col gap-3">{children}</div>;
+}) => <div className="interactive-widget-body p-3 flex flex-col gap-3">{children}</div>;
 
 export interface WidgetBlockProps {
   /** Uppercase tag shown in primary, e.g. `Subject`, `Q1 · Direction`. */
@@ -154,14 +156,14 @@ export const WidgetBlock: React.FC<WidgetBlockProps> = ({
 }) => (
   <div
     data-testid={testId}
-    className={joinClasses(rootClassName, 'bg-nim border border-nim rounded-md p-3')}
+    className={joinClasses(rootClassName, 'interactive-widget-block bg-nim border border-nim rounded-md p-3')}
   >
     <div className="flex items-center gap-2 mb-2">
       <span
         className={
           tagTone === 'primary'
-            ? 'text-[0.6875rem] font-semibold uppercase tracking-wide text-nim-primary bg-[color-mix(in_srgb,var(--nim-primary)_12%,transparent)] py-0.5 px-2 rounded-full'
-            : 'text-[0.6875rem] font-semibold uppercase tracking-wide text-nim-muted bg-nim-tertiary py-0.5 px-2 rounded-full'
+            ? 'interactive-widget-tag text-[0.6875rem] font-semibold uppercase tracking-wide text-nim-primary bg-[color-mix(in_srgb,var(--nim-primary)_12%,transparent)] py-0.5 px-2 rounded-full'
+            : 'interactive-widget-tag text-[0.6875rem] font-semibold uppercase tracking-wide text-nim-muted bg-nim-tertiary py-0.5 px-2 rounded-full'
         }
       >
         {tag}
@@ -171,7 +173,7 @@ export const WidgetBlock: React.FC<WidgetBlockProps> = ({
     {question !== undefined && (
       <div
         className={joinClasses(
-          'text-sm text-nim leading-normal mb-3',
+          'interactive-widget-question text-sm text-nim leading-normal mb-3',
           selectableQuestion && 'select-text',
         )}
       >
@@ -184,7 +186,7 @@ export const WidgetBlock: React.FC<WidgetBlockProps> = ({
 
 export const WidgetOptionList: React.FC<{ children: React.ReactNode }> = ({
   children,
-}) => <div className="flex flex-col gap-1.5">{children}</div>;
+}) => <div className="interactive-widget-options flex flex-col gap-1.5">{children}</div>;
 
 // ============================================================
 // Option row
@@ -210,9 +212,9 @@ const OptionBody: React.FC<{ label: React.ReactNode; description?: React.ReactNo
   description,
 }) => (
   <div className="flex flex-col gap-0.5 flex-1 min-w-0">
-    <span className="text-[0.8125rem] font-medium text-nim leading-snug">{label}</span>
+    <span className="interactive-widget-option-label text-[0.8125rem] font-medium text-nim leading-snug">{label}</span>
     {description && (
-      <span className="text-xs text-nim-muted leading-snug">{description}</span>
+      <span className="interactive-widget-option-description text-xs text-nim-muted leading-snug">{description}</span>
     )}
   </div>
 );
@@ -258,7 +260,7 @@ export const WidgetOptionRow: React.FC<WidgetOptionRowProps> = ({
         data-testid={testId}
         {...dataAttributes}
         className={joinClasses(
-          'flex items-start gap-2 py-2 px-2.5 rounded border cursor-default',
+          'interactive-widget-option flex items-start gap-2 py-2 px-2.5 rounded border cursor-default',
           selected
             ? 'border-nim-primary bg-[color-mix(in_srgb,var(--nim-primary)_8%,var(--nim-bg-secondary))]'
             : 'border-nim bg-nim-secondary',
@@ -278,7 +280,7 @@ export const WidgetOptionRow: React.FC<WidgetOptionRowProps> = ({
       onClick={onSelect}
       disabled={disabled}
       className={joinClasses(
-        'flex items-start gap-2 py-2 px-2.5 rounded border transition-all duration-150 cursor-pointer text-left bg-transparent disabled:opacity-50 disabled:cursor-not-allowed',
+        'interactive-widget-option flex items-start gap-2 py-2 px-2.5 rounded border transition-all duration-150 cursor-pointer text-left bg-transparent disabled:opacity-50 disabled:cursor-not-allowed',
         selected
           ? 'border-nim-primary bg-[color-mix(in_srgb,var(--nim-primary)_8%,var(--nim-bg-secondary))]'
           : 'border-nim bg-nim-secondary hover:bg-nim-hover',
@@ -339,7 +341,7 @@ export interface WidgetFooterProps {
 export const WidgetFooter: React.FC<WidgetFooterProps> = ({ note, children }) => (
   <div
     className={joinClasses(
-      'flex gap-2 justify-end',
+      'interactive-widget-footer flex gap-2 justify-end',
       note ? 'items-center' : undefined,
       'pt-2 border-t border-nim',
     )}

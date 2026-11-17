@@ -54,7 +54,10 @@ describe('OpenAICodexProvider session-stable system prompt', () => {
       }),
     }));
     let sessionDirective = 'Only triage GitHub issues.';
-    vi.spyOn(AISessionsRepository, 'get').mockImplementation(async () => ({ metadata: { sessionDirective } }) as any);
+    let skipDefaultInstructions = true;
+    vi.spyOn(AISessionsRepository, 'get').mockImplementation(async () => ({ metadata: { sessionDirective, skipDefaultInstructions,
+      instructionSnapshot: { path: '/profiles/review.md', content: 'Custom reviewer profile.' },
+    } }) as any);
     configureMcpServers({ mcpServerPort: 41001 });
 
     const provider = new OpenAICodexProvider(
@@ -65,6 +68,7 @@ describe('OpenAICodexProvider session-stable system prompt', () => {
       }
     );
     await provider.initialize({ apiKey: 'test-key', model: 'openai-codex:gpt-5.5' });
+    const createSession = vi.spyOn((provider as any).protocol, 'createSession');
     const systemPrompts: string[] = [];
     provider.on('promptAdditions', (payload: { systemPromptAddition: string }) => {
       systemPrompts.push(payload.systemPromptAddition);
@@ -75,11 +79,14 @@ describe('OpenAICodexProvider session-stable system prompt', () => {
         // drain
       }
       sessionDirective = 'Directive edited mid-session.';
+      skipDefaultInstructions = false;
     }
 
     expect(systemPrompts).toHaveLength(2);
     expect(systemPrompts[0]).toContain('Only triage GitHub issues.');
+    expect(systemPrompts[0]).toContain('Custom reviewer profile.');
     expect(systemPrompts[1]).toBe(systemPrompts[0]);
+    expect(createSession.mock.calls[0][0]).toMatchObject({ raw: { codexConfigOverrides: { project_doc_max_bytes: 0 } } });
   });
 
   // A session titled by its caller (spawn_session, an extension-owned session)

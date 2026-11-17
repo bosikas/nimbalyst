@@ -10,6 +10,11 @@
 
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 
+let updateSessionSummaryFn: ((sessionId: string, args: unknown) => Promise<string>) | undefined;
+export function setUpdateSessionSummaryFn(fn: NonNullable<typeof updateSessionSummaryFn>): void {
+  updateSessionSummaryFn = fn;
+}
+
 // Store reference to the session manager functions (set once at startup)
 let updateSessionTitleFn:
   | ((sessionId: string, title: string) => Promise<void>)
@@ -128,6 +133,20 @@ export async function buildSessionMetaToolSchemas(_aiSessionId: string): Promise
         },
       },
     },
+    {
+      name: 'update_session_summary',
+      description: 'Before finishing a turn, update this session’s whole-work scope and remaining work. Metadata only; no extra inference. Disabled sessions are unchanged.',
+      inputSchema: {
+        type: 'object', additionalProperties: false,
+        required: ['scope', 'remaining', 'attention', 'areas'],
+        properties: {
+          scope: { type: 'string', maxLength: 220, description: 'Stable whole-session purpose, 6–16 words; not the latest activity.' },
+          remaining: { type: 'string', maxLength: 280, description: 'Concrete outstanding work or review; empty only when nothing remains.' },
+          attention: { type: 'string', enum: ['next', 'blocked', 'review', 'none', 'unknown'] },
+          areas: { type: 'array', maxItems: 6, items: { type: 'string', maxLength: 40 } },
+        },
+      },
+    },
   ];
 }
 
@@ -167,6 +186,14 @@ export async function dispatchSessionMetaTool(
   const toolName = name.replace(/^mcp__nimbalyst(-session-naming)?__/, "");
 
   try {
+    if (toolName === 'update_session_summary') {
+      try {
+        if (!updateSessionSummaryFn) throw new Error('Session summaries are not available.');
+        return { content: [{ type: 'text', text: await updateSessionSummaryFn(aiSessionId, args) }], isError: false };
+      } catch (error) {
+        return { content: [{ type: 'text', text: `Summary not updated: ${error instanceof Error ? error.message.slice(0, 240) : 'Invalid submission.'}` }], isError: true };
+      }
+    }
     if (toolName === "update_session_meta") {
       const sessionName = args?.name as string | undefined;
       const addTags = Array.isArray(args?.add) ? args.add as string[] : typeof args?.add === 'string' ? [args.add] : undefined;

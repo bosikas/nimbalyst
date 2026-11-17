@@ -444,6 +444,8 @@ function buildSessionsService(
   return {
     create: (options) => call('create', options),
     createWorkstream: (options) => call('createWorkstream', options),
+    wake: (token, prompt) => call('wake', { token, prompt }),
+    revokeWake: (token) => call('revokeWake', { token }),
     sendPrompt: (sessionId, prompt) => call('sendPrompt', { sessionId, prompt }),
     getStatus: (sessionId) => call('getStatus', { sessionId }),
     getResult: (sessionId) => call('getResult', { sessionId }),

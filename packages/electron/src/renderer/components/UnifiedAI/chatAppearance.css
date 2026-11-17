@@ -1,0 +1,186 @@
+/* The concept's hierarchy, expressed through the active theme's palette. */
+.session-transcript {
+  --chat-text-size: 14px;
+  --chat-reading-width: 760px;
+  --chat-message-gap: 24px;
+  --chat-paragraph-gap: 12px;
+  --chat-leading: 1.65;
+  --chat-composer-min-height: 30px;
+  container-type: inline-size;
+}
+.session-transcript[data-chat-density="compact"] { --chat-message-gap: 16px; --chat-paragraph-gap: 8px; --chat-leading: 1.55; }
+.session-transcript[data-chat-density="dense"] { --chat-message-gap: 10px; --chat-paragraph-gap: 6px; --chat-leading: 1.5; }
+.session-transcript .rich-transcript-content .rich-transcript-vlist > div {
+  width: 100%;
+  max-width: calc(var(--chat-reading-width) + 64px);
+  margin-inline: auto;
+  box-sizing: border-box;
+  padding-inline: 32px;
+  padding-block: 28px 20px;
+}
+.session-transcript .rich-transcript-message,
+.session-transcript[data-chat-density] .rich-transcript-message {
+  padding: 0;
+  margin: 0 0 var(--chat-message-gap);
+  border-radius: 0;
+  background: transparent;
+}
+.session-transcript .rich-transcript-message.user {
+  padding: 15px 18px;
+  border: 1px solid var(--nim-border);
+  border-radius: 12px;
+  background: var(--nim-bg-secondary);
+}
+.session-transcript .rich-transcript-message.continuation { margin-top: 0; }
+.session-transcript .rich-transcript-message-header { display: flex; gap: 7px; margin-bottom: 9px; align-items: center; }
+.session-transcript .rich-transcript-message.user .rich-transcript-message-header { margin-bottom: 7px; }
+.session-transcript .rich-transcript-message-avatar { width: 14px; height: 14px; border-radius: 0; background: transparent; }
+.session-transcript .rich-transcript-message-avatar svg { width: 14px; height: 14px; }
+.session-transcript .rich-transcript-message-avatar.user { display: none; }
+.session-transcript .rich-transcript-message-sender { font-size: 11px; font-weight: 550; color: var(--nim-text-muted); }
+.session-transcript .rich-transcript-message-header time,
+.session-transcript .rich-transcript-message-time,
+.session-transcript .rich-transcript-message-header .text-xs { font-size: 11px; color: var(--nim-text-faint); }
+.session-transcript .rich-transcript-message-content,
+.session-transcript .rich-transcript-tool-messages,
+.session-transcript .rich-transcript-tool-container.orphan,
+.session-transcript .rich-transcript-turn-elapsed { margin-left: 0; }
+.session-transcript .markdown-content { font-size: var(--chat-text-size); line-height: var(--chat-leading); font-weight: 400; }
+.session-transcript .markdown-content p { margin-block: 0 var(--chat-paragraph-gap); text-wrap: pretty; }
+.session-transcript .markdown-content p:last-child { margin-bottom: 0; }
+.session-transcript .markdown-content :is(ul, ol) { margin-block: var(--chat-paragraph-gap); }
+.session-transcript .markdown-content li { margin-block: 4px; }
+.session-transcript .markdown-content :is(h1,h2,h3) { font-weight: 580; letter-spacing: -.02em; line-height: 1.4; margin-block: 20px 10px; }
+.session-transcript .markdown-content h1 { font-size: 1.4em; }
+.session-transcript .markdown-content h2 { font-size: 1.25em; }
+.session-transcript .markdown-content h3 { font-size: 1.1em; }
+.session-transcript .markdown-content strong { font-weight: 570; }
+.session-transcript .markdown-content pre { font-size: 11.5px; line-height: 1.7; border-radius: 7px; border: 1px solid var(--nim-border); }
+.session-transcript .rich-transcript-turn-elapsed { font-size: 11px; margin-top: 12px; color: var(--nim-text-faint); }
+.session-transcript .rich-transcript-message-copy-action { top: -3px; }
+.session-transcript .rich-transcript-message:focus-within .rich-transcript-message-copy-action { opacity: 1; }
+.session-transcript .rich-transcript-copy-button { padding: 4px; border-color: transparent; background: var(--nim-bg); }
+
+/* Ordinary activity is quiet; the original tool cards and evidence live inside. */
+.transcript-tool-activity-run { display: flex; flex-direction: column; gap: 6px; margin: 12px 0; }
+.transcript-tool-activity { margin: 0; border: 1px solid var(--nim-border); border-radius: 8px; background: color-mix(in srgb, var(--nim-bg-secondary) 55%, transparent); overflow: hidden; }
+.transcript-tool-activity-toggle { display: flex; align-items: baseline; gap: 9px; width: 100%; padding: 10px 12px; border: 0; background: transparent; text-align: left; font-size: 12px; color: var(--nim-text-muted); cursor: pointer; }
+.transcript-tool-activity-toggle:hover { color: var(--nim-text); background: var(--nim-bg-hover); }
+.transcript-tool-activity-toggle > .material-symbols-outlined:first-child { color: var(--nim-success); }
+.transcript-tool-activity-label { flex: 1; min-width: 0; }
+.transcript-tool-activity-heading { display: flex; flex-wrap: wrap; align-items: baseline; gap: 3px 8px; color: var(--nim-text); font-weight: 550; line-height: 1.5; }
+.transcript-tool-activity-target { min-width: 0; color: var(--nim-text-muted); font-weight: 400; overflow-wrap: anywhere; }
+.transcript-tool-activity-preview { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-top: 3px; color: var(--nim-text-muted); font-weight: 400; line-height: 1.5; overflow-wrap: anywhere; }
+.session-transcript .rich-transcript-tool-container.orphan.grouped-activity { margin-block: 0; }
+.session-transcript .rich-transcript-tool-messages:has(.transcript-tool-activity-run) { gap: 0; margin-bottom: 0; }
+.transcript-tool-activity-count { font-size: 11px; color: var(--nim-text-faint); white-space: nowrap; }
+.transcript-tool-activity-steps:not([hidden]) { display: flex; flex-direction: column; gap: 6px; border-top: 1px solid var(--nim-border); padding: 8px; }
+.transcript-tool-activity[data-state="error"] { border-color: color-mix(in srgb, var(--nim-error) 45%, var(--nim-border)); }
+.transcript-tool-activity[data-state="error"] .transcript-tool-activity-label { color: var(--nim-error); }
+.transcript-tool-activity-spinner { width: 12px; height: 12px; border: 1.5px solid var(--nim-border); border-top-color: var(--nim-primary); border-radius: 50%; animation: chat-activity-spin 1.1s linear infinite; }
+@keyframes chat-activity-spin { to { transform: rotate(360deg); } }
+
+/* Questions retain their existing keyboard, selection and submission behavior. */
+.session-transcript .interactive-widget-card { border-radius: 11px; background: var(--nim-bg-secondary); }
+.session-transcript .interactive-widget-card[data-tone="active"] { border-color: color-mix(in srgb, var(--nim-warning) 40%, var(--nim-border)); }
+.session-transcript .interactive-widget-header { padding: 16px 18px 0; border: 0; background: transparent; }
+.session-transcript .interactive-widget-header > :is(div,span) { color: var(--nim-text-muted); font-size: 11px; font-weight: 500; }
+.session-transcript .interactive-widget-block { border: 0; padding: 0 6px; background: transparent; }
+.session-transcript .interactive-widget-option { padding: 11px 13px; gap: 11px; border-radius: 8px; min-width: 0; }
+.session-transcript .interactive-widget-body { padding: 12px; gap: 15px; }
+.session-transcript .interactive-widget-options { gap: 7px; }
+.session-transcript .interactive-widget-option-label { font-size: 13px; font-weight: 550; line-height: 1.45; }
+.session-transcript .interactive-widget-option-description { font-size: 12px; line-height: 1.55; }
+.session-transcript .interactive-widget-footer { padding: 12px 6px 0; gap: 8px; flex-wrap: wrap; }
+.session-transcript .interactive-widget-footer button { min-height: 32px; padding-inline: 13px; border-radius: 7px; font-size: 12px; }
+
+/* A single, quiet composer aligned with the reading column. */
+.session-transcript .ai-chat-input {
+  align-self: center;
+  width: min(calc(100% - 64px), var(--chat-reading-width));
+  margin: 4px auto 9px;
+  padding: 5px;
+  border: 1px solid var(--nim-border);
+  border-radius: 12px;
+  background: var(--nim-bg-secondary);
+  gap: 2px;
+  box-shadow: 0 4px 20px color-mix(in srgb, var(--nim-bg) 7%, transparent);
+}
+.session-transcript .ai-chat-input:focus-within { border-color: color-mix(in srgb, var(--nim-primary) 65%, var(--nim-border)); }
+.session-transcript .ai-chat-input-row { order: 1; align-items: flex-end; }
+.session-transcript .ai-input-controls { order: 2; gap: 4px 8px !important; padding: 2px 3px 0; font-size: 11px; min-width: 0; }
+.session-transcript .ai-input-controls button { font-size: 12px; min-height: 28px; border-radius: 6px; }
+.session-transcript .ai-input-controls :is(.model-selector,.effort-level-selector,.thinking-mode-selector) > button { padding: 0 8px; background: transparent; border-color: transparent; font-weight: 400; }
+.session-transcript .ai-input-controls :is(.model-selector,.effort-level-selector,.thinking-mode-selector) > button:hover { background: var(--nim-bg-hover); color: var(--nim-text); }
+.session-transcript .ai-chat-input-field { background: transparent; border: 0; box-shadow: none; border-radius: 6px; padding: 4px 6px; font-size: 13.5px; line-height: 22px; }
+.session-transcript .ai-chat-input-field:focus { border-color: transparent; outline: none; box-shadow: none; }
+.session-transcript .ai-chat-input-row > button { width: 30px; height: 30px; border-radius: 8px; flex-shrink: 0; animation: none; }
+.session-transcript .ai-chat-send-button:disabled { opacity: 1; background: var(--nim-bg-hover); color: var(--nim-text-faint); }
+.session-transcript :is(button,a,input,textarea,summary):focus-visible { outline: 2px solid var(--nim-border-focus); outline-offset: 2px; }
+.session-transcript .ai-chat-input-resize-handle { left: 15px; right: 15px; }
+
+/* Compact workstream header. Every existing action remains available. */
+.workstream-header { height: 44px; min-height: 44px; padding: 0 14px 0 10px; background: var(--nim-bg); }
+.workstream-header-main { gap: 6px; min-width: 0; }
+.workstream-header-icon { display: none; }
+.workstream-header-content { flex-direction: row; align-items: center; gap: 12px; overflow: hidden; }
+.workstream-header-title { font-size: 14px; font-weight: 570; letter-spacing: -.02em; flex: 1 1 auto; min-width: 0; }
+.workstream-header-meta-row { width: auto; flex: 0 1 auto; gap: 8px; overflow: hidden; }
+.workstream-header-worktree-chip { font-size: 11px; font-weight: 400; padding: 0; background: transparent; max-width: 140px; color: var(--nim-text-faint); }
+.workstream-header-worktree-chip svg { display: none; }
+.workstream-header .workstream-terminal-btn { margin-right: 0; }
+.workstream-header-archive-button, .workstream-archive-button { padding-inline: 6px; }
+.workstream-archive-button > span:last-child { display: none; }
+.workstream-header :is(.workstream-pin-button,.workstream-terminal-btn,.workstream-archive-button,.chat-appearance-trigger) { width: 30px; height: 30px; border-radius: 7px; }
+.chat-appearance-trigger { display: inline-flex; align-items: center; justify-content: center; color: var(--nim-text-muted); background: transparent; border: 0; flex-shrink: 0; cursor: pointer; }
+.chat-appearance-trigger:hover, .chat-appearance-trigger[aria-expanded="true"] { background: var(--nim-bg-hover); color: var(--nim-text); }
+.chat-appearance-panel { z-index: 10000; width: min(280px, calc(100vw - 24px)); max-height: min(600px, calc(100vh - 80px)); overflow-y: auto; padding: 18px; color: var(--nim-text); background: var(--nim-bg); border: 1px solid var(--nim-border); border-radius: 12px; box-shadow: 0 12px 40px color-mix(in srgb, var(--nim-bg) 65%, transparent); }
+.chat-appearance-panel header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; margin-bottom: 20px; }
+.chat-appearance-panel h2 { font-size: 13px; font-weight: 600; margin: 0; }
+.chat-appearance-panel p { font-size: 11px; line-height: 1.6; color: var(--nim-text-muted); margin: 3px 0 0; }
+.chat-appearance-panel button { cursor: pointer; background: transparent; border: 0; color: var(--nim-text-muted); border-radius: 5px; }
+.chat-appearance-panel button:hover { color: var(--nim-text); }
+.chat-appearance-panel label { display: flex; flex-direction: column; gap: 9px; margin-bottom: 18px; font-size: 12px; }
+.chat-appearance-panel label > span { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.chat-appearance-panel output { font-size: 11px; color: var(--nim-text-faint); font-variant-numeric: tabular-nums; }
+.chat-appearance-panel input { accent-color: var(--nim-primary); width: 100%; }
+.chat-appearance-panel select { padding: 5px 8px; border: 1px solid var(--nim-border); border-radius: 6px; background: var(--nim-bg-secondary); color: var(--nim-text); font-size: 12px; }
+.chat-appearance-panel .chat-appearance-toggle { flex-direction: row; justify-content: space-between; align-items: center; }
+.chat-appearance-panel .chat-appearance-toggle input { width: auto; }
+.chat-appearance-panel footer { margin-top: 18px; padding-top: 12px; border-top: 1px solid var(--nim-border); font-size: 11px; }
+.chat-appearance-panel [role="alert"] { color: var(--nim-error); }
+@container (max-width: 560px) {
+  .session-transcript .rich-transcript-content .rich-transcript-vlist > div { padding-inline: 16px; }
+  .session-transcript .ai-chat-input { width: calc(100% - 32px); margin-bottom: 9px; }
+  .session-transcript .rich-transcript-message.user { padding: 12px 14px; }
+}
+@media (prefers-reduced-motion: reduce) { .transcript-tool-activity-spinner { animation: none; } }
+.session-transcript .rich-transcript-message.user .rich-transcript-message-time { margin-left: auto; }
+.session-transcript .rich-transcript-message-time { font-variant-numeric: tabular-nums; }
+.session-transcript .ai-chat-cancel-button { background: var(--nim-bg-hover); color: var(--nim-text); }
+.session-transcript .ai-chat-cancel-button:hover { background: var(--nim-bg-tertiary); transform: none; }
+.session-transcript .ai-chat-send-button:hover { transform: none; }
+.workstream-header { container-type: inline-size; }
+@container (max-width: 600px) {
+  .workstream-header-content .workstream-header-meta-row { display: none; }
+  .workstream-header-main { gap: 2px; }
+}
+/* Session tabs use a fine underline instead of competing filled pills. */
+.workstream-session-tabs .session-tab-bar { height: 34px; min-height: 34px; padding: 0 14px; border-top: 0; background: var(--nim-bg); gap: 2px; }
+.workstream-session-tabs .session-tabs-scroll { height: 100%; }
+.workstream-session-tabs .session-tab-wrapper { height: 100%; min-width: 0; }
+.workstream-session-tabs .session-tab { height: 100%; max-width: 260px; padding: 0 10px; border-radius: 0; border-bottom: 1.5px solid transparent; font-size: 12px; font-weight: 450; background: transparent; }
+.workstream-session-tabs .session-tab.active { border-bottom-color: var(--nim-primary); background: transparent; }
+.workstream-session-tabs .session-tab-icon { display: none; }
+.workstream-session-tabs .session-tab-title { max-width: 230px; }
+.workstream-session-tabs .session-tab-new { width: 26px; height: 26px; border-radius: 6px; }
+.session-transcript .tool-permission-widget { border-radius: 11px; }
+.session-transcript .tool-permission-widget[data-state="pending"] { border-color: color-mix(in srgb, var(--nim-warning) 40%, var(--nim-border)); }
+.session-transcript .tool-permission-widget[data-state="pending"][data-destructive="true"] { border-color: color-mix(in srgb, var(--nim-error) 45%, var(--nim-border)); }
+.session-transcript .tool-permission-header { border: 0; background: transparent; padding: 16px 18px 4px; }
+.session-transcript .tool-permission-header > .text-sm { font-size: 13px; font-weight: 570; }
+.session-transcript .interactive-widget-card[data-tone="active"] .interactive-widget-header > :first-child { color: var(--nim-warning); }
+.session-transcript .interactive-widget-question { font-size: 15px; font-weight: 570; line-height: 1.45; letter-spacing: -.01em; }
+.session-transcript .interactive-widget-tag { padding: 0; border-radius: 0; background: transparent; text-transform: none; letter-spacing: 0; color: var(--nim-text-faint); font-weight: 450; }
+.transcript-tool-activity[data-state="error"] .transcript-tool-activity-toggle > .material-symbols-outlined:first-child { color: var(--nim-error); }
+.transcript-tool-activity[data-state="stopped"] .transcript-tool-activity-toggle > .material-symbols-outlined:first-child { color: var(--nim-text-faint); }

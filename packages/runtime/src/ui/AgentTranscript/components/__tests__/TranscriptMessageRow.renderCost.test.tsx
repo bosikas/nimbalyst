@@ -7,13 +7,14 @@
  * waste, hence a test.
  */
 import React from 'react';
-import { render } from '@testing-library/react';
+import { cleanup, render } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { TranscriptViewMessage } from '../../../../ai/server/types';
 import { setTranscriptToolWidgets, clearTranscriptToolWidgets } from '../../contributions/TranscriptToolWidgetContributions';
 import type { CustomToolWidgetProps } from '../CustomToolWidgets';
 import { TranscriptToolCard, type SubagentChildContext, type TranscriptToolShared } from '../TranscriptToolCard';
 import { TranscriptMessageRow, computeTranscriptRowInfos, type TranscriptRowInfo } from '../TranscriptMessageRow';
+import { findToolActivityTarget } from '../../utils/toolActivity';
 
 const segmentRenders = vi.hoisted(() => ({ byText: new Map<string, number>() }));
 
@@ -63,14 +64,15 @@ const toolMsg = msg(1, {
   } as unknown as TranscriptViewMessage['toolCall'],
 });
 
-function infosFor(messages: TranscriptViewMessage[], previous: TranscriptRowInfo[] | null) {
+function infosFor(messages: TranscriptViewMessage[], previous: TranscriptRowInfo[] | null, groupToolActivity = false, isWaitingForResponse = true) {
   return computeTranscriptRowInfos(messages, {
     showToolCalls: true,
+    groupToolActivity,
     expandedTools: new Set(),
     supersededToolIndices: new Set(),
     skippedQuestionIds: subagentContext.skippedQuestionIds,
     subagentContext,
-    isWaitingForResponse: true,
+    isWaitingForResponse,
     restartAfterIndex: -1,
   }, previous);
 }
@@ -99,12 +101,46 @@ function Rows({ messages, infos }: { messages: TranscriptViewMessage[]; infos: T
 }
 
 describe('transcript row memoization', () => {
+  it('coalesces adjacent orphan tools, preserving search targets and unchanged row identity', () => {
+    const messages = [msg(0, { type: 'user_message', text: 'Inspect grouping' }), toolMsg,
+      { ...toolMsg, id: 3 }, { ...toolMsg, id: 4 }];
+    const grouped = infosFor(messages, null, true);
+    expect(grouped.map(row => row.kind)).toEqual(['message', 'orphanTool', 'hidden', 'hidden']);
+    expect(grouped[1].toolEntries?.map(entry => entry.index)).toEqual([1, 2, 3]);
+    expect(findToolActivityTarget(grouped, 3)?.owner).toBe(1);
+    const next = infosFor(messages, grouped, true);
+    next.forEach((row, index) => expect(row).toBe(grouped[index]));
+    expect(infosFor(messages, null).filter(row => row.kind === 'orphanTool')).toHaveLength(3);
+  });
+  it('does not merge across human requests, assistant narrative, thinking or questions', () => {
+    const messages = [toolMsg, msg(1, { text: 'I found the issue.' }),
+      { ...toolMsg, id: 3 }, msg(3, { text: '' }),
+      msg(4, { type: 'user_message', text: 'Keep my request visible' }),
+      { ...toolMsg, id: 6 }, msg(6, { thinking: 'Reasoning remains inspectable' })];
+    const grouped = infosFor(messages, null, true);
+    expect(grouped[1].kind).toBe('message');
+    expect(grouped[3].kind).toBe('orphanTool');
+    expect(grouped[4].kind).toBe('message');
+    expect(grouped[6].kind).toBe('message');
+    expect(grouped.filter(row => row.toolEntries).flatMap(row => row.toolEntries!.map(e => e.index))).toEqual([0, 2, 5]);
+  });
+  it('retains the completion footer when empty assistant envelopes are coalesced', () => {
+    const messages = [msg(0, { type: 'user_message', text: 'Inspect files' }), toolMsg,
+      msg(2, { text: '' }), { ...toolMsg, id: 4 }, msg(4, { text: '' })];
+    const original = infosFor(messages, null, false, false);
+    const grouped = infosFor(messages, null, true, false);
+    expect(grouped[2].toolEntries?.map(entry => entry.index)).toEqual([1, 3]);
+    expect(grouped[2].turn).toEqual(original[4].turn);
+    expect(grouped[2].turn).not.toBeNull();
+    const { getByText } = render(<Rows messages={messages} infos={grouped} tick={0} />);
+    expect(getByText(/Finished in/).textContent).toContain(grouped[2].turn!.duration);
+  });
   beforeEach(() => {
     widgetRenders = 0;
     segmentRenders.byText.clear();
     setTranscriptToolWidgets('render-cost-test', { CountTool: CountingWidget });
   });
-  afterEach(() => clearTranscriptToolWidgets('render-cost-test'));
+  afterEach(() => { cleanup(); clearTranscriptToolWidgets('render-cost-test'); });
 
   it('a tool card re-renders its widget only when its own props change', () => {
     const card = (tick: number, isExpanded: boolean) => (

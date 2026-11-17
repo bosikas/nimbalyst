@@ -9,6 +9,7 @@ import { getDatabase } from '../database/initialize';
 import { runWhenFirstUsable } from './startupMaintenanceGate';
 import { SESSION_DESCENDANTS_CTE } from './sessionHierarchy';
 import { destroyProviderForArchivedSession } from './ai/archiveSessionProviderLifecycle';
+import { getProjectWindows } from '../window/windowState';
 
 let installed = false;
 let busy = false;
@@ -29,7 +30,7 @@ export function configureSessionAutoArchive(): void {
     const timer = setInterval(() => { void sweepSessionAutoArchive(); }, 60_000);
     timer.unref?.();
     app.once('before-quit', () => { stopping = true; clearInterval(timer); });
-    void sweepSessionAutoArchive();
+    return sweepSessionAutoArchive();
   });
 }
 
@@ -64,8 +65,10 @@ export async function sweepSessionAutoArchive(): Promise<void> {
       if (!guard) continue;
       const { rows: members } = await db.query<{ id: string }>(`${SESSION_DESCENDANTS_CTE} SELECT id FROM session_subtree`, [row.id]);
       const ids = new Set(members.map(member => member.id));
-      // A window that has not reported its selection is conservatively visible.
-      if (BrowserWindow.getAllWindows().some(window => !window.isDestroyed() && (!visible.has(window.webContents.id) || ids.has(visible.get(window.webContents.id) ?? '')))) continue;
+      // Only project windows host session selections. Capture/settings windows
+      // never report one and must not block every idle session indefinitely.
+      // Keep unreported project windows protected, including hidden ones.
+      if (getProjectWindows().some(window => !visible.has(window.webContents.id) || ids.has(visible.get(window.webContents.id) ?? ''))) continue;
       if (members.some(member => { const state = getSessionStateManager().getSessionState(member.id); return state && (state.status !== 'idle' || state.isStreaming); })) continue;
       try {
         for (const window of BrowserWindow.getAllWindows()) if (!window.isDestroyed()) window.webContents.send('sessions:auto-archiving', { sessionIds: [...ids] });

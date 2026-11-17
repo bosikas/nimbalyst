@@ -67,6 +67,8 @@ export interface ToolGroupBudget {
   enabled: boolean;
   /** True for groups the app requires (core); the UI must not offer a toggle. */
   lockedOn: boolean;
+  /** Included only on explicit inspector requests, never in routine budget reports. */
+  tools?: MeasurableToolSchema[];
 }
 
 export interface ToolBudgetSnapshot {
@@ -112,7 +114,7 @@ function collectFirstPartySchemas(sessionMetaSchemas: MeasurableToolSchema[]): M
 
 const mcpConfigService = new MCPConfigService();
 
-export async function getToolBudgetSnapshot(workspacePath?: string): Promise<ToolBudgetSnapshot> {
+export async function getToolBudgetSnapshot(workspacePath?: string, includeSchemas = false): Promise<ToolBudgetSnapshot> {
   const groups: ToolGroupBudget[] = [];
 
   // ---- First-party topology servers ----
@@ -161,6 +163,7 @@ export async function getToolBudgetSnapshot(workspacePath?: string): Promise<Too
       ...(alwaysLoadEstTokens !== undefined && { alwaysLoadEstTokens }),
       enabled,
       lockedOn: entry.configKey === MCP_CORE,
+      ...(includeSchemas && { tools }),
     });
   }
 
@@ -191,6 +194,7 @@ export async function getToolBudgetSnapshot(workspacePath?: string): Promise<Too
       inclusionReason: 'An active extension registered these tools. Schemas remain available for discovery; native clients decide when to load them.',
       enabled: true, // disabled extensions contribute no tools, so they never appear here
       lockedOn: false,
+      ...(includeSchemas && { tools }),
     });
   }
 

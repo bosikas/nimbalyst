@@ -10,16 +10,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 <!-- New features go here -->
-- Session scope summaries show the area of work and remaining steps, with search filters, per-session generation controls and recorded native usage when available
+- Session scope summaries show the area of work and remaining steps, accept updates from the working agent with background fallback, and support search filters, per-session generation controls and recorded native usage when available
 - Sessions can automatically archive after an idle interval while preserving transcripts and worktrees; summaries default on and automatic archiving defaults off, while new built-in PR reviews use summaries off and a 30-minute archive timer
 - The session sidebar offers device-local typography, spacing, visibility and activity-label color controls with a live preview, shows icons beside activity sections, and initially shows active children with older chats available through expansion arrows
 - Installed Codex skills can be searched, previewed and enabled or disabled through their native configuration in Agent Features settings
-- Agent Features settings now list Nimbalyst’s built-in guidance with searchable instruction previews and individual or bulk toggles, including commit proposals and session-naming reminders
+- Agent Features settings bring instructions, tools, execution permissions and effective setup together, with searchable guidance previews, editable replacements and individual or bulk toggles
 - Reviewed fresh-session handoffs preserve pending human requests, decisions, ownership and evidence without replaying full history; Codex context inspection separates measured request bytes from native token usage, and MCP configuration supports native on-demand exposure while keeping discovery and Core access
+- New sessions can select an instruction profile and independently skip automatic repository instructions for Codex and Claude Agent
+- Chat appearance controls customize reading width, text size, spacing and tool visibility, with descriptive activity cards that preserve expandable tool output
+- Extension monitors can queue a revocable one-time callback to the session that requested a watch without gaining access to its conversation
 
 ### Changed
 <!-- Changes to existing functionality go here -->
-- Local macOS builds offer a lighter profile with artifact reuse, sequential compilation, lower process priority and a smaller heap allowance while retaining native package checks
+- Local macOS builds offer a repeatable build-and-install command with artifact reuse, timing reports, lower process priority and a smaller heap allowance while retaining native package checks and a recoverable previous app
 - The session sidebar uses a compact toolbar, activity sections and quieter details, with separate chat navigation and child expansion and fewer redundant worktree headings
 
 ### Fixed

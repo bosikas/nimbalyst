@@ -77,6 +77,7 @@ export interface BuildSdkOptionsParams {
   permissionsPath?: string;
   mcpConfigWorkspacePath?: string;
   isMetaAgent?: boolean;
+  skipDefaultInstructions?: boolean;
 }
 
 /**
@@ -325,6 +326,7 @@ export async function buildSdkOptions(
     // When plan tracking is enabled, direct plan files to the project's plans folder
     // (relative to cwd). This applies whenever the agent enters plan mode, even mid-session.
     settings: {
+      ...(params.skipDefaultInstructions ? { claudeMdExcludes: ['**'] } : {}),
       ...(ClaudeCodeDeps.planTrackingEnabled && { plansDirectory: 'nimbalyst-local/plans' }),
       // Nimbalyst renders its own AskUserQuestion widget and waits for a real
       // human answer, so the CLI's idle auto-continue -- which fills in

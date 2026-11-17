@@ -79,6 +79,16 @@ describe('buildSdkOptions MCP config (NIM-2372)', () => {
     expect(options.strictMcpConfig).toBeUndefined();
     expect(options.settingSources).toContain('user');
     expect(options.settingSources).toContain('project');
+    expect(options.settings).not.toHaveProperty('claudeMdExcludes');
+  });
+
+  it('excludes default instruction files natively while preserving settings, plugins and MCP discovery', async () => {
+    ClaudeCodeDeps.extensionPluginsLoader = async () => [{ type: 'local', path: '/trusted/plugin' }];
+    const { options } = await buildSdkOptions(makeDeps(), makeParams({ skipDefaultInstructions: true }));
+    expect(options.settings).toMatchObject({ claudeMdExcludes: ['**'], askUserQuestionTimeout: 'never' });
+    expect(options.settingSources).toEqual(expect.arrayContaining(['user', 'project']));
+    expect(options.plugins).toContainEqual({ type: 'local', path: '/trusted/plugin' });
+    expect(options.strictMcpConfig).toBeUndefined();
   });
 
   it('keeps headless runs out of repository hooks and implicit MCP discovery', async () => {

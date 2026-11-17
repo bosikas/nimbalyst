@@ -1568,6 +1568,7 @@ export const AIInput = forwardRef<AIInputRef, AIInputProps>(
 
         {/* Input container with drag/drop support */}
         <div
+          className="ai-chat-input-row"
           onDragOver={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
@@ -1622,7 +1623,7 @@ export const AIInput = forwardRef<AIInputRef, AIInputProps>(
             disabled={disabled}
             rows={1}
             style={{
-              minHeight: `${MIN_PROMPT_HEIGHT}px`,
+              minHeight: `var(--chat-composer-min-height, ${MIN_PROMPT_HEIGHT}px)`,
               maxHeight: `${userSetHeight ?? DEFAULT_MAX_PROMPT_HEIGHT}px`,
             }}
           />
@@ -1655,7 +1656,7 @@ export const AIInput = forwardRef<AIInputRef, AIInputProps>(
                 aria-label="Cancel request"
               >
                 <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                  <path d="M12 4L4 12M4 4L12 12" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/>
+                  <rect x="4" y="4" width="8" height="8" rx="1.5" fill="currentColor"/>
                 </svg>
               </button>
             )
@@ -1668,7 +1669,7 @@ export const AIInput = forwardRef<AIInputRef, AIInputProps>(
               aria-label="Send message"
             >
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M2 8L14 2L11 14L8 9L2 8Z" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                <path d="M8 13V3M4 7L8 3L12 7" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/>
               </svg>
             </button>
           )}

@@ -3,6 +3,9 @@ import { atom, useAtomValue } from 'jotai';
 import { FloatingPortal, FloatingOverlay, FloatingFocusManager, useFloating, useDismiss, useRole, useInteractions } from '@floating-ui/react';
 import { sessionRegistryAtom } from '../../store/atoms/sessions';
 import { readSessionPolicy, type SessionPolicy } from '@nimbalyst/runtime/ai/sessionPolicy';
+import type { SessionInstructionOptions } from '@nimbalyst/runtime/ai/sessionInstructions';
+
+export type SessionCreationValues = SessionPolicy & SessionInstructionOptions;
 
 export function SessionPolicyFields({ value, onChange, disabled = false }: { value: SessionPolicy; onChange: (next: SessionPolicy) => void; disabled?: boolean }) {
   return <div className="session-policy-fields">
@@ -32,20 +35,26 @@ export function SessionPolicyEditor({ sessionId }: { sessionId: string }) {
   </details>;
 }
 
-export function SessionCreationOptions({ open, onClose, onCreate }: { open: boolean; onClose: () => void; onCreate: (policy: SessionPolicy) => void | Promise<unknown> }) {
+export function SessionCreationOptions({ open, onClose, onCreate }: { open: boolean; onClose: () => void; onCreate: (policy: SessionCreationValues) => void | Promise<unknown> }) {
   const [policy, setPolicy] = useState<SessionPolicy>({ generateSummary: true, autoArchiveAfterMinutes: 0 });
+  const [instructions, setInstructions] = useState<SessionInstructionOptions>({ instructionFile: '', skipDefaultInstructions: false });
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState(false);
+  const [error, setError] = useState('');
   const floating = useFloating({ open, onOpenChange: next => { if (!next && !busy) onClose(); } });
   const interactions = useInteractions([useDismiss(floating.context), useRole(floating.context, { role: 'dialog' })]);
-  useEffect(() => { if (open) { setPolicy({ generateSummary: true, autoArchiveAfterMinutes: 0 }); setError(false); } }, [open]);
+  useEffect(() => { if (open) { setPolicy({ generateSummary: true, autoArchiveAfterMinutes: 0 }); setInstructions({ instructionFile: '', skipDefaultInstructions: false }); setError(''); } }, [open]);
   if (!open) return null;
   return <FloatingPortal><FloatingOverlay lockScroll className="session-custom-overlay"><FloatingFocusManager context={floating.context}>
     <section ref={floating.refs.setFloating} {...interactions.getFloatingProps()} className="session-customization session-creation-options" aria-label="New session options">
       <header><div><h2>New session</h2><p>Choose how this chat is maintained.</p></div><button type="button" aria-label="Close new session options" disabled={busy} onClick={onClose}>×</button></header>
-      <div className="session-custom-controls"><SessionPolicyFields value={policy} onChange={setPolicy} disabled={busy} /><p className="session-custom-note">Uses your currently selected model. Review workers can turn summaries off and use a 30-minute archive timer.</p></div>
-      {error && <p role="alert" className="session-custom-error">Could not create the session.</p>}
-      <footer><button type="button" onClick={onClose} disabled={busy}>Cancel</button><button type="button" disabled={busy} onClick={async () => { setBusy(true); try { await onCreate(policy); onClose(); } catch { setError(true); } finally { setBusy(false); } }}>{busy ? 'Creating…' : 'Create session'}</button></footer>
+      <div className="session-custom-controls">
+        <label className="session-instruction-file"><span>Instruction file <small>optional</small></span><input type="text" value={instructions.instructionFile} disabled={busy} placeholder="profiles/reviewer.md or an absolute path" onChange={event => { const instructionFile = event.target.value; setInstructions(previous => ({ ...previous, instructionFile, skipDefaultInstructions: !previous.instructionFile?.trim() && instructionFile.trim() ? true : previous.skipDefaultInstructions })); }} /></label>
+        <label className="session-custom-control"><span>Skip default instruction files</span><input type="checkbox" checked={instructions.skipDefaultInstructions} disabled={busy} onChange={event => setInstructions(previous => ({ ...previous, skipDefaultInstructions: event.target.checked }))} /></label>
+        <p className="session-custom-note">Codex: AGENTS.md. Claude Agent: CLAUDE.md and rules. The selected Markdown file is saved with this session (24 KB maximum); relative paths use the project folder. System guidance and managed policies still apply.</p>
+        <SessionPolicyFields value={policy} onChange={setPolicy} disabled={busy} /><p className="session-custom-note">Uses your currently selected model. Review workers can turn summaries off and use a 30-minute archive timer.</p>
+      </div>
+      {error && <p role="alert" className="session-custom-error">{error}</p>}
+      <footer><button type="button" onClick={onClose} disabled={busy}>Cancel</button><button type="button" disabled={busy} onClick={async () => { setBusy(true); setError(''); try { await onCreate({ ...policy, ...instructions }); onClose(); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not create the session.'); } finally { setBusy(false); } }}>{busy ? 'Creating…' : 'Create session'}</button></footer>
     </section>
   </FloatingFocusManager></FloatingOverlay></FloatingPortal>;
 }

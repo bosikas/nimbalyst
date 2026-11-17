@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Marilyst · Useful tool activity</title>
+<style>
+:root{color-scheme:dark;--bg:#12171e;--panel:#1b222b;--text:#e6e9ed;--muted:#98a2ae;--faint:#84909f;--line:#2c3540;--good:#4fb07c;--warn:#d9a441}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}main{max-width:790px;margin:auto;padding:32px 24px}h1{font-size:16px;font-weight:550;margin:0 0 6px}.intro{font-size:12px;color:var(--muted);margin:0 0 26px}.narrative{margin:22px 0 12px}.tools{display:flex;flex-direction:column;gap:6px}details{border:1px solid var(--line);border-radius:8px;background:color-mix(in srgb,var(--panel) 55%,transparent);overflow:hidden}summary{list-style:none;padding:10px 12px;cursor:pointer;display:grid;grid-template-columns:14px minmax(0,1fr) auto;gap:9px;align-items:baseline}summary::-webkit-details-marker{display:none}summary:hover{background:var(--panel)}summary:focus-visible,a:focus-visible{outline:2px solid #6e9be8;outline-offset:-2px}.icon{color:var(--good);font-size:12px}.content{min-width:0}.heading{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;font-size:12px;font-weight:550}.target{font-weight:400;color:var(--muted);overflow-wrap:anywhere}.preview{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:12px;font-weight:400;color:var(--muted);margin-top:3px}.meta{font-size:11px;font-weight:400;color:var(--faint);white-space:nowrap}.meta:after{content:' ›';display:inline-block;margin-left:8px}details[open]>summary .meta:after{transform:rotate(90deg)}.evidence{border-top:1px solid var(--line);padding:12px 35px;font-size:12px;color:var(--muted)}pre{font:11px/1.65 ui-monospace,SFMono-Regular,monospace;white-space:pre-wrap;overflow-wrap:anywhere;margin:0}.steps{margin:0;padding:0;list-style:none}.steps li{padding:5px 0;display:flex;gap:8px}.steps .icon{width:12px}.notice{color:var(--warn)}.batch .heading{font-weight:450}a{color:inherit;text-decoration:underline;text-decoration-color:var(--line);text-underline-offset:3px}.sample{font-size:10px;color:var(--faint);letter-spacing:.04em;margin-top:28px}
+</style>
+<main>
+<h1>Tool activity, with something worth reading</h1>
+<p class="intro">Illustrative content. Click a card to inspect its full details.</p>
+<p class="narrative">I’ll send the reviewer the updated scope, then check where tool grouping happens.</p>
+<div class="tools">
+<details><summary><span class="icon">✓</span><span class="content"><span class="heading">Send prompt <span class="target">→ PR stack feedback fixes</span></span><span class="preview">Review the callback extension and confirm session ownership before proposing changes.</span></span><span class="meta">Sent</span></summary><div class="evidence"><pre>Recipient: PR stack feedback fixes
+Message: Review the callback extension and confirm session ownership before proposing changes.
+Delivery: Accepted into the recipient’s queue. Not yet acknowledged.</pre></div></details>
+<details><summary><span class="icon">✓</span><span class="content"><span class="heading">Read file <span class="target">toolActivity.ts · lines 1–140</span></span><span class="preview">Grouping rules and tool-status normalization.</span></span><span class="meta">140 lines</span></summary><div class="evidence"><pre>Full tool input and original output appear here in the implemented view.
+The compact preview never replaces the original evidence.</pre></div></details>
+<details class="batch"><summary><span class="icon">✓</span><span class="content"><span class="heading">Read 3 files and searched tool grouping</span><span class="preview">toolActivity.ts, ToolActivityGroup.tsx, RichTranscriptView.tsx · 7 matches</span></span><span class="meta">4 tools</span></summary><div class="evidence"><ul class="steps"><li><span class="icon">✓</span>Read toolActivity.ts · 140 lines</li><li><span class="icon">✓</span>Read ToolActivityGroup.tsx · 112 lines</li><li><span class="icon">✓</span>Read RichTranscriptView.tsx · 80 lines</li><li><span class="icon">✓</span>Search “groupToolActivity” · 7 matches</li></ul></div></details>
+</div>
+<p class="narrative">The grouping boundary is splitting consecutive tool calls. I’ll adjust that and preserve every original result inside the disclosure.</p>
+<div class="tools">
+<details><summary><span class="icon">✓</span><span class="content"><span class="heading">Edit file <span class="target">toolActivity.ts</span></span><span class="preview">Keep adjacent tool calls together while preserving assistant messages between runs.</span></span><span class="meta">+18 −6</span></summary><div class="evidence"><pre>Original edit details and diff remain available here.</pre></div></details>
+<details><summary><span class="icon notice">!</span><span class="content"><span class="heading">Run focused tests <span class="target">ToolActivityGroup.test.tsx</span></span><span class="preview notice">1 failed · A human question must remain outside the collapsed group.</span></span><span class="meta">Exit 1</span></summary><div class="evidence"><pre>The original failing assertion and full test output remain available here.
+An unsuccessful tool result is not automatically a request for user action.</pre></div></details>
+</div>
+<p class="sample">DESIGN PROPOSAL · no additional AI calls needed to label these cards</p>
+</main>
+</html>

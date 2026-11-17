@@ -1,6 +1,7 @@
 import React, { useCallback, useState } from 'react';
 import type { TranscriptViewMessage } from '../../../ai/server/types';
 import { isInteractiveWidgetTool } from '../../../ai/server/interactivePromptTools';
+import { ToolActivityGroup, type ToolActivityReveal } from './ToolActivityGroup';
 import { MessageSegment } from './MessageSegment';
 import { MarkdownRenderer } from './MarkdownRenderer';
 import { ProviderIcon } from '../../icons/ProviderIcons';
@@ -299,6 +300,7 @@ export interface TranscriptRowInfo {
 
 export interface TranscriptRowInfoInputs {
   showToolCalls: boolean;
+  groupToolActivity?: boolean;
   expandedTools: ReadonlySet<string>;
   supersededToolIndices: ReadonlySet<number>;
   skippedQuestionIds: ReadonlySet<string>;
@@ -399,23 +401,7 @@ export function computeTranscriptRowInfos(
     };
     classifyRow(i, message, info);
 
-    const prev = previous?.[i];
-    if (prev) {
-      if (sameEntries(prev.toolEntries, info.toolEntries)) info.toolEntries = prev.toolEntries;
-      if (sameTurn(prev.turn, info.turn)) info.turn = prev.turn;
-    }
-    infos[i] =
-      prev &&
-      prev.kind === info.kind &&
-      prev.isNewGroup === info.isNewGroup &&
-      prev.toolEntries === info.toolEntries &&
-      prev.priorUserMessage === info.priorUserMessage &&
-      prev.turn === info.turn &&
-      prev.isLastMessage === info.isLastMessage &&
-      prev.showLoginWidget === info.showLoginWidget &&
-      prev.showRestartLine === info.showRestartLine
-        ? prev
-        : info;
+    infos[i] = info;
 
     if (isTool[i]) {
       if (toolRunStart < 0) toolRunStart = i;
@@ -425,7 +411,43 @@ export function computeTranscriptRowInfos(
     }
     if (message.type === 'user_message') lastUserIdx = i;
   }
-  return infos;
+  if (inputs.groupToolActivity) {
+    let owner = -1;
+    let runEntries: TranscriptToolEntry[] = [];
+    for (let i = 0; i < n; i++) {
+      const info = infos[i], message = messages[i];
+      // Empty assistant envelopes add no narrative, but previously reserved a
+      // full message's whitespace between otherwise adjacent tool cards.
+      if (info.kind === 'message' && message.type === 'assistant_message' && info.toolEntries &&
+        !message.text?.trim() && !message.thinking && !message.progressUpdate && !message.attachments?.length &&
+        !message.isError && !message.isAuthError && !message.isCodexAuthRequired &&
+        !info.showLoginWidget && !info.showRestartLine) info.kind = 'orphanTool';
+      if (info.kind === 'orphanTool') {
+        if (owner >= 0) {
+          runEntries.push(...info.toolEntries!);
+          if (info.turn) infos[owner].turn = info.turn;
+          info.toolEntries = null;
+          info.turn = null;
+          info.kind = 'hidden';
+        } else {
+          owner = i;
+          runEntries = [...info.toolEntries!];
+          info.toolEntries = runEntries;
+        }
+      } else if (info.kind !== 'hidden') owner = -1;
+    }
+  }
+  // Compare after grouping so unchanged owners keep identity while streaming.
+  return infos.map((info, i) => {
+    const prev = previous?.[i];
+    if (!prev) return info;
+    if (sameEntries(prev.toolEntries, info.toolEntries)) info.toolEntries = prev.toolEntries;
+    if (sameTurn(prev.turn, info.turn)) info.turn = prev.turn;
+    return prev.kind === info.kind && prev.isNewGroup === info.isNewGroup &&
+      prev.toolEntries === info.toolEntries && prev.priorUserMessage === info.priorUserMessage &&
+      prev.turn === info.turn && prev.isLastMessage === info.isLastMessage &&
+      prev.showLoginWidget === info.showLoginWidget && prev.showRestartLine === info.showRestartLine ? prev : info;
+  });
 
   function classifyRow(i: number, message: TranscriptViewMessage, info: TranscriptRowInfo): void {
     // Skip tool calls superseded by a later event with the same providerToolCallId
@@ -560,6 +582,9 @@ export interface TranscriptMessageRowProps {
   isCopied: boolean;
   showThinking: boolean;
   compactMode: boolean;
+  groupToolActivity?: boolean;
+  toolActivityReveal?: ToolActivityReveal;
+  isProcessing?: boolean;
   provider?: string;
   documentContext?: { filePath?: string };
   appStartTime?: number;
@@ -595,6 +620,9 @@ export const TranscriptMessageRow = React.memo(function TranscriptMessageRow({
   isCopied,
   showThinking,
   compactMode,
+  groupToolActivity = false,
+  toolActivityReveal,
+  isProcessing = false,
   provider,
   documentContext,
   appStartTime,
@@ -612,6 +640,22 @@ export const TranscriptMessageRow = React.memo(function TranscriptMessageRow({
   const isUser = message.type === 'user_message';
   const { isNewGroup } = info;
 
+  const toolEntries = info.toolEntries && (groupToolActivity
+    ? <ToolActivityGroup reveal={toolActivityReveal} entries={info.toolEntries} isProcessing={isProcessing} renderEntry={entry => renderToolEntry(entry, toolShared)} />
+    : info.toolEntries.map(entry => renderToolEntry(entry, toolShared)));
+  const turn = info.turn;
+  const turnFooter = turn && (
+    <div className="rich-transcript-turn-elapsed text-xs text-[var(--nim-text-faint)] mt-2 ml-6">
+      Finished in {turn.duration}
+      {turn.finishedAt && <span> {turn.finishedAt}</span>}
+      {turn.fileStats && <span>
+        {' · '}{turn.fileStats.filesModified} file{turn.fileStats.filesModified !== 1 ? 's' : ''}
+        {turn.fileStats.linesAdded > 0 && <span className="text-[var(--nim-success)] opacity-60"> +{turn.fileStats.linesAdded}</span>}
+        {turn.fileStats.linesRemoved > 0 && <span className="text-[var(--nim-error)] opacity-60"> -{turn.fileStats.linesRemoved}</span>}
+      </span>}
+    </div>
+  );
+
   switch (info.kind) {
     case 'hidden':
       // Empty div for virtualization (can't return null)
@@ -619,8 +663,9 @@ export const TranscriptMessageRow = React.memo(function TranscriptMessageRow({
 
     case 'orphanTool':
       return (
-        <div className="rich-transcript-tool-container orphan ml-6 mb-2">
-          {info.toolEntries?.map(entry => renderToolEntry(entry, toolShared))}
+        <div data-message-index={index} ref={setRef} className={`rich-transcript-tool-container orphan ml-6 mb-2 ${groupToolActivity ? 'grouped-activity' : ''}`}>
+          {toolEntries}
+          {turnFooter}
         </div>
       );
 
@@ -691,7 +736,6 @@ export const TranscriptMessageRow = React.memo(function TranscriptMessageRow({
       break;
   }
 
-  const turn = info.turn;
   return (
     <div
       data-message-index={index}
@@ -753,7 +797,7 @@ export const TranscriptMessageRow = React.memo(function TranscriptMessageRow({
 
       {info.toolEntries && (
         <div className={`rich-transcript-tool-messages flex flex-col gap-2 mb-1.5 ${isNewGroup ? 'indented ml-6' : ''}`}>
-          {info.toolEntries.map(entry => renderToolEntry(entry, toolShared))}
+          {toolEntries}
         </div>
       )}
 
@@ -792,19 +836,7 @@ export const TranscriptMessageRow = React.memo(function TranscriptMessageRow({
         />
       </div>
 
-      {turn && (
-        <div className="rich-transcript-turn-elapsed text-xs text-[var(--nim-text-faint)] mt-2 ml-6">
-          Finished in {turn.duration}
-          {turn.finishedAt && <span> {turn.finishedAt}</span>}
-          {turn.fileStats && (
-            <span>
-              {' · '}{turn.fileStats.filesModified} file{turn.fileStats.filesModified !== 1 ? 's' : ''}
-              {turn.fileStats.linesAdded > 0 && <span className="text-[var(--nim-success)] opacity-60"> +{turn.fileStats.linesAdded}</span>}
-              {turn.fileStats.linesRemoved > 0 && <span className="text-[var(--nim-error)] opacity-60"> -{turn.fileStats.linesRemoved}</span>}
-            </span>
-          )}
-        </div>
-      )}
+      {turnFooter}
     </div>
   );
 });

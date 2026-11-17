@@ -44,6 +44,7 @@ import type { NotificationOptions, NotificationResult } from './NotificationServ
 import type { MobilePushResult } from '@nimbalyst/runtime/sync/types';
 import { composeNotificationTitle } from '../../shared/notificationTitle';
 import { sessionCreationPolicy } from '@nimbalyst/runtime/ai/sessionPolicy';
+import { snapshotSessionInstructions } from './sessionInstructions';
 
 type SessionStatusValue = 'idle' | 'running' | 'waiting_for_input' | 'error' | 'interrupted';
 type PromptType = 'permission_request' | 'ask_user_question_request' | 'exit_plan_mode_request';
@@ -83,6 +84,8 @@ interface SessionResultData {
 }
 
 interface CreateChildSessionArgs {
+  instructionFile?: string;
+  skipDefaultInstructions?: boolean;
   generateSummary?: boolean;
   autoArchiveAfterMinutes?: number;
   title?: string;
@@ -141,6 +144,8 @@ function normalizeStoredChildModelIdentifier(
 }
 
 interface SpawnSessionArgs {
+  instructionFile?: string;
+  skipDefaultInstructions?: boolean;
   generateSummary?: boolean;
   autoArchiveAfterMinutes?: number;
   handoff?: HandoffBrief;
@@ -589,6 +594,7 @@ export class MetaAgentService {
     const title = (args.title || this.deriveTitleFromPrompt(args.prompt) || 'Meta Task').trim();
 
     const sessionId = randomUUID();
+    const instructionSelection = await snapshotSessionInstructions(args, workspaceKey, provider);
     const releaseCapacity = await reserveChildSpawnCapacity(workspaceKey, metaSessionId, sessionId);
     try {
       let worktreeId: string | null = null;
@@ -683,6 +689,7 @@ export class MetaAgentService {
       // session inherits the owner (never the directive).
       const childMetadata: Record<string, unknown> = {
         ...requestedPolicy,
+        ...instructionSelection,
         ...(args.continuationHandoff ? { continuationHandoff: args.continuationHandoff } : {}),
         ...inheritedOwnership(callerMetadata),
         ...(childToolScope ? { toolScope: childToolScope } : {}),
@@ -815,6 +822,8 @@ export class MetaAgentService {
 
     const childResult = await this.createChildSessionInternal(parentSessionId, workspaceKey, {
       ...sessionCreationPolicy(args),
+      instructionFile: args.instructionFile,
+      skipDefaultInstructions: args.skipDefaultInstructions,
       title: args.title,
       prompt: continuation?.prompt ?? args.prompt,
       continuationHandoff: continuation?.state,

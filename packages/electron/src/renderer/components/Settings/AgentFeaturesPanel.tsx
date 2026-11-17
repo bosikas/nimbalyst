@@ -13,8 +13,7 @@ import { settingAtom } from '../../store/atoms/settingAtomFamily';
 import { ALPHA_FEATURES, type AlphaFeatureTag } from '../../../shared/alphaFeatures';
 import { AlphaBadge, SETTINGS_ALPHA_TOOLTIP } from '../common/AlphaBadge';
 import { SettingsToggle } from '../GlobalSettings/SettingsToggle';
-import { BuiltInGuidancePanel } from './BuiltInGuidancePanel';
-import { InstalledSkillsPanel } from './InstalledSkillsPanel';
+import { AgentSetupPanel } from './AgentSetupPanel';
 
 const AGENT_FEATURE_TAGS: AlphaFeatureTag[] = [
   'super-loops',
@@ -448,8 +447,7 @@ export function AgentFeaturesPanel() {
           )}
         </div>
 
-        <BuiltInGuidancePanel />
-        <InstalledSkillsPanel workspacePath={currentWorkspacePath} />
+        <AgentSetupPanel workspacePath={currentWorkspacePath}>
 
         <div className="mb-4 rounded border border-[var(--nim-border)] bg-[var(--nim-bg-secondary)] p-3">
           <h5 className="text-sm font-semibold mb-1.5 text-[var(--nim-text)]">
@@ -507,6 +505,7 @@ export function AgentFeaturesPanel() {
             />
           </div>
         </div>
+        </AgentSetupPanel>
 
         {features.map((feature) => (
           <SettingsToggle

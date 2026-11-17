@@ -1,0 +1,11 @@
+/* Keep the native 38px drag/traffic-light geometry; quiet the app chrome. */
+.window-top-bar { font-size: 12px; }
+.window-top-bar__workspace-name { font-weight: 550; letter-spacing: -.01em; }
+.window-top-bar__mode-label { color: var(--nim-text-faint); }
+.window-top-bar :is(.window-top-bar__panel-button,.window-top-bar__git,.window-top-bar__create-primary,.window-top-bar__create-caret,.window-top-bar__exit-full-screen) { height: 26px; border-radius: 6px; }
+.window-top-bar__create-primary { font-size: 11px; font-weight: 500; }
+.window-top-bar__git { color: var(--nim-text-muted); }
+.window-top-bar__panel-button[data-collapsed="false"] { color: var(--nim-text); }
+.window-top-bar__panel-button[data-collapsed="false"]:hover { color: var(--nim-text); }
+.window-top-bar__panel-split-toggle { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.window-top-bar :is(.window-top-bar__panel-split-caret,.window-top-bar__create-caret) { border-top-left-radius: 0; border-bottom-left-radius: 0; }

@@ -148,6 +148,8 @@ export async function registerSessionHandlers() {
 
             const requestedProvider = session.provider as AIProviderType;
             const { provider, model } = resolveSessionModelSelection(requestedProvider, session.model);
+            const { snapshotSessionInstructions } = await import('../services/sessionInstructions');
+            const instructionSelection = await snapshotSessionInstructions(session.metadata, workspaceId, provider, session.sessionType);
             if (!session.model) {
                 console.log(`[SessionHandlers] No model provided, using default: ${model}`);
             }
@@ -175,6 +177,7 @@ export async function registerSessionHandlers() {
                 metadata: {
                     ...normalizeSessionPhaseMetadataUpdate(stripOwnerControlledMetadata(session.metadata ?? {})),
                     ...sessionCreationPolicy({ ...session.metadata, ...sessionPolicyPatch(session) }),
+                    ...instructionSelection,
                 },
             };
             // console.log('[SessionHandlers] Creating session with payload:', JSON.stringify(createPayload));

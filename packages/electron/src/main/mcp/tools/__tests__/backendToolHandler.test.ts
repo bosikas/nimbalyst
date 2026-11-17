@@ -20,6 +20,7 @@ vi.mock('@nimbalyst/runtime/storage/repositories/AISessionsRepository', () => ({
 }));
 
 import { filterBackendToolsForSession, handleBackendTool, isBackendTool } from '../backendToolHandler';
+import { consumeSessionWakeGrant } from '../../../services/extensionSessions/sessionWakeGrants';
 import {
   registerBackendTools,
   getBackendTools,
@@ -53,6 +54,35 @@ afterEach(() => {
 });
 
 describe('handleBackendTool', () => {
+  it('grants an opted-in watch one callback for the authenticated agent session only', async () => {
+    registerBackendTools(WS, EXT, MOD, [{ name: 'watch_ci', grantsSessionWake: true }]);
+    getSessionMock.mockResolvedValue({ id: 'plain', workspacePath: WS, metadata: {} });
+    requestMock.mockResolvedValue('watching');
+    await handleBackendTool('memory.watch_ci', 'memory.watch_ci', { sessionId: 'forged' }, WS, {
+      sessionId: 'plain', caller: 'agent',
+    });
+    const { sessionWakeToken } = requestMock.mock.calls[0][0].callContext;
+    expect(consumeSessionWakeGrant({ extensionId: EXT, workspacePath: WS }, sessionWakeToken)).toBe('plain');
+    for (const call of [AGENT_CALL, { sessionId: null, caller: 'panel' as const, extensionId: EXT }, { sessionId: 'plain', caller: 'voice' as const }]) {
+      requestMock.mockClear();
+      await handleBackendTool('memory.watch_ci', 'memory.watch_ci', {}, WS, call);
+      expect(requestMock.mock.calls[0][0].callContext.sessionWakeToken).toBeUndefined();
+    }
+  });
+
+  it('revokes failed watch calls and refuses cross-workspace caller identity', async () => {
+    registerBackendTools(WS, EXT, MOD, [{ name: 'watch_ci', grantsSessionWake: true }]);
+    getSessionMock.mockResolvedValue({ id: 'plain', workspacePath: WS, metadata: {} });
+    requestMock.mockRejectedValue(new Error('watch failed'));
+    const result = await handleBackendTool('memory.watch_ci', 'memory.watch_ci', {}, WS, { sessionId: 'plain', caller: 'agent' });
+    expect(result.isError).toBe(true);
+    const token = requestMock.mock.calls[0][0].callContext.sessionWakeToken;
+    expect(() => consumeSessionWakeGrant({ extensionId: EXT, workspacePath: WS }, token)).toThrow(/Invalid/);
+    requestMock.mockClear();
+    getSessionMock.mockResolvedValue({ workspacePath: '/other' });
+    expect((await handleBackendTool('memory.watch_ci', 'memory.watch_ci', {}, WS, { sessionId: 'plain', caller: 'agent' })).isError).toBe(true);
+    expect(requestMock).not.toHaveBeenCalled();
+  });
   it('routes a registered tool to the module RPC method and serializes the result', async () => {
     requestMock.mockResolvedValue({ chunks: [{ text: 'hit', source: 'design/x.md' }] });
 

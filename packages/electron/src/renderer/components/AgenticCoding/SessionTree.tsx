@@ -233,12 +233,12 @@ function SessionTreeSessionRow(props: SessionTreeRowHandlers & VisibleSessionTre
   // Inline on the metadata line; a separate row per parent cost a line of height each.
   const details = useMemo(() => hasChildren && (
     <span className="session-tree-rollup inline-flex shrink-0 gap-1.5 whitespace-nowrap text-[10px] text-[var(--nim-text-muted)]">
-      {status.running > 0 && <span className="text-[var(--nim-primary)]">{status.running} running</span>}
-      {status.review > 0 && <span>{status.review} need review</span>}
+      {status.running > 0 && <span className="session-tree-running" aria-label={`${status.running} running chats`} title={`${status.running} running chats`}>{status.running}<MaterialSymbol icon="progress_activity" size={10} className="animate-spin" /></span>}
+      {status.review > 0 && <span title={`${status.review} chats need review`} aria-label={`${status.review} chats need review`}>{status.review}<MaterialSymbol icon="rate_review" size={10} /></span>}
       {node.uncommittedCount > 0 && (
         <span className="text-[var(--nim-warning)]">{node.uncommittedCount} uncommitted</span>
       )}
-      {!expanded && <span className="session-tree-child-count" title={`${hiddenCount} child session${hiddenCount === 1 ? '' : 's'}`} aria-label={`${hiddenCount} child session${hiddenCount === 1 ? '' : 's'}`}>{hiddenCount}</span>}
+      <span className="session-tree-child-count" title={`${hiddenCount} child session${hiddenCount === 1 ? '' : 's'}`} aria-label={`${hiddenCount} child session${hiddenCount === 1 ? '' : 's'}`}>{hiddenCount}<MaterialSymbol icon="smart_toy" size={10} /></span>
     </span>
   ), [hasChildren, status.running, status.review, node.uncommittedCount, expanded, hiddenCount]);
   const leading = useMemo(() => (

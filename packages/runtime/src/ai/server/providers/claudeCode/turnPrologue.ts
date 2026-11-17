@@ -187,7 +187,7 @@ export interface TurnQueryHost {
   /** Resolves and freezes the git snapshot; must be awaited before buildSystemPrompt (#1177). */
   ensureGitContext(workspacePath?: string): Promise<void>;
   /** Resolves and freezes `metadata.sessionDirective`; must be awaited before buildSystemPrompt. */
-  ensureSessionDirective(sessionId?: string): Promise<void>;
+  ensureSessionDirective(sessionId?: string): Promise<boolean | void>;
   buildSystemPrompt(
     documentContext: DocumentContext | undefined,
     enableAgentTeams: boolean,
@@ -314,7 +314,7 @@ export async function buildTurnQuery(
   // workspacePath is the CLI's cwd (see buildSdkOptions), so it is also the
   // repo the suppressed CLI block would have described.
   await host.ensureGitContext(workspacePath);
-  await host.ensureSessionDirective(sessionId);
+  const skipDefaultInstructions = await host.ensureSessionDirective(sessionId) === true;
   const systemPrompt = host.buildSystemPrompt(documentContext, enableAgentTeams, isMetaAgent, workflowPreset);
 
   // Note: Attachments (images/documents) are NOT added to the message text.
@@ -377,6 +377,7 @@ export async function buildTurnQuery(
       permissionsPath: paths.permissionsPath,
       mcpConfigWorkspacePath: paths.mcpConfigWorkspacePath,
       isMetaAgent,
+      skipDefaultInstructions,
     }
   );
   host.publishSdkResult(sdkResult);

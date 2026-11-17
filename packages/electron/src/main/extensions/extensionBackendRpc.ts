@@ -202,6 +202,7 @@ export interface BrokerPayloads {
   };
   registerMcpTools: {
     tools: Array<{
+      grantsSessionWake?: boolean;
       name: string;
       description?: string;
       inputSchema?: unknown;

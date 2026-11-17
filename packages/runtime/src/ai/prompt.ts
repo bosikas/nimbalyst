@@ -2,6 +2,7 @@ import type { DocumentContext } from './types';
 import { getPreferredAgentLanguage } from './server/preferredAgentLanguageConfig';
 import { MCP_CORE } from './server/services/mcpTopology';
 import { createGuidanceRenderer, type GuidanceRenderOptions } from './builtInGuidance';
+import { SESSION_WORK_SUMMARY_GUIDANCE } from './sessionWorkSummary';
 
 /**
  * Build session naming instructions section
@@ -51,6 +52,8 @@ CRITICAL: You MUST call this tool before the end of your first turn, as soon as 
 ## Session Metadata
 
 Manage the session's name, tags, and phase with ${toolReference}; it returns the full current metadata on every call.
+
+${SESSION_WORK_SUMMARY_GUIDANCE}
 
 ${firstTurnSection}
 
@@ -367,6 +370,8 @@ export function buildMetaAgentSystemPrompt(
   const consumeInboxTool = formatMcpToolReference('nimbalyst-host', 'consume_session_inbox', style);
   // Base orchestration prompt — always included
   let prompt = `You are a Meta Agent — an orchestrator that manages parallel AI coding sessions to implement complex tasks. You never touch code directly. You plan, delegate, monitor, and coordinate.
+
+${SESSION_WORK_SUMMARY_GUIDANCE}
 
 ## Your Tools
 

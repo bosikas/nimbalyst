@@ -10,7 +10,7 @@ export function SessionListCustomization({ open, onClose }: { open: boolean; onC
   const [tab, setTab] = useState<'Type' | 'Details' | 'Hierarchy'>('Type');
   const [error, setError] = useState('');
   const matches = (preset: SessionListAppearance) => (Object.keys(preset) as Array<keyof SessionListAppearance>).every(key => value[key] === preset[key]);
-  const presetName = matches(defaults) ? 'Comfortable' : matches(compact) ? 'Compact' : 'Custom';
+  const presetName = matches(defaults) ? 'Concept' : matches(compact) ? 'Compact' : 'Custom';
   const floating = useFloating({ open, onOpenChange: next => { if (!next) onClose(); } });
   const interactions = useInteractions([useDismiss(floating.context), useRole(floating.context, { role: 'dialog' })]);
   const update = async (patch: Partial<SessionListAppearance>) => {
@@ -30,7 +30,7 @@ export function SessionListCustomization({ open, onClose }: { open: boolean; onC
   return <FloatingPortal><FloatingOverlay lockScroll className="session-custom-overlay"><FloatingFocusManager context={floating.context}>
     <section ref={floating.refs.setFloating} {...interactions.getFloatingProps()} className="session-customization" aria-label="Customize session list">
       <header><div><h2>Make the list yours</h2><p>Saved on this device, across projects.</p></div><button type="button" aria-label="Close customization" onClick={onClose}>×</button></header>
-      <div className="session-custom-presets"><span>{presetName === 'Custom' ? 'Custom' : 'Preset'}</span><button type="button" aria-pressed={presetName === 'Comfortable'} onClick={() => { void update(defaults); }}>Comfortable</button><button type="button" aria-pressed={presetName === 'Compact'} onClick={() => { void update(compact); }}>Compact</button><button type="button" onClick={() => { void update(defaults); }}>Reset defaults</button></div>
+      <div className="session-custom-presets"><span>{presetName === 'Custom' ? 'Custom' : 'Preset'}</span><button type="button" aria-pressed={presetName === 'Concept'} onClick={() => { void update(defaults); }}>Concept</button><button type="button" aria-pressed={presetName === 'Compact'} onClick={() => { void update(compact); }}>Compact</button><button type="button" onClick={() => { void update(defaults); }}>Reset defaults</button></div>
       <div className="session-custom-preview" style={sessionAppearanceVariables(value) as React.CSSProperties} aria-label="Live preview">
         <div className="session-custom-preview-activities">{Object.keys(SESSION_ACTIVITY_APPEARANCE).map(title => <ActivityHeading key={title} title={title} count={1} appearance={value} />)}</div>
         <div className="session-custom-preview-row"><span className="session-custom-preview-title">Session navigation improvements</span>{value.showSummary && <p className="session-custom-preview-summary">Clearer hierarchy, summaries and quieter details.</p>}{value.showRemaining && <p className="session-custom-preview-summary"><strong>Next</strong> Review the updated sidebar.</p>}{value.showModel && <small>gpt-6.1-sol</small>}</div>

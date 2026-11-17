@@ -6,7 +6,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 
 const require_ = createRequire(import.meta.url);
-const { localBuildOptions, fingerprint, runCachedStep, affectsComponent } = require_('../local-build-cache.js');
+const { localBuildOptions, localBuildTimingsPlugin, fingerprint, runCachedStep, affectsComponent } =require_('../local-build-cache.js');
 const temporary: string[] = [];
 afterEach(() => { for (const root of temporary.splice(0)) fs.rmSync(root, { recursive: true, force: true }); });
 
@@ -111,5 +111,59 @@ describe('lightweight local builds', () => {
     fs.writeFileSync(installed, 'modified dependency');
     expect(build().reused).toBe(false);
     expect(f.run).toHaveBeenCalledTimes(2);
+  });
+
+  it('reuses native output only while the external SDK/compiler provenance matches', () => {
+    const f = fixture();
+    const provenance = path.join(f.root, 'dictation-toolchain.json');
+    fs.writeFileSync(provenance, JSON.stringify({ sdk: '14.5', compiler: '5.10' }));
+    const build = () => runCachedStep({ ...f.options, inputs: () => ['input.ts', provenance] });
+    build();
+    expect(build().reused).toBe(true);
+    fs.writeFileSync(provenance, JSON.stringify({ sdk: '15.0', compiler: '6.0' }));
+    expect(build().reused).toBe(false);
+    expect(f.run).toHaveBeenCalledTimes(2);
+  });
+
+  it('times plugin hooks and phases without changing what the hooks receive, return or throw', async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nim-local-timings-'));
+    temporary.push(root);
+    let clock = 0;
+    const timings = localBuildTimingsPlugin('renderer', root, { now: () => clock, memory: () => ({ rss: 7, heapUsed: 3 }) });
+    const filter = { id: /\.ts$/ };
+    const slow = {
+      name: 'slow',
+      marker: 'bound',
+      transform: { filter, order: 'pre', async handler(this: { marker: string }, code: string) { clock += 40; return `${code}:${this.marker}`; } },
+      resolveId(source: string) { clock += 5; return source === 'skip' ? null : `/abs/${source}`; },
+      load() { clock += 2; throw new Error('load failed'); },
+    };
+    const injected = { name: 'inject', transform() { clock += 1; return null; } };
+    timings.configResolved({ plugins: [slow, timings, null], build: { rollupOptions: { plugins: [[injected], false] } } });
+
+    timings.buildStart();
+    expect(slow.transform.filter).toBe(filter);
+    expect(slow.transform.order).toBe('pre');
+    expect(await slow.transform.handler.call(slow, 'code')).toBe('code:bound');
+    expect(slow.resolveId('a')).toBe('/abs/a');
+    expect(slow.resolveId('skip')).toBeNull();
+    expect(() => slow.load()).toThrow('load failed');
+    expect(injected.transform()).toBeNull();
+    timings.moduleParsed();
+    timings.buildEnd();
+    timings.renderStart(); clock += 30;
+    timings.generateBundle(); clock += 4;
+    timings.writeBundle();
+
+    const report = JSON.parse(fs.readFileSync(path.join(root, 'renderer-timings.json'), 'utf8'));
+    expect(report.modules).toBe(1);
+    expect(report.phasesMs).toEqual({ transform: 53, render: 30, write: 4, total: 87 });
+    expect(report.hooks).toEqual([
+      { hook: 'slow:transform', calls: 1, ms: 40 },
+      { hook: 'slow:resolveId', calls: 2, ms: 10 },
+      { hook: 'slow:load', calls: 1, ms: 2 },
+      { hook: 'inject:transform', calls: 1, ms: 1 },
+    ]);
+    expect(report.memory[0]).toEqual({ at: 'buildStart', rssBytes: 7, heapUsedBytes: 3 });
   });
 });

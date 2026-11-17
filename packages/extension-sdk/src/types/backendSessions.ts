@@ -10,7 +10,8 @@
  *   - `BackendSessionsService`: `ctx.services.sessions`, gated by the
  *     `ai-sessions` permission. Every call is scoped by the host to the
  *     calling module's extension and bound workspace; a module can only read
- *     or drive sessions its own extension owns.
+ *     or drive sessions its own extension owns, plus redeem explicitly granted
+ *     single-use watch callbacks without taking ownership.
  *   - `BackendMcpToolDefinition`: the shape passed to
  *     `ctx.services.registerMcpTools`, including `panelOnly`.
  *
@@ -51,6 +52,8 @@ export interface BackendToolCallContext {
   sessionOwner: SessionOwner | null;
   /** Where the call came from. */
   caller: 'agent' | 'panel' | 'voice';
+  /** Single-use callback token for tools with `grantsSessionWake`. Absent for panel/voice calls. */
+  sessionWakeToken?: string;
 }
 
 /**
@@ -59,6 +62,11 @@ export interface BackendToolCallContext {
  * backend method the host invokes.
  */
 export interface BackendMcpToolDefinition {
+  /** Agent invocation grants one wake of that calling session via `sessions.wake`.
+   * Describe the callback in the tool description. Requires `ai-sessions` to redeem.
+   * The token expires after 24 hours or host restart; failed tool calls revoke it.
+   */
+  grantsSessionWake?: boolean;
   name: string;
   description?: string;
   inputSchema?: unknown;
@@ -240,9 +248,16 @@ export interface NotifyUserOptions {
 
 /**
  * `ctx.services.sessions`. Requires the `ai-sessions` permission. Every method
- * that takes a session id rejects sessions this extension does not own.
+ * that takes a session id rejects sessions this extension does not own. `wake`
+ * instead accepts a host-issued callback token, with no read or ownership rights.
  */
 export interface BackendSessionsService {
+  /** Consume a watch token to queue one prompt for its calling session, without ownership or read access.
+   * Consumption occurs before queuing; a failed delivery cannot be retried with the same token.
+   */
+  wake(token: string, prompt: string): Promise<{ queuedPromptId: string }>;
+  /** Cancel a pending watch's callback permission. */
+  revokeWake(token: string): Promise<void>;
   create(options: CreateOwnedSessionOptions): Promise<{ sessionId: string; queuedPromptId: string | null }>;
   createWorkstream(options: CreateOwnedWorkstreamOptions): Promise<{ workstreamId: string }>;
   /** Queue a prompt; it is delivered when the session is idle. */

@@ -26,7 +26,7 @@ import { sessionBackgroundTasksAtom, describeBackgroundWait } from '../../store/
  * Shows waiting for input, processing, pending prompt, or unread status (in priority order).
  * Only this component re-renders when the session's state changes.
  */
-export const SessionStatusIndicator = memo<{ sessionId: string; messageCount?: number }>(({ sessionId, messageCount }) => {
+export const SessionStatusIndicator = memo<{ sessionId: string; messageCount?: number; runningInRollup?: boolean }>(({ sessionId, messageCount, runningInRollup }) => {
   // Use aggregated atom that checks this session AND any children (for workstreams)
   const hasPendingInteractivePrompt = useAtomValue(sessionHasPendingInteractivePromptAtom(sessionId));
   const isProcessing = useAtomValue(sessionOrChildProcessingAtom(sessionId));
@@ -56,6 +56,7 @@ export const SessionStatusIndicator = memo<{ sessionId: string; messageCount?: n
   }
 
   if (isProcessing) {
+    if (runningInRollup) return null;
     return (
       <div className="session-list-item-status processing flex items-center justify-center w-5 h-5 text-[var(--nim-primary)] opacity-80" title="Processing...">
         <MaterialSymbol icon="progress_activity" size={14} className="animate-spin" />
@@ -400,7 +401,7 @@ export const SessionListItem = memo<SessionListItemProps>(function SessionListIt
         ${hint?.between && hint.valid ? 'border-t-2 border-[var(--nim-primary)]' : ''}
         ${isDraggable ? 'cursor-grab' : ''}
       `}
-      style={{ ...sessionAppearanceVariables(appearance), ...(isAwaitingInput ? { borderLeft: '2px solid var(--nim-warning)' } : {}), ...(treeContext ? { paddingLeft: 4, marginLeft: 0 } : {}), ...(hint && !hint.valid ? { cursor: 'not-allowed' } : {}) } as React.CSSProperties}
+      style={{ ...sessionAppearanceVariables(appearance), ...(isAwaitingInput ? { borderLeft: '2px solid var(--nim-warning)' } : {}), ...(treeContext ? { marginLeft: 0 } : {}), ...(hint && !hint.valid ? { cursor: 'not-allowed' } : {}) } as React.CSSProperties}
       onClick={onClick}
       onContextMenu={handleContextMenu}
       draggable={isDraggable}
@@ -450,21 +451,28 @@ export const SessionListItem = memo<SessionListItemProps>(function SessionListIt
           />
         ) : (
           <>
-            <div className="session-list-item-eyebrow" hidden={!appearance.showTimestamps}>
-              <span className="session-list-item-datetime" title={fullDateTime}>{relativeTime}</span>
-            </div>
             <div className="session-list-item-headline flex items-center gap-1.5 min-w-0">
               <FullTitleTooltip label={displayTitle} disabled={detailsOpen && !!detailsAllowed} className={`session-list-item-title block flex-1 min-w-0 text-[0.8125rem] text-[var(--nim-text)] overflow-hidden text-ellipsis whitespace-nowrap ${isActive ? 'font-semibold' : 'font-medium'}`}>
                 {displayTitle}
               </FullTitleTooltip>
-              {(isPinned || branchedAt || shareInfo || treeDetails) && <div className="session-list-item-source-markers">
+              {(isPinned || branchedAt || shareInfo) && <div className="session-list-item-source-markers">
                 {isPinned && <MaterialSymbol icon="push_pin" size={10} title="Pinned" />}
                 {branchedAt && <MaterialSymbol icon="fork_right" size={10} title="Branched conversation" />}
                 {shareInfo && <MaterialSymbol icon="link" size={10} title="Shared" />}
-                {treeDetails}
               </div>}
+              {isChild && <span className="session-list-item-child-status">
+                {treeDetails}
+                <SessionWorkAttentionIndicator sessionIds={[id]} descendantsOnly />
+                <SessionStatusIndicator sessionId={id} messageCount={messageCount} runningInRollup={!!treeDetails} />
+              </span>}
+              {appearance.showTimestamps && <span className="session-list-item-datetime" title={fullDateTime}>{relativeTime}</span>}
             </div>
             <SessionWorkCaption sessionId={id} />
+            {!isChild && <div className="session-list-item-eyebrow">
+              {treeDetails}
+              <SessionWorkAttentionIndicator sessionIds={[id]} descendantsOnly />
+              <SessionStatusIndicator sessionId={id} messageCount={messageCount} runningInRollup={!!treeDetails} />
+            </div>}
             <div className="session-list-item-secondary" style={{ display: appearance.showModel ? undefined : 'none' }}>
               <span className="session-list-item-model" title={displayModel ? `Model: ${displayModel}` : 'Model not recorded'}>{displayModel || 'Model —'}</span>
             </div>
@@ -474,13 +482,11 @@ export const SessionListItem = memo<SessionListItemProps>(function SessionListIt
         )}
       </div>
       <div className="session-list-item-right shrink-0 flex items-center gap-1.5 ml-auto">
-        <SessionWorkAttentionIndicator sessionIds={[id]} descendantsOnly />
         {uncommittedCount !== undefined && uncommittedCount > 0 && (
-          <span className="session-list-item-badge uncommitted text-[0.6875rem] px-1.5 py-0.5 rounded-xl font-semibold whitespace-nowrap bg-[rgba(245,158,11,0.15)] text-[var(--nim-warning)]" title={`${uncommittedCount} uncommitted change${uncommittedCount !== 1 ? 's' : ''}`}>
-            {uncommittedCount}
+          <span className="session-list-item-badge uncommitted text-[0.6875rem] px-1.5 py-0.5 rounded-xl font-semibold whitespace-nowrap bg-[rgba(245,158,11,0.15)] text-[var(--nim-warning)]" title={`${uncommittedCount} uncommitted file${uncommittedCount !== 1 ? 's' : ''}`} aria-label={`${uncommittedCount} uncommitted files`}>
+            <MaterialSymbol icon="draft" size={10} />{uncommittedCount}
           </span>
         )}
-        <SessionStatusIndicator sessionId={id} messageCount={messageCount} />
 
       </div>
 

@@ -100,6 +100,7 @@ export const CORE_TOOLS: readonly string[] = [
   // `developer_git_commit_proposal` has a first-party core handler (the
   // interactive commit widget in interactiveToolHandlers).
   'update_session_meta',
+  'update_session_summary',
 ];
 
 /**

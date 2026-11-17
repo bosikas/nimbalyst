@@ -362,6 +362,7 @@ export const ToolPermissionWidget: React.FC<CustomToolWidgetProps> = ({
     <div
       data-testid="tool-permission-widget"
       data-state="pending"
+      data-destructive={isDestructive || undefined}
       className={`tool-permission-widget rounded-lg overflow-hidden border ${
         isDestructive
           ? 'border-[var(--nim-error)] bg-[color-mix(in_srgb,var(--nim-error)_5%,var(--nim-bg-secondary))]'
@@ -369,7 +370,7 @@ export const ToolPermissionWidget: React.FC<CustomToolWidgetProps> = ({
       }`}
     >
       {/* Header */}
-      <div className="flex items-center gap-2 py-3 px-4 border-b border-nim bg-nim-tertiary">
+      <div className="tool-permission-header flex items-center gap-2 py-3 px-4 border-b border-nim bg-nim-tertiary">
         <span
           className={`w-5 h-5 shrink-0 flex items-center justify-center ${
             isDestructive ? 'text-[var(--nim-error)]' : 'text-nim-primary'

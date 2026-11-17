@@ -51,6 +51,7 @@ export abstract class BaseAgentProvider extends BaseAIProvider {
     'mcp__nimbalyst-host__list_recent_sessions',
     'mcp__nimbalyst-host__get_workstream_edited_files',
     'mcp__nimbalyst__update_session_meta',
+    'mcp__nimbalyst__update_session_summary',
     'mcp__nimbalyst__capture_editor_screenshot',
     'mcp__nimbalyst__display_to_user',
     'mcp__nimbalyst-situational__voice_agent_speak',
@@ -319,6 +320,10 @@ export abstract class BaseAgentProvider extends BaseAIProvider {
   /** `metadata.sessionDirective`, read on the session's first turn and frozen. */
   protected getSessionDirective(sessionId?: string): Promise<string | undefined> {
     return this.sessionDirectives.get(sessionId);
+  }
+
+  protected skipsDefaultInstructions(sessionId?: string): Promise<boolean> {
+    return this.sessionDirectives.skipsDefaults(sessionId);
   }
 
   private readonly outOfBandNamingBySession = new Map<string, boolean>();

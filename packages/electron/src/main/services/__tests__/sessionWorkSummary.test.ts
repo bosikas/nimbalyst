@@ -3,11 +3,35 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { acceptWorkSummary, buildWorkSummaryInput, type WorkSummaryRecord, type WorkSummarySource } from '../sessionWorkSummary';
 import { SessionWorkSummaryQueue } from '../sessionWorkSummaryQueue';
 import { workSummaryCodexArgs, readWorkSummaryUsage } from '../codexWorkSummaryCompletion';
+import { SessionSummaryDelivery, readSessionSummaryDraft } from '../sessionSummaryDelivery';
+import { matchesWorkSummaryFilter } from '@nimbalyst/runtime/ai/sessionWorkSummary';
 
 const source: WorkSummarySource = { title: 'Sidebar', throughMessageId: 12, requests: [{ id: '10', text: 'Improve sidebar navigation and preserve pending requests.', author: 'human' }], recent: [{ id: '12', role: 'assistant', text: 'Navigation implemented; installation still needs review.' }], partial: false, evidencePath: '/evidence/12.json' };
 const output = { scope: 'Session navigation, context visibility and local build improvements.', remaining: 'Review the sidebar and install the local build.', attention: 'review', areas: ['Session navigation'], requests: [{ id: '10', status: 'pending', evidence: '12: Installation still needs review.' }] };
 const accept = (overrides = {}, input = source, previous?: WorkSummaryRecord) => acceptWorkSummary(JSON.stringify({ ...output, ...overrides }), input, previous, 100);
 afterEach(() => vi.useRealTimers());
+
+it('requires a new submission for each host turn while ignoring repeated activity events', () => {
+  const delivery = new SessionSummaryDelivery();
+  const identity = {};
+  delivery.started('session', identity);
+  const revision = delivery.revision('session')!;
+  delivery.accept('session', revision);
+  delivery.started('session', identity);
+  expect(delivery.submitted('session')).toBe(true);
+  delivery.started('session', {});
+  expect(delivery.submitted('session')).toBe(false);
+  expect(() => delivery.accept('session', revision)).toThrow('another turn');
+});
+
+it('validates agent remaining work and keeps completed self-reports out of the remaining-work filter', () => {
+  const draft = readSessionSummaryDraft({ scope: output.scope, remaining: '', attention: 'none', areas: ['Navigation', 'Navigation'] });
+  expect(draft.areas).toEqual(['Navigation']);
+  expect(() => readSessionSummaryDraft({ ...draft, attention: 'blocked' })).toThrow('Invalid summary');
+  expect(() => readSessionSummaryDraft({ ...draft, scope: 'x'.repeat(221) })).toThrow('Invalid summary');
+  expect(matchesWorkSummaryFilter({ ...accept().summary, ...draft, source: 'agent', coverage: 'partial' }, 'remaining')).toBe(false);
+  expect(matchesWorkSummaryFilter({ ...accept().summary, ...draft, source: 'background', coverage: 'partial' }, 'remaining')).toBe(true);
+});
 
 it('records exact native usage and distinguishes unavailable cache measurements from zero', () => {
   expect(readWorkSummaryUsage(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: 1234, cached_input_tokens: 1000, output_tokens: 85 } }))).toEqual({ inputTokens: 1234, cachedInputTokens: 1000, outputTokens: 85 });

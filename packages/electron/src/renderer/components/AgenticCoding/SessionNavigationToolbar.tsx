@@ -3,6 +3,7 @@ import { useAtom } from 'jotai';
 import { settingAtom } from '../../store/atoms/settingAtomFamily';
 import { SessionListCustomization } from './SessionListCustomization';
 import { SessionCreationOptions } from './SessionPolicyControls';
+import type { SessionCreationValues } from './SessionPolicyControls';
 import { errorNotificationService } from '../../services/ErrorNotificationService';
 import { FloatingFocusManager } from '@floating-ui/react';
 import { MaterialSymbol } from '@nimbalyst/runtime/ui/icons/MaterialSymbol';
@@ -14,7 +15,7 @@ interface Props {
   workspacePath: string;
   search: string;
   onSearch: (value: string) => void;
-  onNew: (policy?: { generateSummary?: boolean; autoArchiveAfterMinutes?: number }) => void | Promise<unknown>;
+  onNew: (policy?: Partial<SessionCreationValues>) => void | Promise<unknown>;
   sort: 'updated' | 'created';
   onSort: (sort: 'updated' | 'created') => void;
   archived: boolean;

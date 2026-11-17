@@ -15,6 +15,7 @@ import { copyToClipboard } from '../../../../utils/clipboard';
 import { ToolCallChanges } from '../ToolCallChanges';
 import { unwrapShellCommand } from '../../utils/unwrapShellCommand';
 import { useElapsedTimeRef } from './useElapsedTime';
+import { isToolActivityError } from '../../utils/toolActivity';
 
 /**
  * Maximum number of lines to show before adding "show more" in expanded view
@@ -126,7 +127,7 @@ function getExitCode(result: any): number | null {
  * Check if the tool result indicates an error
  */
 function isToolError(result: any, message: any): boolean {
-  if (message.isError) return true;
+  if (isToolActivityError(message)) return true;
   if (result?.isError === true) return true;
   if (typeof result?.success === 'boolean' && result.success === false) return true;
   const exitCode = getExitCode(result);

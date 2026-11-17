@@ -35,7 +35,7 @@ import { buildCodexContextDelivery } from './codex/codexContextDelivery';
 import { measureCodexContext, recordCodexContext } from './codex/codexContextInspection';
 import { codexToolExposure } from './codex/codexToolExposure';
 import { buildCodexSystemPrompt, CODEX_SESSION_NAMING_REMINDER_PROMPT } from './codex/codexSystemPrompt';
-import { isBuiltInGuidanceEnabled } from '../../builtInGuidance';
+import { createGuidanceRenderer, isBuiltInGuidanceEnabled } from '../../builtInGuidance';
 import { resolveCodexBinaryPath } from '../protocols/codexAppServer/codexAppServerBinary';
 import { listCodexCatalogModels, type CodexCatalogModel } from '../protocols/codexAppServer/modelCatalog';
 import { McpConfigService } from '../services/McpConfigService';
@@ -1248,7 +1248,10 @@ export class OpenAICodexProvider extends BaseAgentProvider {
           systemPrompt,
           abortSignal: abortController.signal,
           agentVerified: permissionDecision.agentVerified === true,
-          codexConfigOverrides: this.buildCodexConfigOverrides(mcpServers),
+          codexConfigOverrides: {
+            ...this.buildCodexConfigOverrides(mcpServers),
+            ...(await this.skipsDefaultInstructions(sessionId) ? { project_doc_max_bytes: 0 } : {}),
+          },
           ...(codexEnv ? { codexEnv } : {}),
           ...(this.config?.effortLevel ? { effortLevel: this.config.effortLevel } : {}),
           ...(additionalDirectories.length > 0 ? { additionalDirectories } : {}),
@@ -1522,6 +1525,7 @@ export class OpenAICodexProvider extends BaseAgentProvider {
         !isResumedThread &&
         hasSessionNamingServer &&
         isBuiltInGuidanceEnabled('session-metadata') &&
+        isBuiltInGuidanceEnabled('session-naming-reminder') &&
         !usedSessionNamingToolThisTurn &&
         !abortController.signal.aborted
       ) {
@@ -1913,11 +1917,12 @@ export class OpenAICodexProvider extends BaseAgentProvider {
     sessionId: string
   ): Promise<void> {
     console.log('[CODEX] First turn completed without session naming; sending reminder instruction');
+    const reminder = createGuidanceRenderer()('session-naming-reminder', CODEX_SESSION_NAMING_REMINDER_PROMPT);
 
     await this.logAgentMessageBestEffort(
       sessionId,
       'input',
-      CODEX_SESSION_NAMING_REMINDER_PROMPT,
+      reminder,
       {
         hidden: false,
         searchable: false,
@@ -1931,7 +1936,7 @@ export class OpenAICodexProvider extends BaseAgentProvider {
     let reminderTriggeredNaming = false;
 
     for await (const reminderEvent of this.protocol.sendMessage(session, {
-      content: CODEX_SESSION_NAMING_REMINDER_PROMPT,
+      content: reminder,
     })) {
       // Tag this reminder turn's persisted output rows as a system reminder so
       // the metadata-based transcript hide covers them. Without the tag they

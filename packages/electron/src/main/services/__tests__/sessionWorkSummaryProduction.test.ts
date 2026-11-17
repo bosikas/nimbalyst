@@ -6,25 +6,29 @@ import { join, dirname } from 'node:path';
 import { setTimeout as waitForFiles } from 'node:timers/promises';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 
-const fake = vi.hoisted(() => ({ directory: '', metadata: {} as Record<string, any>, query: vi.fn(), complete: vi.fn(), state: null as unknown as EventEmitter, title: 'Navigation', id: 'work-summary-hook' }));
+const fake = vi.hoisted(() => ({ directory: '', metadata: {} as Record<string, any>, query: vi.fn(), complete: vi.fn(), state: null as unknown as EventEmitter, getSessionState: vi.fn(), title: 'Navigation', id: 'work-summary-hook' }));
 vi.mock('electron', () => ({ app: { getPath: () => fake.directory } }));
 vi.mock('../startupMaintenanceGate', () => ({ runWhenFirstUsable: (_label: string, run: () => void) => run() }));
 vi.mock('@nimbalyst/runtime/storage/repositories/AISessionsRepository', () => ({ AISessionsRepository: { get: async () => ({ id: fake.id, title: fake.title, provider: 'openai-codex', model: 'openai-codex:gpt-6.1-sol', workspacePath: '/project', metadata: fake.metadata }) } }));
-vi.mock('@nimbalyst/runtime/ai/server/SessionStateManager', () => ({ getSessionStateManager: () => fake.state }));
+vi.mock('@nimbalyst/runtime/ai/server/SessionStateManager', () => ({ getSessionStateManager: () => Object.assign(fake.state, { getSessionState: fake.getSessionState }) }));
+vi.mock('../../mcp/sessionNamingServer', () => ({ setUpdateSessionSummaryFn: vi.fn() }));
 vi.mock('@nimbalyst/runtime/ai/server/ModelRegistry', () => ({ ModelRegistry: { getDefaultModel: async () => 'openai-codex:gpt-6.1-sol' } }));
 vi.mock('../../database/initialize', () => ({ getDatabase: () => ({ query: fake.query }) }));
 vi.mock('../../utils/workspaceIdentity', () => ({ sameWorkspaceIdentity: (a: string, b: string) => a === b }));
 vi.mock('../SessionNamingService', () => ({ SessionNamingService: { getInstance: () => ({ applySessionMetadata: async (_id: string, patch: object) => { fake.metadata = { ...fake.metadata, ...patch }; } }) } }));
 vi.mock('../codexWorkSummaryCompletion', () => ({ completeWorkSummaryWithCodex: fake.complete }));
-import { configureSessionWorkSummaries, requestSessionWorkSummary } from '../sessionWorkSummaryProduction';
+import { configureSessionWorkSummaries, requestSessionWorkSummary, submitSessionWorkSummary } from '../sessionWorkSummaryProduction';
 
 beforeEach(async () => {
   vi.useFakeTimers();
   fake.directory = await mkdtemp(join(tmpdir(), 'work-summary-test-'));
   fake.metadata = {};
   fake.complete.mockReset(); fake.query.mockReset();
+  fake.getSessionState.mockReturnValue({ status: 'running' });
   fake.state ??= new EventEmitter();
   configureSessionWorkSummaries(() => true);
+  fake.state.emit('session:started', { sessionId: fake.id });
+  fake.getSessionState.mockReturnValue(null);
   fake.query.mockImplementation(async (sql: string, args: unknown[]) => {
     if (sql.includes("message_kind='user'")) return { rows: Number(args[1]) < 10 ? [{ id: 10, message_kind: 'user', searchable_text: 'Improve navigation; installation remains pending.', metadata: { promptProvenance: { actor: 'human' } }, content: '', text_length: 49 }] : [] };
     if (sql.includes("message_kind='assistant'")) return { rows: [{ id: 12, message_kind: 'assistant', searchable_text: 'Navigation implemented; installation pending.', metadata: {}, content: '', text_length: 44 }] };
@@ -106,5 +110,55 @@ it('does not read transcripts or infer when summaries are disabled, including re
   requestSessionWorkSummary(fake.id, '/project');
   await vi.runAllTimersAsync();
   expect(fake.query).not.toHaveBeenCalled();
+  expect(fake.complete).not.toHaveBeenCalled();
+});
+
+const agentDraft = { scope: 'Improve session navigation and local build customization', remaining: 'Install and review the app.', attention: 'review', areas: ['Navigation'] };
+
+it('uses a valid same-turn agent summary without launching the background worker', async () => {
+  await submitSessionWorkSummary(fake.id, agentDraft);
+  fake.state.emit('session:completed', { sessionId: fake.id, workspacePath: '/project' });
+  await vi.runAllTimersAsync();
+  expect(fake.complete).not.toHaveBeenCalled();
+  expect(fake.metadata.workSummary).toMatchObject({ ...agentDraft, source: 'agent', state: 'ready' });
+  expect(JSON.parse(await readFile(fake.metadata.workSummary.evidencePath, 'utf8')).kind).toBe('agent');
+});
+
+it('falls back after an invalid submission or a later turn omits the summary', async () => {
+  await expect(submitSessionWorkSummary(fake.id, { ...agentDraft, attention: 'none' })).rejects.toThrow('Invalid summary');
+  fake.state.emit('session:completed', { sessionId: fake.id, workspacePath: '/project' });
+  await settle(() => expect(fake.metadata.workSummary?.source).toBe('background'));
+  await submitSessionWorkSummary(fake.id, agentDraft);
+  fake.getSessionState.mockReturnValue({ status: 'running' });
+  fake.state.emit('session:started', { sessionId: fake.id });
+  fake.getSessionState.mockReturnValue(null);
+  // Add evidence for the next turn beyond the worker checkpoint.
+  fake.query.mockImplementation(async (sql: string) => sql.includes("message_kind='user'") ? { rows: [] } : { rows: [{ id: 20, message_kind: 'assistant', searchable_text: 'Spacing adjusted; installation pending.', metadata: {}, content: '', text_length: 39 }] });
+  fake.complete.mockResolvedValue(JSON.stringify({ ...agentDraft, requests: [{ id: '10', status: 'pending', evidence: '20: Installation remains pending.' }] }));
+  fake.state.emit('session:completed', { sessionId: fake.id, workspacePath: '/project' });
+  await settle(() => expect(fake.metadata.workSummary?.throughMessageId).toBe(20));
+  expect(fake.complete).toHaveBeenCalledTimes(2);
+  const checkpoint = JSON.parse(await readFile(fake.metadata.workSummary.evidencePath, 'utf8'));
+  expect(checkpoint.requests[0]).toMatchObject({ id: '10', status: 'pending' });
+});
+
+it('keeps a newer agent summary when an older background inference finishes later', async () => {
+  let finish!: (value: string) => void;
+  fake.complete.mockImplementation(() => new Promise<string>(resolve => { finish = resolve; }));
+  requestSessionWorkSummary(fake.id, '/project');
+  await settle(() => expect(fake.complete).toHaveBeenCalledOnce());
+  await submitSessionWorkSummary(fake.id, agentDraft);
+  const agentPath = fake.metadata.workSummary.evidencePath;
+  finish(JSON.stringify({ ...agentDraft, scope: 'Old background summary of navigation changes', requests: [{ id: '10', status: 'pending', evidence: '12: Pending.' }] }));
+  await settle(() => expect(fake.metadata.workSummary.evidencePath).toBe(agentPath));
+  await waitForFiles(30);
+  expect(fake.metadata.workSummary).toMatchObject({ scope: agentDraft.scope, source: 'agent', evidencePath: agentPath });
+});
+
+it('rejects peer or inactive sessions and respects disabled summary policy', async () => {
+  await expect(submitSessionWorkSummary('other-session', agentDraft)).rejects.toThrow('No active session turn');
+  fake.metadata = { generateSummary: false };
+  expect(await submitSessionWorkSummary(fake.id, agentDraft)).toContain('disabled');
+  expect(fake.metadata.workSummary).toBeUndefined();
   expect(fake.complete).not.toHaveBeenCalled();
 });

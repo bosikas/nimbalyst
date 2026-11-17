@@ -14,7 +14,7 @@ import {
 } from '../../scripts/main-bundle-require-policy.mjs'
 import dedupeWatcherAddsPlugin from './scripts/dedupeWatcherAddsPlugin.mjs'
 
-const { localBuildOptions, localBuildInputsPlugin } = createRequire(import.meta.url)('./build/local-build-cache.js');
+const { localBuildOptions, localBuildInputsPlugin, localBuildTimingsPlugin } =createRequire(import.meta.url)('./build/local-build-cache.js');
 const lightweightLocalBuild = process.env.NIMBALYST_LOCAL_BUILD === '1';
 
 // Plugin to optimize Shiki language imports
@@ -793,7 +793,11 @@ if (lightweightLocalBuild) {
     target.plugins = [
       ...(target.plugins || []),
       localBuildInputsPlugin(component, resolve(__dirname, 'node_modules/.cache/nimbalyst-local-build')),
-    ];
+      // Opt-in phase and per-plugin hook timings; off by default so a normal
+      // local build runs the unwrapped hooks.
+      process.env.NIMBALYST_LOCAL_BUILD_TIMINGS === '1'
+        && localBuildTimingsPlugin(component, resolve(__dirname, 'node_modules/.cache/nimbalyst-local-build')),
+    ].filter(Boolean);
   }
 }
 export default defineConfig({

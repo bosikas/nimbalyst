@@ -1068,6 +1068,8 @@ interface ElectronAPI {
   };
 
   agentGuidance: {
+    updateText: (id: import('@nimbalyst/runtime/ai/builtInGuidance').BuiltInGuidanceId, text: string | null) => Promise<import('@nimbalyst/runtime/ai/builtInGuidance').BuiltInGuidanceEntry[]>;
+    preview: (workspacePath: string, provider: import('@nimbalyst/runtime/ai/builtInGuidance').AgentSetupProvider) => Promise<import('@nimbalyst/runtime/ai/builtInGuidance').AgentGuidancePreview>;
     listSkills: (workspace: string) => Promise<import('../shared/codexSkills').CodexSkillCatalog>;
     setSkillEnabled: (workspace: string, file: string, enabled: boolean) => Promise<import('../shared/codexSkills').CodexSkillCatalog>;
     previewSkill: (workspace: string, file: string) => Promise<string>;

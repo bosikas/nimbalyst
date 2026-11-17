@@ -1,0 +1,670 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Marilyst · A calmer place to work</title>
+<style>
+/* Tokens. Type scale: 11 meta · 12 secondary and controls · 13 composer · --font body · 15/16/18 titles. */
+:root{color-scheme:dark;--bg:#12171e;--chrome:#0f141a;--panel:#1b222b;--raised:#232a34;--text:#e6e9ed;--muted:#98a2ae;--faint:#84909f;--line:#2c3540;--line-strong:#3a4550;--focus-line:#6e9be8;--attn-line:#5a4a2c;--accent:#6e9be8;--accent-line:#4a6aa3;--fill:#6e9be8;--fill-hover:#9cbce0;--fill-ink:#0d1017;--good:#4fb07c;--warn:#d9a441;--danger:#e08b80;--danger-line:#5c3f3b;--font:14px;--leading:1.65;--space:24px;--paragraph:12px;--pad:15px;--width:760px}
+body.light{color-scheme:light;--bg:#f6f8fa;--chrome:#eceff3;--panel:#fff;--raised:#e9edf2;--text:#1b222b;--muted:#56616e;--faint:#66717e;--line:#dde2e8;--line-strong:#c3cbd5;--focus-line:#6e9be8;--attn-line:#dcc99a;--accent:#2f5fb3;--accent-line:#8aa8dc;--fill:#2f5fb3;--fill-hover:#264f97;--fill-ink:#fff;--good:#2e7d55;--warn:#8a6414;--danger:#b04a3e;--danger-line:#e6c4bf}
+
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+::selection{background:color-mix(in srgb,var(--accent) 28%,transparent)}
+button,input,textarea,select{font:inherit}
+button{cursor:pointer;color:inherit;background:none;border:0;padding:0}
+button:disabled{cursor:default}
+button:focus-visible,input:focus-visible,textarea:focus-visible,summary:focus-visible,[tabindex]:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+svg{width:16px;height:16px;fill:none;stroke:currentColor;stroke-width:1.6;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.symbols{position:absolute;width:0;height:0;overflow:hidden}
+.num{font-variant-numeric:tabular-nums}
+
+/* Frame */
+.app{height:100dvh;min-height:500px;display:flex;flex-direction:column}
+.concept-bar{height:44px;flex-shrink:0;display:flex;align-items:center;justify-content:space-between;padding:0 24px;background:var(--chrome);border-bottom:1px solid var(--line);gap:16px;font-size:11px;color:var(--muted)}
+.concept-name{display:flex;align-items:center;gap:8px;white-space:nowrap;min-width:0}
+.concept-name span{color:var(--faint);overflow:hidden;text-overflow:ellipsis}
+.scenarios{display:flex;gap:2px;flex-shrink:0}
+.scenarios button{font-size:11px;padding:0 11px;height:28px;border-radius:6px;color:var(--muted)}
+.scenarios button:hover{color:var(--text)}
+.scenarios button[aria-pressed=true]{background:var(--raised);color:var(--text)}
+body.light .scenarios button[aria-pressed=true]{background:var(--panel);box-shadow:0 0 0 1px var(--line)}
+.topbar{height:72px;padding:0 28px;display:flex;align-items:center;justify-content:space-between;gap:18px;border-bottom:1px solid var(--line);flex-shrink:0}
+.identity{min-width:0}
+.breadcrumb{font-size:11px;color:var(--faint);margin-bottom:4px;display:flex;align-items:center;gap:6px;white-space:nowrap}
+.breadcrumb svg{width:12px;height:12px}
+.title{font-size:16px;font-weight:570;letter-spacing:-.3px;line-height:1.35;margin:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.header-actions{display:flex;align-items:center;gap:12px;flex-shrink:0}
+.state{font-size:12px;display:flex;align-items:center;gap:7px;color:var(--muted);white-space:nowrap}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--tone,var(--faint));flex-shrink:0}
+[data-tone=warn]{--tone:var(--warn)}[data-tone=good]{--tone:var(--good)}[data-tone=danger]{--tone:var(--danger)}
+.state[data-tone=warn],.state[data-tone=danger]{color:var(--tone)}
+.icon-button{width:30px;height:30px;display:inline-flex;align-items:center;justify-content:center;border-radius:7px;color:var(--muted)}
+.icon-button:hover,.icon-button[aria-expanded=true]{background:var(--raised);color:var(--text)}
+.layout{display:flex;flex:1;min-height:0;position:relative}
+.conversation{flex:1;min-width:0;display:flex;flex-direction:column;container-type:inline-size}
+
+/* App shell (In app view): the same chat inside the window, rail, session list and tabs */
+.concept-controls{display:flex;align-items:center;gap:14px;flex-shrink:0}
+.view-switch{display:flex;gap:2px;padding-right:14px;border-right:1px solid var(--line)}
+.view-switch button{font-size:11px;padding:0 10px;height:28px;border-radius:6px;color:var(--muted)}
+.view-switch button:hover{color:var(--text)}
+.view-switch button[aria-pressed=true]{color:var(--text);background:var(--raised)}
+body.light .view-switch button[aria-pressed=true]{background:var(--panel);box-shadow:0 0 0 1px var(--line)}
+.workspace{flex:1;min-height:0;display:flex;position:relative}
+.pane{flex:1;min-width:0;display:flex;flex-direction:column}
+body:not(.in-app) :is(.titlebar,.rail,.sessions,.tabs,.app-only){display:none}
+body.in-app .breadcrumb{display:none}
+body.in-app .topbar{height:44px;padding:0 14px 0 10px;gap:8px}
+body.in-app .title{font-size:14px}
+body.in-app .header-actions{gap:4px}
+body.in-app .state{margin-right:6px}
+.narrow-only{display:none}
+@media(max-width:1180px){body.in-app .wide-only{display:none}body.in-app .narrow-only{display:inline-flex}}
+body.in-app .identity{flex:1}
+.titlebar{height:38px;flex-shrink:0;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:16px;padding:0 14px;background:var(--chrome);border-bottom:1px solid var(--line);font-size:12px;color:var(--muted);white-space:nowrap}
+.titlebar>div{display:flex;align-items:center;gap:8px;min-width:0}
+.titlebar>div:last-child{justify-content:flex-end}
+.lights{display:flex;gap:7px;margin-right:10px}
+.lights i{width:11px;height:11px;border-radius:50%;background:var(--line-strong)}
+.titlebar button{display:inline-flex;align-items:center;gap:6px;height:26px;padding:0 8px;border-radius:6px;color:var(--muted)}
+.titlebar button:hover{background:var(--raised);color:var(--text)}
+.titlebar svg{width:13px;height:13px}
+.titlebar .where strong{font-weight:550;color:var(--text)}
+.titlebar .where span,.titlebar .modified{color:var(--faint)}
+.rail{width:48px;flex-shrink:0;display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 0;background:var(--chrome);border-right:1px solid var(--line)}
+.rail button{width:32px;height:32px;display:flex;align-items:center;justify-content:center;border-radius:8px;color:var(--faint)}
+.rail button:hover{color:var(--text);background:var(--raised)}
+.rail button[aria-current=page]{color:var(--text);background:var(--raised);box-shadow:inset 2px 0 0 var(--accent-line)}
+.rail .rail-gap{flex:1}
+.sessions{width:304px;flex-shrink:0;display:flex;flex-direction:column;background:var(--bg);border-right:1px solid var(--line);min-height:0}
+.session-tools{display:flex;align-items:center;gap:2px;margin:10px 8px 4px 12px}
+.session-tools .icon-button{width:28px;height:28px}
+.session-search{flex:1;min-width:0;margin-right:4px;display:flex;align-items:center;gap:8px;height:32px;padding:0 10px;border:1px solid var(--line);border-radius:8px;color:var(--faint)}
+.session-search:focus-within{border-color:var(--focus-line)}
+.session-search svg{width:13px;height:13px}
+.session-search input{flex:1;min-width:0;background:none;border:0;outline:none;color:var(--text);font-size:12px}
+.session-search input::placeholder{color:var(--faint)}
+.session-list{flex:1;overflow:auto;padding:4px 8px 14px;scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+.session-group{font-size:11px;color:var(--faint);padding:12px 8px 6px;display:flex;justify-content:space-between}
+.session{display:block;width:100%;text-align:left;padding:9px 10px 10px;border-radius:9px;margin-bottom:2px}
+.session:hover{background:color-mix(in srgb,var(--raised) 55%,transparent)}
+.session[aria-current=true]{background:var(--raised)}
+.session[hidden]{display:none}
+.session-top{display:flex;align-items:baseline;justify-content:space-between;gap:10px}
+.session-title{font-size:13px;font-weight:550;line-height:1.4;color:var(--text);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;text-wrap:pretty}
+.session-time{font-size:11px;color:var(--faint);white-space:nowrap;font-variant-numeric:tabular-nums}
+.session-summary{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:12px;line-height:1.5;color:var(--muted);margin-top:2px}
+.session .state{font-size:11px;margin-top:6px}
+.session-empty{font-size:12px;color:var(--faint);padding:14px 10px}
+.session-empty[hidden]{display:none}
+.tags{display:flex;align-items:center;gap:10px;font-size:11px;color:var(--faint);white-space:nowrap;overflow:hidden;margin-left:auto;padding-left:16px;min-width:0;flex-shrink:100}
+.tag-list{display:flex;gap:10px;overflow:hidden;min-width:0;flex-shrink:1}
+.tag-list span{flex-shrink:0}
+.tags button{color:var(--faint);border-radius:4px;flex-shrink:0}
+.tags button:hover{color:var(--text)}
+.mode-switch{display:flex;gap:2px;padding:2px;border:1px solid var(--line);border-radius:8px}
+.mode-switch button{font-size:11px;height:24px;padding:0 9px;border-radius:5px;color:var(--muted)}
+.mode-switch button:hover{color:var(--text)}
+.mode-switch button[aria-pressed=true]{background:var(--raised);color:var(--text)}
+/* Session list (merged from the session list concept) */
+.sl-date{display:flex;align-items:center;gap:6px;width:100%;padding:12px 8px 4px;font-size:11px;color:var(--faint);border-radius:5px;text-align:left}
+.sl-date:hover{color:var(--text)}
+.sl-count{margin-left:auto;font-variant-numeric:tabular-nums}
+.sl-chev{width:12px;height:12px;transition:transform .15s}
+[aria-expanded=true]>.sl-chev{transform:rotate(90deg)}
+.sl-head{display:flex;align-items:center;gap:7px;padding:10px 8px 4px;font-size:11px;color:var(--muted)}
+.sl-head span:last-child{color:var(--faint);font-variant-numeric:tabular-nums}
+.sl-dot{width:6px;height:6px;border-radius:50%;background:var(--faint);flex-shrink:0}
+.sl-dot.needs{background:var(--warn)}
+.sl-row{display:flex;align-items:flex-start;border-radius:8px;margin-bottom:1px}
+.sl-row:hover{background:color-mix(in srgb,var(--raised) 55%,transparent)}
+.sl-row[aria-current=true]{background:var(--raised)}
+.sl-toggle{width:22px;height:22px;margin:6px 0 0 2px;display:flex;align-items:center;justify-content:center;border-radius:5px;color:var(--faint);flex-shrink:0}
+.sl-toggle:hover{color:var(--text);background:var(--raised)}
+.sl-space{width:24px;flex-shrink:0}
+.sl-main{flex:1;min-width:0;display:block;text-align:left;padding:8px 10px 8px 2px;border-radius:8px}
+.sl-top{display:flex;align-items:baseline;gap:8px}
+.sl-title{flex:1;min-width:0;font-size:13px;line-height:1.4;font-weight:450;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;text-wrap:pretty}
+.sl-title svg{width:11px;height:11px;color:var(--faint);margin-left:5px;vertical-align:-1px}
+.sl-row.unread .sl-title{font-weight:620}
+.sl-unread{width:6px;height:6px;border-radius:50%;background:var(--accent);align-self:center;flex-shrink:0}
+.sl-time{font-size:11px;color:var(--faint);white-space:nowrap;font-variant-numeric:tabular-nums}
+.sl-summary{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:12px;line-height:1.5;color:var(--muted);margin-top:2px}
+.sl-next{display:block;font-size:12px;line-height:1.5;color:var(--muted);margin-top:2px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sl-next b{font-weight:550;color:var(--text);margin-right:3px}
+.sl-next.blocked b{color:var(--warn)}
+.sl-meta{display:flex;flex-wrap:wrap;align-items:center;gap:2px 10px;font-size:11px;line-height:1.5;color:var(--faint);margin-top:4px}
+.sl-meta:empty{display:none}
+.sl-meta>span{display:inline-flex;align-items:center;gap:5px;white-space:nowrap}
+.sl-meta .needs,.sl-meta .high{color:var(--warn)}.sl-meta .running{color:var(--good)}.sl-meta .full{color:var(--danger)}
+.sl-children{margin:0 0 6px 12px;padding-left:11px;border-left:1px solid var(--line)}
+.sl-child{display:flex;align-items:center;gap:8px;width:100%;text-align:left;padding:5px 10px 5px 8px;border-radius:6px;font-size:12px;line-height:1.45;color:var(--muted)}
+.sl-child:hover{background:color-mix(in srgb,var(--raised) 55%,transparent);color:var(--text)}
+.sl-child[aria-current=true]{color:var(--text);font-weight:550}
+.sl-child .lead{width:9px;display:flex;justify-content:center;flex-shrink:0}
+.sl-child .name{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.sl-child.unread .name{color:var(--text);font-weight:600}
+.sl-more{font-size:11px;color:var(--faint);padding:4px 10px 4px 25px;border-radius:5px}
+.sl-more:hover{color:var(--text)}
+.sl-row .spinner,.sl-child .spinner,.sl-head .spinner{width:9px;height:9px;border-top-color:var(--good)}
+body.titles-only .sl-summary,body.titles-only .sl-next{display:none}
+.tabs{height:34px;flex-shrink:0;display:flex;align-items:stretch;gap:2px;padding:0 14px;border-bottom:1px solid var(--line);font-size:12px}
+.tab{display:flex;align-items:center;gap:8px;padding:0 10px;color:var(--muted);border-bottom:1.5px solid transparent;margin-bottom:-1px;white-space:nowrap;max-width:260px;min-width:64px;flex-shrink:1}
+.tab span{overflow:hidden;text-overflow:ellipsis}
+.tab:hover{color:var(--text)}
+.tab[aria-selected=true]{color:var(--text);border-bottom-color:var(--accent-line)}
+.tabs .icon-button{width:26px;height:26px;align-self:center}
+.tabs .icon-button svg{width:13px;height:13px}
+@media(max-width:1020px){.sessions{display:none}}
+body.side-toggled .sessions{display:none}
+@media(max-width:1020px){body.in-app.side-toggled .sessions{display:flex;position:absolute;left:48px;top:0;bottom:0;z-index:7;box-shadow:15px 0 40px #0003}}
+.tabs .icon-button{flex-shrink:0}
+.scroll{flex:1;min-height:0;overflow:auto;scrollbar-width:thin;scrollbar-color:var(--line) transparent;scrollbar-gutter:stable both-edges;scroll-behavior:smooth}
+.scroll:focus-visible{outline-offset:-2px}
+.thread{width:min(calc(100% - 64px),var(--width));margin:0 auto;padding:28px 0 20px;font-size:var(--font);line-height:var(--leading)}
+
+/* Messages */
+.day{display:flex;align-items:center;gap:14px;margin:0 0 24px;color:var(--faint);font-size:11px;line-height:1}
+.day:before,.day:after{content:"";height:1px;background:var(--line);flex:1}
+.message{position:relative;margin-bottom:var(--space)}
+.user-message{background:var(--panel);border:1px solid var(--line);padding:var(--pad) 18px;border-radius:12px}
+.byline{display:flex;align-items:center;justify-content:space-between;font-size:11px;color:var(--faint);line-height:1.4;margin-bottom:7px}
+.byline strong{font-weight:550;color:var(--muted)}
+.assistant-byline{justify-content:flex-start;gap:7px;margin:0 0 9px}
+.assistant-byline .mark{color:var(--accent);display:flex}
+.assistant-byline .mark svg{width:14px;height:14px}
+.message p{margin:0 0 var(--paragraph);text-wrap:pretty}
+.message p:last-child{margin-bottom:0}
+.message strong{font-weight:570;color:var(--text)}
+.message p.fineprint{font-size:12px;color:var(--muted);margin-top:14px}
+.result-title{font-size:18px;font-weight:580;letter-spacing:-.4px;line-height:1.4;margin:2px 0 10px;text-wrap:balance}
+.message-actions{display:flex;gap:2px;margin:8px 0 0 -6px;opacity:0;transition:opacity .15s}
+.message:hover>.message-actions,.message:focus-within>.message-actions,.message:last-child>.message-actions{opacity:1}
+.message-actions button{width:28px;height:28px}
+.message-actions svg{width:14px;height:14px}
+
+/* Activity: one quiet row per block of work, evidence on demand */
+.activity{margin:15px 0 18px;border:1px solid var(--line);border-radius:9px;background:color-mix(in srgb,var(--panel) 55%,transparent);font-size:12px;line-height:1.5}
+.activity[data-state=failed]{border-color:var(--danger-line)}
+.activity>summary{cursor:pointer;list-style:none;display:flex;align-items:center;gap:9px;padding:10px 12px;color:var(--muted);border-radius:8px}
+.activity>summary:hover{color:var(--text)}
+.activity summary::-webkit-details-marker{display:none}
+.activity .lead{width:14px;height:14px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.activity .lead svg{width:14px;height:14px}
+.lead.done{color:var(--good)}.lead.failed{color:var(--danger)}.lead.stopped{color:var(--faint)}
+.chevron{width:13px;height:13px;color:var(--faint);transition:transform .15s}
+details[open]>summary .chevron{transform:rotate(90deg)}
+.activity-label{flex:1;min-width:0}
+.activity[data-state=failed] .activity-label,.activity[data-state=running] .activity-label{color:var(--text)}
+.duration{font-size:11px;color:var(--faint);font-variant-numeric:tabular-nums;white-space:nowrap}
+.steps{border-top:1px solid var(--line);padding:2px 12px 4px}
+.step{padding:10px 0;border-bottom:1px solid var(--line);display:grid;grid-template-columns:14px minmax(0,1fr) auto;gap:9px;color:var(--muted)}
+.step:last-child{border:0}
+.step>.lead{margin-top:2px}
+.step b{font-weight:500;color:var(--text)}
+.step small{display:block;font-size:11px;color:var(--muted);margin-top:2px;overflow-wrap:anywhere}
+.tool-evidence{margin-top:7px}
+.tool-evidence summary{font-size:11px;cursor:pointer;color:var(--muted);list-style:none;display:inline-flex;align-items:center;gap:5px;border-radius:4px}
+.tool-evidence summary:hover{color:var(--text)}
+.tool-evidence .chevron{width:11px;height:11px}
+.tool-evidence pre{margin:8px 0 2px}
+pre{font:11.5px/1.7 ui-monospace,SFMono-Regular,Menlo,monospace;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:10px 12px;margin:0;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;color:var(--muted);tab-size:2}
+pre .fail{color:var(--danger)}
+.spinner{width:12px;height:12px;border:1.5px solid var(--line-strong);border-top-color:var(--accent);border-radius:50%;display:inline-block;animation:spin 1.1s linear infinite;flex-shrink:0}
+@keyframes spin{to{transform:rotate(360deg)}}
+.notice{color:var(--muted);font-size:12px;line-height:1.6;margin:0 0 4px}
+.notice strong{color:var(--text);font-weight:550}
+
+/* Decision cards: question, approval, problem */
+.card{border:1px solid var(--attn-line);border-radius:11px;background:var(--panel);margin-top:19px}
+.card.problem{border-color:var(--danger-line)}
+.card-head{padding:16px 18px 0;display:flex;align-items:center;gap:7px;font-size:11px;line-height:1.4;color:var(--warn)}
+.card-head svg{width:14px;height:14px}
+.card.problem .card-head{color:var(--danger)}
+.card h2{font-size:15px;font-weight:570;letter-spacing:-.2px;line-height:1.45;margin:8px 18px 4px;text-wrap:balance}
+.message p.card-description{font-size:12.5px;line-height:1.6;color:var(--muted);margin:0 18px 15px}
+.options{display:grid;gap:7px;padding:0 18px 4px}
+.option{display:flex;align-items:flex-start;gap:11px;padding:11px 13px;border:1px solid var(--line);border-radius:8px;cursor:pointer;transition:border-color .12s,background .12s}
+.option:hover{border-color:var(--line-strong)}
+.option:has(input:checked){border-color:var(--accent-line);background:color-mix(in srgb,var(--accent) 5%,var(--panel))}
+.option:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:2px}
+.option input{margin:3px 0 0;accent-color:var(--accent);outline:none;flex-shrink:0}
+.option>span{flex:1;min-width:0}
+.option-name{display:block;font-size:13px;font-weight:550;line-height:1.45}
+.recommended{font-size:11px;color:var(--good);font-weight:400;margin-left:7px}
+.option-desc{display:block;color:var(--muted);font-size:12px;line-height:1.55;margin-top:2px}
+.custom-field{display:block;width:100%;min-height:64px;margin-top:9px;resize:vertical;background:var(--bg);color:var(--text);border:1px solid var(--line-strong);border-radius:6px;padding:9px 10px;font-size:12.5px;line-height:1.55}
+.custom-field::placeholder{color:var(--faint)}
+.custom-field[aria-invalid=true]{border-color:var(--danger)}
+.field-error{display:flex;align-items:center;gap:6px;color:var(--danger);font-size:12px;margin-top:6px}
+.field-error svg{width:13px;height:13px}
+.field-error[hidden],.custom-field[hidden]{display:none}
+.approval-command{margin:0 18px 4px}
+.card-footer{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;padding:12px 18px;border-top:1px solid var(--line);margin-top:12px;gap:10px 14px}
+.card-footer>span{font-size:11px;line-height:1.5;color:var(--faint);flex:1 1 180px}
+.button-row{display:flex;gap:8px;margin-left:auto}
+.primary,.secondary{min-height:32px;border-radius:7px;font-size:12px;padding:0 13px;display:inline-flex;gap:7px;align-items:center;white-space:nowrap}
+.primary{background:var(--fill);color:var(--fill-ink);font-weight:600}
+.primary:hover{background:var(--fill-hover)}
+.primary svg{width:13px;height:13px}
+.secondary{border:1px solid var(--line-strong);color:var(--muted)}
+.secondary:hover{background:var(--raised);color:var(--text)}
+.resolved-row{display:flex;align-items:baseline;flex-wrap:wrap;gap:4px 9px;padding:12px 18px;font-size:12px;line-height:1.5;color:var(--muted)}
+.resolved-row svg{width:13px;height:13px;color:var(--good);align-self:center}
+.resolved-row strong{font-weight:550}
+.card.resolved{border-color:var(--line)}
+
+/* Changed files */
+.file-list{margin:16px 0;border:1px solid var(--line);border-radius:9px;overflow:hidden}
+.file-row{display:flex;align-items:center;gap:9px;padding:10px 12px;font-size:12px;line-height:1.5;border-bottom:1px solid var(--line);color:var(--muted)}
+.file-list>:last-child,.file-list>:last-child:not([open])>.file-row{border-bottom:0}
+.file-row svg{width:13px;height:13px}
+.file-row .filename{flex:1;min-width:0;color:var(--text);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;overflow:hidden;text-overflow:ellipsis}
+summary.file-row{cursor:pointer;list-style:none}
+summary.file-row::-webkit-details-marker{display:none}
+summary.file-row .filename{font-family:inherit;font-size:12px;color:var(--muted)}
+summary.file-row:hover .filename{color:var(--text)}
+summary.file-row:focus-visible{outline-offset:-2px}
+.additions{color:var(--good);font-size:11px;font-variant-numeric:tabular-nums}
+.diff{border:0;border-radius:0}
+.diff .add{color:var(--good)}.diff .remove{color:var(--danger)}
+.review-footer{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:10px 12px;margin-top:16px}
+.evidence{font-size:12px;color:var(--good);display:flex;align-items:center;gap:6px}
+.evidence svg{width:13px;height:13px}
+
+/* Composer */
+.footer-region{flex-shrink:0;padding:4px 32px 9px;background:var(--bg);position:relative}
+.composer-wrap{max-width:var(--width);margin:auto}
+.pending-hint{font-size:11px;color:var(--muted);margin:0;display:flex;align-items:center;gap:6px;border-radius:4px;text-align:left;min-width:0}
+.pending-hint span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pending-hint:not([hidden])+.key-hint{display:none}
+.pending-hint[hidden]{display:none}
+.pending-hint:hover{color:var(--text)}
+.pending-hint svg{width:13px;height:13px;color:var(--warn)}
+.composer{border:1px solid var(--line-strong);border-radius:12px;background:var(--panel);box-shadow:0 4px 20px #00000012;padding:5px;transition:border-color .12s}
+.composer:focus-within{border-color:var(--focus-line)}
+.composer textarea{display:block;flex:1;min-width:0;height:30px;max-height:160px;resize:none;background:none;border:0;color:var(--text);font-size:13.5px;line-height:22px;outline:none;padding:4px 6px}
+.composer textarea::placeholder{color:var(--faint)}
+.composer-row{display:flex;align-items:flex-end;gap:2px}
+.composer-row .model-select{height:30px}
+.composer-tools{display:flex;align-items:center;gap:2px;min-width:0}
+.model-select{font-size:12px;color:var(--muted);display:flex;align-items:center;gap:5px;height:28px;padding:0 8px;border-radius:6px;white-space:nowrap}
+.model-select:hover{background:var(--raised);color:var(--text)}
+.model-select svg{width:11px;height:11px;color:var(--faint)}
+.send{display:flex;align-items:center;justify-content:center;width:30px;height:30px;border-radius:8px;background:var(--fill);color:var(--fill-ink);flex-shrink:0;transition:background .12s,color .12s}
+.send:hover:not(:disabled){background:var(--fill-hover)}
+.send:disabled{background:var(--raised);color:var(--faint)}
+.send.stop,.send.stop:hover{background:var(--raised);color:var(--text);box-shadow:inset 0 0 0 1px var(--line-strong)}
+.send svg{width:15px;height:15px}
+.send.stop svg{width:13px;height:13px;fill:currentColor;stroke:none}
+.attachment-chip{font-size:11px;color:var(--muted);border:1px solid var(--line);padding:2px 3px 2px 8px;border-radius:6px;display:inline-flex;gap:6px;align-items:center;margin:3px 0 5px 4px}
+.attachment-chip svg{width:12px;height:12px}
+.attachment-chip button{width:20px;height:20px;border-radius:4px;display:inline-flex;align-items:center;justify-content:center}
+.attachment-chip button:hover{background:var(--raised);color:var(--text)}
+.composer-meta{display:flex;align-items:center;justify-content:space-between;font-size:11px;line-height:1.4;color:var(--faint);margin:6px 4px 0;gap:10px}
+.context{display:flex;align-items:center;gap:7px;margin-left:auto;white-space:nowrap}
+.context-track{width:30px;height:3px;border-radius:2px;opacity:.7;background:repeating-linear-gradient(90deg,var(--faint) 0 3px,transparent 3px 6px)}
+.inspector-link{text-decoration:underline;text-decoration-color:var(--line-strong);text-underline-offset:3px;color:var(--muted);font-size:11px;border-radius:3px}
+.inspector-link:hover{color:var(--text)}
+.inspector{padding:12px 14px;border:1px solid var(--line);border-radius:9px;margin:10px 0 0;background:var(--panel);font-size:12px;line-height:1.65;color:var(--muted)}
+.inspector[hidden]{display:none}
+.inspector strong{color:var(--text);font-weight:550;display:block;margin-bottom:3px}
+.inspector p{margin:0}
+.toast{position:absolute;left:50%;bottom:calc(100% + 10px);transform:translate(-50%,4px);width:max-content;max-width:min(calc(100% - 36px),460px);padding:9px 14px;border:1px solid var(--line-strong);border-radius:9px;background:var(--raised);font-size:12px;line-height:1.5;box-shadow:0 5px 25px #0004;z-index:5;opacity:0;pointer-events:none;transition:opacity .15s,transform .15s}
+.toast.show{opacity:1;transform:translate(-50%,0)}
+
+/* Appearance drawer */
+.settings{width:264px;flex-shrink:0;border-left:1px solid var(--line);padding:20px 20px 22px;background:var(--panel);overflow:auto}
+.settings[hidden]{display:none}
+.settings-head{display:flex;align-items:center;justify-content:space-between;gap:8px;margin:0 -6px 6px 0}
+.settings h2{font-size:14px;font-weight:570;letter-spacing:-.15px;margin:0}
+.settings h2:focus,.settings h2:focus-visible{outline:none}
+.settings p{font-size:12px;color:var(--muted);line-height:1.65;margin:0 0 22px}
+.setting{margin:0 0 20px}
+.setting-label{font-size:12px;display:block;margin-bottom:8px;color:var(--muted)}
+.segmented{display:flex;gap:2px;padding:3px;border:1px solid var(--line);border-radius:8px}
+.segmented button{flex:1;font-size:12px;color:var(--muted);height:26px;border-radius:5px}
+.segmented button:hover{color:var(--text)}
+.segmented button[aria-pressed=true]{background:var(--raised);color:var(--text)}
+.range-row{display:flex;align-items:center;gap:10px}
+.range-row input{min-width:0;width:100%;accent-color:var(--accent)}
+.range-row output{font-size:12px;color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums;min-width:36px;text-align:right}
+.toggle-row{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12px;color:var(--text);cursor:pointer;min-height:24px}
+.switch{appearance:none;-webkit-appearance:none;width:30px;height:18px;border-radius:9px;background:var(--faint);position:relative;cursor:pointer;margin:0;flex-shrink:0;transition:background .15s}
+.switch::after{content:"";position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:var(--panel);transition:transform .15s}
+.switch:checked{background:var(--fill)}
+.switch:checked::after{transform:translateX(12px);background:var(--fill-ink)}
+.settings-note{padding-top:16px;border-top:1px solid var(--line);font-size:11px;color:var(--faint);line-height:1.65}
+
+@media(max-width:780px){
+  .settings{position:absolute;right:0;top:0;bottom:0;z-index:6;width:min(280px,88%);box-shadow:-15px 0 40px #0003}
+  .concept-bar{padding:0 12px;overflow-x:auto}.concept-name span{display:none}
+  .topbar{padding:0 18px;height:64px}.title{font-size:15px}.header-actions{gap:6px}
+  .rail,.titlebar .where,.tags{display:none}
+  body.in-app.side-toggled .sessions{left:0}
+}
+@media(max-width:620px){.concept-name{display:none}.scenarios button,.view-switch button{padding:0 8px}}
+@container (max-width:620px){
+  .thread{width:calc(100% - 36px);padding-top:20px}
+  .scroll{scrollbar-gutter:auto}
+  .footer-region{padding:4px 18px 8px}
+}
+@container (max-width:520px){
+  .key-hint{display:none}
+  .composer-row{flex-wrap:wrap}.composer-row textarea{flex-basis:100%;order:-1}.composer-row .send{margin-left:auto}
+  .card-head{padding:14px 14px 0}.card h2{margin:8px 14px 4px}.message p.card-description{margin:0 14px 14px}
+  .options{padding:0 14px 4px}.approval-command{margin:0 14px 4px}.card-footer,.resolved-row{padding:12px 14px}
+  .button-row{width:100%}.button-row>button{flex:1;justify-content:center}
+  .user-message{padding:var(--pad) 14px}
+}
+@media(hover:none){.message-actions{opacity:1}}
+@media(prefers-reduced-motion:reduce){*{scroll-behavior:auto!important;transition:none!important}.spinner{animation-duration:2.4s}}
+</style>
+</head>
+<body class="in-app">
+<svg class="symbols" aria-hidden="true"><defs>
+<symbol id="chevron" viewBox="0 0 24 24"><path d="m9 5 7 7-7 7"/></symbol><symbol id="down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol><symbol id="check" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></symbol><symbol id="spark" viewBox="0 0 24 24"><path d="m12 3 2.7 6.3L21 12l-6.3 2.7L12 21l-2.7-6.3L3 12l6.3-2.7Z"/></symbol><symbol id="sliders" viewBox="0 0 24 24"><path d="M4 7h7m4 0h5M4 17h2m4 0h10M11 4v6M6 14v6"/></symbol><symbol id="question" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9.5 9a2.5 2.5 0 0 1 5 .3c0 1.7-2.5 1.9-2.5 3.7m0 3h.01"/></symbol><symbol id="alert" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5m0 3.5h.01"/></symbol><symbol id="close" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18"/></symbol><symbol id="arrow" viewBox="0 0 24 24"><path d="M12 19V5m-6 6 6-6 6 6"/></symbol><symbol id="plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol><symbol id="copy" viewBox="0 0 24 24"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V3H3v13h5"/></symbol><symbol id="branch" viewBox="0 0 24 24"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="5" r="2"/><path d="M6 7v10m0-5h6a6 6 0 0 0 6-5"/></symbol><symbol id="file" viewBox="0 0 24 24"><path d="M14 2H5v20h14V7Zm0 0v6h5M8 13h8m-8 4h6"/></symbol><symbol id="terminal" viewBox="0 0 24 24"><path d="m4 6 6 6-6 6m9 0h7"/></symbol><symbol id="pencil" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16Zm9-13 4 4"/></symbol><symbol id="filter" viewBox="0 0 24 24"><path d="M4 6h16M7 12h10M10 18h4"/></symbol><symbol id="more" viewBox="0 0 24 24"><path d="M5 12h.01M12 12h.01M19 12h.01" stroke-width="2.6"/></symbol><symbol id="pin" viewBox="0 0 24 24"><path d="M9 3h6l-1 6 4 4H6l4-4Zm3 10v8"/></symbol><symbol id="archive" viewBox="0 0 24 24"><path d="M3 5h18v4H3Zm2 4v10h14V9M10 13h4"/></symbol><symbol id="chat" viewBox="0 0 24 24"><path d="M4 5h16v11H9l-5 4Z"/></symbol><symbol id="stack" viewBox="0 0 24 24"><ellipse cx="12" cy="6" rx="7" ry="3"/><path d="M5 6v6c0 1.7 3.1 3 7 3s7-1.3 7-3V6M5 12v6c0 1.7 3.1 3 7 3s7-1.3 7-3v-6"/></symbol><symbol id="list" viewBox="0 0 24 24"><path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/></symbol><symbol id="user" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 4-6 8-6s8 2 8 6"/></symbol><symbol id="search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6"/><path d="m20 20-4.5-4.5"/></symbol><symbol id="panel" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M9 4v16"/></symbol><symbol id="stop" viewBox="0 0 24 24"><rect x="6" y="6" width="12" height="12" rx="2"/></symbol><symbol id="shield" viewBox="0 0 24 24"><path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6Z"/><path d="m8 12 3 3 5-6"/></symbol>
+</defs></svg>
+<div class="app">
+  <div class="concept-bar">
+    <div class="concept-name">Marilyst <span>/ Interactive concept · illustrative data</span></div>
+    <div class="concept-controls">
+      <div class="view-switch" id="view" role="group" aria-label="Preview framing"><button data-value="app" aria-pressed="true">In app</button><button data-value="chat" aria-pressed="false">Chat only</button></div>
+      <nav class="scenarios" aria-label="Preview scenario"><button data-scene="question" aria-pressed="true">Question</button><button data-scene="working" aria-pressed="false">Working</button><button data-scene="problem" aria-pressed="false">Problem</button><button data-scene="finished" aria-pressed="false">Finished</button></nav>
+    </div>
+  </div>
+  <div class="titlebar">
+    <div><span class="lights" aria-hidden="true"><i></i><i></i><i></i></span><button data-toast="Illustrative window chrome. No session was created."><svg aria-hidden="true"><use href="#plus"/></svg>New session</button></div>
+    <div class="where"><strong>nimbalyst</strong><span>Agent</span></div>
+    <div><svg aria-hidden="true"><use href="#branch"/></svg><span>chat-readability</span><span class="modified">Modified · sample</span></div>
+  </div>
+  <div class="workspace">
+  <nav class="rail" aria-label="App sections (illustrative)">
+    <button aria-label="Workstreams" title="Workstreams" data-toast="Illustrative navigation. Only the agent chat is interactive."><svg aria-hidden="true"><use href="#branch"/></svg></button>
+    <button aria-label="Agent sessions" title="Agent sessions" aria-current="page"><svg aria-hidden="true"><use href="#chat"/></svg></button>
+    <button aria-label="Files" title="Files" data-toast="Illustrative navigation. Only the agent chat is interactive."><svg aria-hidden="true"><use href="#file"/></svg></button>
+    <button aria-label="Trackers" title="Trackers" data-toast="Illustrative navigation. Only the agent chat is interactive."><svg aria-hidden="true"><use href="#list"/></svg></button>
+    <button aria-label="Data" title="Data" data-toast="Illustrative navigation. Only the agent chat is interactive."><svg aria-hidden="true"><use href="#stack"/></svg></button>
+    <button aria-label="Terminal" title="Terminal" data-toast="Illustrative navigation. Only the agent chat is interactive."><svg aria-hidden="true"><use href="#terminal"/></svg></button>
+    <span class="rail-gap"></span>
+    <button aria-label="Account" title="Account" data-toast="Illustrative navigation. Only the agent chat is interactive."><svg aria-hidden="true"><use href="#user"/></svg></button>
+  </nav>
+  <aside class="sessions" id="sessions" aria-label="Sessions (sample)">
+    <div class="session-tools"><label class="session-search"><svg aria-hidden="true"><use href="#search"/></svg><input id="session-filter" type="search" placeholder="Search…" title="Search sessions, work or #tags" aria-label="Search sessions"></label><button class="icon-button" aria-label="Filter sessions" title="Filter: remaining work, blocked, needs review" data-toast="Illustrative control. The filter menu is unchanged from the app."><svg aria-hidden="true"><use href="#filter"/></svg></button><button class="icon-button" aria-label="New session" title="New session" data-toast="Illustrative control. No session was created."><svg aria-hidden="true"><use href="#plus"/></svg></button><button class="icon-button" aria-label="List options" title="List options: view, sort, archived, customize" data-toast="Illustrative control. The options menu is unchanged from the app."><svg aria-hidden="true"><use href="#more"/></svg></button></div>
+    <div class="session-list" id="session-list"></div>
+  </aside>
+  <div class="pane">
+  <header class="topbar">
+    <button class="icon-button app-only" id="side-toggle" aria-label="Toggle session list" title="Toggle session list" aria-controls="sessions"><svg aria-hidden="true"><use href="#panel"/></svg></button>
+    <div class="identity">
+      <div class="breadcrumb"><span>nimbalyst</span><span aria-hidden="true">/</span><svg aria-hidden="true"><use href="#branch"/></svg><span>chat-readability</span></div>
+      <h1 class="title" title="Improve Marilyst context management, chat usability and cross-worktree session delivery">Improve Marilyst context management, chat usability and cross-worktree session delivery</h1>
+    </div>
+    <div class="header-actions">
+      <span class="state" id="state" role="status"></span>
+      <button class="model-select app-only" aria-label="Phase: Validating" title="Session phase" data-toast="Illustrative control. It works as it does in the app today.">Validating <svg aria-hidden="true"><use href="#down"/></svg></button><div class="mode-switch app-only" role="group" aria-label="Layout (illustrative)"><button aria-pressed="false" data-toast="Illustrative control. It works as it does in the app today.">Files</button><button aria-pressed="false" data-toast="Illustrative control. It works as it does in the app today.">Split</button><button aria-pressed="true">Agent</button></div><button class="icon-button app-only wide-only" aria-label="Outline" title="Outline" data-toast="Illustrative control. It works as it does in the app today."><svg aria-hidden="true"><use href="#list"/></svg></button><button class="icon-button app-only wide-only" aria-label="Pin workstream" title="Pin workstream" data-toast="Illustrative control. It works as it does in the app today."><svg aria-hidden="true"><use href="#pin"/></svg></button><button class="icon-button app-only wide-only" aria-label="Archive workstream" title="Archive workstream" data-toast="Illustrative control. Nothing was archived."><svg aria-hidden="true"><use href="#archive"/></svg></button><button class="icon-button app-only narrow-only" aria-label="More: outline, pin, archive workstream" title="More: outline, pin, archive workstream" data-toast="Illustrative control. It works as it does in the app today."><svg aria-hidden="true"><use href="#more"/></svg></button>
+      <button class="icon-button" id="appearance" title="Chat appearance" aria-label="Chat appearance" aria-expanded="false" aria-controls="settings"><svg aria-hidden="true"><use href="#sliders"/></svg></button>
+    </div>
+  </header>
+  <div class="tabs" role="tablist" aria-label="Sessions in this workstream (illustrative)"><button class="tab" role="tab" aria-selected="true" id="tab-current"><i class="dot"></i><span>Codex catalog fix commit</span></button><button class="tab" role="tab" aria-selected="false" data-toast="Sample tab. Only the open conversation is interactive."><i class="dot"></i><span>Chat concept design refinement and review</span></button><button class="icon-button" aria-label="New session in this workstream" title="New session in this workstream" data-toast="Illustrative control. No session was created."><svg aria-hidden="true"><use href="#plus"/></svg></button><div class="tags" aria-label="Tags"><span class="tag-list"><span>bug-fix</span><span>build-performance</span><span>chat-ui</span><span>codex</span><span>context-budget</span><span>design</span></span><button title="11 more tags" data-toast="Illustrative control. It works as it does in the app today.">+11</button><button aria-label="Add tag" title="Add tag" data-toast="Illustrative control. It works as it does in the app today.">Add tag</button></div></div>
+  <div class="layout">
+    <main class="conversation">
+      <div class="scroll" id="scroll" tabindex="0" role="region" aria-label="Conversation"><div class="thread" id="thread"></div></div>
+      <div class="footer-region">
+        <div class="toast" id="toast" role="status"></div>
+        <div class="composer-wrap">
+          <div class="composer">
+            <div id="attachments"></div>
+            <div class="composer-row">
+              <button class="icon-button" id="attach" title="Attach a sample file" aria-label="Attach a sample file"><svg aria-hidden="true"><use href="#plus"/></svg></button>
+              <textarea aria-label="Message" id="draft" rows="1" placeholder="Add context, ask a question, or change direction…"></textarea>
+              <button class="model-select" id="model" aria-label="Model: GPT-6.1 Sol">GPT-6.1 Sol <svg aria-hidden="true"><use href="#down"/></svg></button>
+              <button class="model-select" id="effort"><span id="effort-value">Medium</span> <svg aria-hidden="true"><use href="#down"/></svg></button>
+              <button class="send" id="send" aria-label="Send message" disabled></button>
+            </div>
+          </div>
+          <div class="composer-meta">
+            <button type="button" class="pending-hint" id="pending-hint"><svg aria-hidden="true"><use href="#question"/></svg><span id="pending-text"></span></button>
+            <span class="key-hint">Enter to send · Shift + Enter for a new line</span>
+            <span class="context"><span class="context-track" aria-hidden="true"></span><button class="inspector-link" id="inspect" aria-expanded="false" aria-controls="inspector">Context</button><span>· usage not reported</span></span>
+          </div>
+          <div id="inspector" class="inspector" hidden><strong>Context, with provenance</strong><p>Prepared request: 8,420 UTF-8 bytes (illustrative). Includes your message, selected file and session guidance.</p><p>Native history and provider token usage are unavailable in this preview, so no fill level is drawn. Bytes are not token counts.</p></div>
+        </div>
+      </div>
+    </main>
+    <aside class="settings" id="settings" hidden aria-labelledby="settings-title">
+      <div class="settings-head"><h2 id="settings-title" tabindex="-1">Make room to think.</h2><button class="icon-button" id="settings-close" aria-label="Close chat appearance" title="Close (Esc)"><svg aria-hidden="true"><use href="#close"/></svg></button></div>
+      <p>Readable text. Quiet tools. Decisions that stand out. Try these controls on the actual conversation.</p>
+      <div class="setting"><span class="setting-label" id="density-label">Density</span><div class="segmented" id="density" role="group" aria-labelledby="density-label"><button data-value="comfortable" aria-pressed="true">Relaxed</button><button data-value="compact" aria-pressed="false">Balanced</button><button data-value="dense" aria-pressed="false">Compact</button></div></div>
+      <div class="setting"><label class="setting-label" for="font">Text size</label><div class="range-row"><input id="font" type="range" min="12" max="18" value="14"><output id="font-value" for="font">14 px</output></div></div>
+      <div class="setting"><span class="setting-label" id="width-label">Reading width</span><div class="segmented" id="width" role="group" aria-labelledby="width-label"><button data-value="660px" aria-pressed="false">Narrow</button><button data-value="760px" aria-pressed="true">Balanced</button><button data-value="1000px" aria-pressed="false">Wide</button></div></div>
+      <div class="setting"><label class="toggle-row">Show completed activity<input class="switch" type="checkbox" role="switch" id="tools-toggle" checked></label></div>
+      <div class="setting"><label class="toggle-row">Summaries in session list<input class="switch" type="checkbox" role="switch" id="summaries-toggle" checked></label></div>
+      <div class="setting"><label class="toggle-row">Light appearance<input class="switch" type="checkbox" role="switch" id="light-toggle"></label></div>
+      <div class="settings-note">Prototype controls only. Your app settings are unchanged. Running and failed activity always stays visible. Switching scenarios resets the sample conversation. No commands run and no files are uploaded.</div>
+    </aside>
+  </div>
+  </div>
+  </div>
+</div>
+<script>
+const $=s=>document.querySelector(s),$$=s=>[...document.querySelectorAll(s)];
+const icon=(n,cls)=>`<svg aria-hidden="true"${cls?` class="${cls}"`:''}><use href="#${n}"/></svg>`;
+const escapeHTML=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const root=document.documentElement.style;
+
+/* ---------- Message building blocks (all sample data) ---------- */
+const author=`<div class="byline assistant-byline"><span class="mark">${icon('spark')}</span><strong>Marilyst</strong><span aria-hidden="true">·</span><span>Just now</span></div>`;
+const actions=`<div class="message-actions"><button class="icon-button" data-action="copy" aria-label="Copy response" title="Copy response">${icon('copy')}</button><button class="icon-button" data-toast="A fresh continuation would keep decisions and evidence, with a reviewed handoff." aria-label="Continue in a fresh chat" title="Continue in a fresh chat">${icon('branch')}</button></div>`;
+const user=(s,meta='11:42')=>`<section class="message user-message" aria-label="Your message"><div class="byline"><strong>You</strong><span>${meta}</span></div><p>${s}</p></section>`;
+const assistant=s=>`<section class="message assistant-message" aria-label="Marilyst response">${author}${s}${actions}</section>`;
+const lead=(state,name)=>state==='running'?'<span class="lead"><span class="spinner"></span></span>':`<span class="lead ${state||''}">${icon(state==='failed'?'alert':name)}</span>`;
+const step=({name,state,title,note,duration,evidence,evidenceOpen})=>`<div class="step" data-state="${state||'done'}">${lead(state,name)}<div><b>${title}</b><small>${note}</small>${evidence?`<details class="tool-evidence"${evidenceOpen?' open':''}><summary>${icon('chevron','chevron')}Command and full output</summary><pre>${evidence}</pre></details>`:''}</div><span class="duration">${duration}</span></div>`;
+const activity=({state='done',label,duration,open,steps})=>`<details class="activity" data-state="${state}"${open?' open':''}><summary>${lead(state==='done'?'done':state,'check')}<span class="activity-label">${label}</span><span class="duration">${duration}</span>${icon('chevron','chevron')}</summary><div class="steps">${steps.map(step).join('')}</div></details>`;
+
+const readStep={name:'file',title:'Read chat rendering and appearance settings',note:'SessionTranscript.tsx · TranscriptMessageRow.tsx · chatDensity.css',duration:'0.3s'};
+const compareStep={name:'terminal',title:'Compare message spacing',note:'Existing density changes padding, while paragraphs stay the same.',duration:'2.1s',evidence:`rg -n 'padding|line-height|margin' chatDensity.css
+
+comfortable: message padding 12px
+compact:     message padding 8px, gap 6px
+dense:       message padding 5px 8px, gap 3px
+
+Exit code: 0 · Illustrative output`};
+const editStep={name:'pencil',title:'Edit density tokens',note:'ChatAppearance.tsx · chatDensity.css',duration:'1.2s'};
+
+const question=`<section class="card" data-card="question" aria-labelledby="question-title"><div class="card-head">${icon('question')}A decision before I change the layout</div><h2 id="question-title">How should tool activity appear?</h2><p class="card-description">Keep the answer easy to read while leaving every action inspectable.</p><form id="question-form" novalidate><div class="options" role="radiogroup" aria-labelledby="question-title"><label class="option"><input type="radio" name="activity" value="Quiet activity" checked><span><span class="option-name">Quiet activity <span class="recommended">Recommended</span></span><span class="option-desc">One compact row per work block. Expand for steps, commands and output.</span></span></label><label class="option"><input type="radio" name="activity" value="Every step visible"><span><span class="option-name">Every step visible</span><span class="option-desc">Keep individual tool steps open while the agent works.</span></span></label><label class="option"><input type="radio" name="activity" value="custom"><span><span class="option-name">Something else</span><span class="option-desc">Describe it in your own words.</span><textarea class="custom-field" id="custom-preference" aria-label="Your own tool activity preference" aria-describedby="custom-error" placeholder="For example: show edits, collapse file reads…" hidden></textarea><span class="field-error" id="custom-error" role="alert" hidden>${icon('alert')}Describe your preference, or pick an option above.</span></span></label></div><div class="card-footer"><span>Waiting for your answer. Nothing is submitted automatically.</span><div class="button-row"><button type="submit" class="primary">Use this preference ${icon('chevron')}</button></div></div></form></section>`;
+const diff=`<div class="file-list" id="file-list"><div class="file-row">${icon('file')}<span class="filename">ChatAppearance.tsx</span><span class="additions">+38</span></div><div class="file-row">${icon('file')}<span class="filename">chatDensity.css</span><span class="additions">+16</span></div><details><summary class="file-row">${icon('chevron','chevron')}<span class="filename">Preview the spacing change</span><span>Illustrative diff</span></summary><pre class="diff"><span class="remove">− .message { padding: 12px; }</span>
+<span class="add">+ .message { padding: var(--message-padding); }
++ .message p { margin-bottom: var(--paragraph-gap); }
++ .message-body { line-height: var(--chat-leading); }</span></pre></details></div>`;
+const approval=`<section class="card" data-card="approval" aria-labelledby="approval-title"><div class="card-head">${icon('shield')}Approval needed</div><h2 id="approval-title">Replace the installed Marilyst app?</h2><p class="card-description">The local build is ready. This replaces /Applications/Marilyst.app and keeps a backup. It does not restart the running app.</p><pre class="approval-command">Install local arm64 build → /Applications/Marilyst.app</pre><div class="card-footer"><span>Example approval · nothing will be installed</span><div class="button-row"><button class="secondary" data-action="decline">Not now</button><button class="primary" data-action="approve">Approve install</button></div></div></section>`;
+const problem=`<section class="card problem" data-card="problem" aria-labelledby="problem-title"><div class="card-head">${icon('alert')}Check failed · work paused</div><h2 id="problem-title">The composer overflows at 480px in Compact density</h2><p class="card-description">I stopped after the failing check. Only the density edit is in your working files; nothing was committed, built or installed.</p><div class="card-footer"><span>Example failure · nothing will run</span><div class="button-row"><button class="secondary" data-action="leave">Leave as is</button><button class="primary" data-action="retry">Fix and re-run</button></div></div></section>`;
+
+/* ---------- Session list (sample data) ---------- */
+const kids=(names,time,o={})=>names.map((t,i)=>({t,time,unread:(o.unread||[]).includes(i),state:(o.running||[]).includes(i)?'running':(o.needs||[]).includes(i)?'needs':''}));
+const groups=[
+ {date:'Today',open:true,items:[
+  {id:'cur',t:'Improve Marilyst context management, chat usability and cross-worktree session delivery',time:'Now',open:true,s:'Readable density, quiet tool activity and decisions that stand out.',uncommitted:23,
+   kids:[{t:'Codex catalog fix commit',time:'Now',current:true},{t:'Chat concept design refinement and review',time:'4m',unread:true}]},
+  {id:'gp',t:'GP privacy controls design across consent, export and audit log PRs',pinned:true,time:'4m',state:'needs',note:'Plan approval waiting',s:'Deliver GP privacy controls across four PRs and prevent worktree tool discovery failures',uncommitted:6,
+   kids:kids(['GP controls plan review','GP consent toggle PR','GP export controls PR','GP audit log PR','GP worktree discovery check','GP controls UI review','GP copy review'],'1h',{needs:[0],unread:[1]}).concat(kids(Array.from({length:18},(_,i)=>'GP review pass '+(i+1)),'2h'))},
+  {id:'aif201',t:'AIF-201 privacy foundation and requests',time:'3m',state:'running',s:'Deliver stacked AIF-201 privacy foundation, request management, erasure and retention execution PRs',next:'Rebase the stack after the portal boundary fix',
+   kids:kids(['PR review: AIF-201 portal boundary fix','AIF-201 link format recheck','AIF-201 investor link UI recheck','AIF-201 final UI review','AIF-201 final PR recheck','AIF-201 requests UI recheck','AIF-201 requests PR review','AIF-201 requests UI review','AIF-201 erasure PR review','AIF-201 retention PR review','AIF-201 foundation UI review','AIF-201 foundation PR review','AIF-201 stack plan'],'3h',{running:[0,1],unread:[2,3]})},
+  {id:'wf',t:'Workflow session lookup and agent setup verification for stacked PRs',time:'3m',s:'Prepare and verify agent setup improvements, Nimbalyst prompts, stack rebasing guidance, and subagent testing',kids:kids(['Subagent prompt test'],'20m')},
+  {id:'ninth',t:'chore: agent setup ninth PR',time:'3m',kids:kids(['Ninth PR review','Ninth PR recheck','Setup lint pass','Setup docs pass'],'40m')},
+  {id:'tool',t:'AI tooling migration',time:'2h',unread:true,s:'Migrate AI tooling to private AI-Setup and analyze review subagent efficiency',kids:kids(['Migration dry run','Review subagent timing','Skill inventory','Hook migration','Prompt migration'],'2h',{unread:[0]})},
+  {id:'stack',t:'PR comments and stacking',time:'4h',s:'Fix PR review comments and assemble one coordinated stack while preserving ongoing feature work',blocked:'Waiting on review of the base PR'},
+  {id:'inv',t:'Investor portal audit',time:'4h',ctx:86,s:'Audit and improve investor portal through separate bug-fix and UI improvement PRs',kids:kids(['Portal bug-fix PR','Portal UI PR','Portal audit notes'],'4h')},
+  {id:'prc',t:'PR comments fixes',time:'5h',unread:true,ctx:93}
+ ]},
+ {date:'Yesterday',open:false,items:[
+  {id:'y1',t:'Retention schedule review',time:'1d',s:'Check retention periods against the request management design'},
+  {id:'y2',t:'Portal copy pass',time:'1d',s:'Tighten investor portal labels and empty states',uncommitted:2}
+ ]}
+];
+const listSections=[['needs','Needs you'],['running','Running'],['','Idle']];
+const shownAll={};let listQuery='';
+const findSession=id=>groups.flatMap(g=>g.items).find(it=>it.id===id);
+function syncCurrent(text,tone){const it=findSession('cur');it.state=text==='Working'?'running':(tone==='warn'||tone==='danger')?'needs':'';it.note=text;renderList();}
+const slLead=c=>c.state==='running'?'<span class="spinner"></span>':c.state==='needs'?'<span class="sl-dot needs"></span>':c.unread?'<span class="sl-unread"></span>':'';
+function slMeta(it){
+  const m=[],k=it.kids||[];
+  if(it.state==='needs')m.push(`<span class="needs"><i class="sl-dot needs"></i>${escapeHTML(it.note||'Needs you')}</span>`);
+  const run=k.filter(c=>c.state==='running').length;
+  if(it.state==='running')m.push(`<span class="running"><span class="spinner"></span>${run?run+' running':'Running'}</span>`);
+  if(it.id==='cur'&&!it.state&&it.note)m.push(`<span>${escapeHTML(it.note)}</span>`);
+  if(k.length)m.push(`<span>${k.length} session${k.length>1?'s':''}</span>`);
+  const un=k.filter(c=>c.unread).length;if(un&&!it.open)m.push(`<span>${un} unread</span>`);
+  if(it.uncommitted)m.push(`<span>${it.uncommitted} uncommitted</span>`);
+  if(it.ctx>=80)m.push(`<span class="${it.ctx>=90?'full':'high'}">Context ${it.ctx}% · sample</span>`);
+  return m.join('');
+}
+function slRow(it){
+  const k=it.kids||[],limit=shownAll[it.id]?k.length:5;
+  let h=`<div class="sl-row${it.unread?' unread':''}" ${it.id==='cur'?'aria-current="true"':''}>`+
+   (k.length?`<button class="sl-toggle" data-toggle="${it.id}" aria-expanded="${!!it.open}" aria-label="${it.open?'Collapse':'Expand'} ${escapeHTML(it.t)}, ${k.length} sessions">${icon('chevron','sl-chev')}</button>`:'<span class="sl-space"></span>')+
+   `<button class="sl-main" data-select="${it.id}" title="${escapeHTML(it.t)}"><span class="sl-top"><span class="sl-title">${escapeHTML(it.t)}${it.pinned?'<svg role="img" aria-label="Pinned"><use href="#pin"/></svg>':''}</span>${it.unread?'<span class="sl-unread" role="img" aria-label="Unread"></span>':''}<span class="sl-time">${it.time}</span></span>`+
+   (it.s?`<span class="sl-summary">${escapeHTML(it.s)}</span>`:'')+
+   (it.blocked?`<span class="sl-next blocked"><b>Blocked</b> ${escapeHTML(it.blocked)}</span>`:it.next?`<span class="sl-next"><b>Next</b> ${escapeHTML(it.next)}</span>`:'')+
+   `<span class="sl-meta">${slMeta(it)}</span></button></div>`;
+  if(k.length&&it.open)h+='<div class="sl-children">'+k.slice(0,limit).map((c,i)=>`<button class="sl-child${c.unread?' unread':''}" data-select="${it.id}:${i}" ${c.current?'aria-current="true"':''} title="${escapeHTML(c.t)}"><span class="lead">${slLead(c)}</span><span class="name">${escapeHTML(c.t)}</span><span class="sl-time">${c.time}</span></button>`).join('')+
+    (k.length>5?`<button class="sl-more" data-more="${it.id}">${shownAll[it.id]?'Show fewer':'Show '+(k.length-5)+' more'}</button>`:'')+'</div>';
+  return h;
+}
+function renderList(){
+  const list=$('#session-list'),top=list.scrollTop;
+  const match=it=>!listQuery||(it.t+' '+(it.s||'')+' '+(it.kids||[]).map(c=>c.t).join(' ')).toLowerCase().includes(listQuery);
+  let h='',any=false;
+  groups.forEach((g,gi)=>{
+    const items=g.items.filter(match);if(!items.length)return;any=true;
+    h+=`<button class="sl-date" data-date="${gi}" aria-expanded="${g.open}">${icon('chevron','sl-chev')}${g.date}<span class="sl-count">${items.length}</span></button>`;
+    if(!g.open)return;
+    if(gi===0)listSections.forEach(([key,label])=>{const part=items.filter(it=>(it.state||'')===key);if(!part.length)return;
+      h+=`<div class="sl-head">${key==='running'?'<span class="spinner"></span>':`<i class="sl-dot ${key}"></i>`}<span>${label}</span><span>${part.length}</span></div>`+part.map(slRow).join('');});
+    else h+=items.map(slRow).join('');
+  });
+  list.innerHTML=any?h:'<div class="session-empty">No sample sessions match.</div>';list.scrollTop=top;
+}
+$('#session-list').addEventListener('click',e=>{
+  const b=e.target.closest('button');if(!b)return;let focus;
+  if(b.dataset.toggle){const it=findSession(b.dataset.toggle);it.open=!it.open;focus=`[data-toggle="${it.id}"]`;}
+  else if(b.dataset.more){shownAll[b.dataset.more]=!shownAll[b.dataset.more];focus=`[data-more="${b.dataset.more}"]`;}
+  else if(b.dataset.date){const g=groups[b.dataset.date];g.open=!g.open;focus=`[data-date="${b.dataset.date}"]`;}
+  else if(b.dataset.select){const [pid,ci]=b.dataset.select.split(':');const it=findSession(pid);const target=ci!==undefined?it.kids[ci]:it;target.unread=false;focus=`[data-select="${b.dataset.select}"]`;if(pid!=='cur'||(ci!==undefined&&!target.current))toast('Sample session list. Only the open conversation is interactive.');}
+  renderList();$(focus)?.focus({preventScroll:true});
+});
+
+/* ---------- State ---------- */
+let scene='question',toolsVisible=true,busy=false,pending='',ticker=0,elapsed=12,toastTimer=0;
+const pendingText={question:'One decision needed above. You can still add context below.',approval:'One approval needed above. Nothing installs in this preview.',problem:'One check failed above. Choose how to continue.'};
+function setState(text,tone){const s=$('#state');s.dataset.tone=tone||'';s.innerHTML=`<i class="dot"></i>${text}`;syncCurrent(text,tone);$('#tab-current').dataset.tone=tone||'';}
+function setPending(kind){pending=kind||'';$('#pending-hint').hidden=!pending;$('#pending-text').textContent=pendingText[pending]||'';}
+function updateSend(){const b=$('#send'),hasText=!!$('#draft').value.trim(),stop=busy&&!hasText;b.classList.toggle('stop',stop);b.disabled=!stop&&!hasText;b.innerHTML=icon(stop?'stop':'arrow');const label=stop?'Stop sample work':busy?'Queue message':'Send message';b.setAttribute('aria-label',label);b.title=label;}
+function applyActivity(){$$('.activity[data-state=done]').forEach(e=>e.hidden=!toolsVisible);}
+function toast(s){const t=$('#toast');t.textContent=s;t.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>t.classList.remove('show'),4200);}
+function scrollBottom(){$('#scroll').scrollTo({top:$('#scroll').scrollHeight,behavior:'smooth'});}
+function append(html){$('#thread').insertAdjacentHTML('beforeend',html);applyActivity();scrollBottom();}
+function resolveCard(card,label,detail){card.classList.add('resolved');card.removeAttribute('aria-labelledby');card.innerHTML=`<div class="resolved-row">${icon('check')}<span>${label}</span><strong>${detail}</strong></div>`;setPending('');$('#draft').focus({preventScroll:true});}
+
+function render(next){
+  scene=next;clearInterval(ticker);busy=scene==='working';
+  $$('[data-scene]').forEach(b=>b.setAttribute('aria-pressed',b.dataset.scene===scene));
+  let content='<div class="day">Today</div>'+user('Make the chat easier to read. Keep tools available, but don’t let them overwhelm the conversation.');
+  if(scene==='question'){
+    setState('Needs you','warn');setPending('question');
+    content+=assistant('<p>The biggest improvement is clearer separation between <strong>the answer, the work behind it, and decisions that need you.</strong></p>'+activity({label:'Read 3 files · checked the existing layout',duration:'2.4s',steps:[readStep,compareStep]})+'<p>I’d use a comfortable reading width, quieter metadata and tool groups that expand on demand. One preference will shape the rest:</p>'+question);
+  }
+  if(scene==='working'){
+    setState('Working','good');setPending('');elapsed=12;
+    content+=assistant('<p>I’m adjusting message rhythm and grouping tool activity. The conversation text stays readable; code and controls keep their normal size.</p>'+activity({state:'running',open:true,label:'Checking the compact layout at narrow widths…',duration:'<span id="elapsed">12s</span>',steps:[readStep,compareStep,{state:'running',title:'Check compact layout at narrow widths',note:'Measuring the composer and message rows at 480px.',duration:'running'}]})+'<p class="notice"><strong>You can keep talking.</strong> Messages sent now are queued for the next step. Stop is always available in the composer.</p>');
+    ticker=setInterval(()=>{elapsed++;const e=$('#elapsed');if(e)e.textContent=elapsed+'s';},1000);
+  }
+  if(scene==='problem'){
+    setState('Check failed','danger');setPending('problem');
+    content+=assistant('<p>I updated the density tokens, but <strong>one layout check is failing</strong>, so I stopped before changing anything else.</p>'+activity({state:'failed',open:true,label:'1 of 4 steps failed · narrow-width layout check',duration:'9.8s',steps:[readStep,compareStep,editStep,{name:'terminal',state:'failed',title:'Run narrow-width layout check',note:'Compact density pushes the composer below the 480px viewport.',duration:'6.2s',evidenceOpen:true,evidence:`pnpm vitest run chatDensity.layout.test.ts
+
+<span class="fail">✗ compact density keeps the composer visible at 480px
+  expected composer bottom ≤ 480, received 506</span>
+
+Exit code: 1 · Illustrative output`}]})+problem);
+  }
+  if(scene==='finished'){
+    setState('Ready to review','good');setPending('approval');
+    content+=assistant('<h2 class="result-title">More room for the conversation.</h2><p>Density now changes paragraph spacing, message gaps and headers together. Tool activity stays in one expandable row, and questions remain distinct from ordinary replies.</p>'+activity({label:'Read 3 files · edited 2 · ran focused checks',duration:'41s',steps:[readStep,compareStep,editStep]})+diff+'<div class="review-footer"><span class="evidence">'+icon('check')+'8 focused checks passed · sample data</span><button class="secondary" data-action="review">Review changes</button></div><p class="fineprint">Code only. Not committed, built or installed.</p>'+approval);
+  }
+  $('#thread').innerHTML=content;applyActivity();updateSend();
+  requestAnimationFrame(()=>{$('#scroll').scrollTop=$('#scroll').scrollHeight;});
+}
+
+function stopWork(){
+  clearInterval(ticker);busy=false;
+  const a=$('.activity[data-state=running]');
+  if(a){a.dataset.state='stopped';a.querySelector('summary .lead').outerHTML=`<span class="lead stopped">${icon('stop')}</span>`;a.querySelector('.activity-label').textContent='Stopped · 2 of 3 steps finished';const s=a.querySelector('.step[data-state=running]');if(s){s.dataset.state='stopped';s.querySelector('.lead').outerHTML=`<span class="lead stopped">${icon('stop')}</span>`;s.querySelector('small').textContent='Stopped before finishing. This step changed nothing.';s.querySelector('.duration').textContent=elapsed+'s';}}
+  $('.notice')?.remove();setState('Stopped','');updateSend();toast('Sample work stopped. Nothing was running.');
+}
+function send(){
+  const text=$('#draft').value.trim();
+  if(!text){if(busy)stopWork();return;}
+  $('#draft').value='';$('#draft').style.height='';$('#attachments').innerHTML='';
+  if(busy){append(user(escapeHTML(text),'Queued for the next step'));toast('Queued in this preview. A real agent would receive it between steps.');}
+  else append(user(escapeHTML(text),'Just now')+assistant('<p>Message added to this local preview. In the real chat, your agent would receive it with the active session context.</p>'));
+  updateSend();
+}
+
+/* ---------- Conversation events (delegated, so re-rendering needs no rebinding) ---------- */
+$('#thread').addEventListener('change',e=>{
+  if(e.target.name!=='activity')return;
+  const field=$('#custom-preference'),custom=e.target.value==='custom';
+  field.hidden=!custom;if(custom)field.focus();else{field.removeAttribute('aria-invalid');$('#custom-error').hidden=true;}
+});
+$('#thread').addEventListener('input',e=>{if(e.target.id==='custom-preference'&&e.target.value.trim()){e.target.removeAttribute('aria-invalid');$('#custom-error').hidden=true;}});
+$('#thread').addEventListener('keydown',e=>{if(e.target.id==='custom-preference'&&e.key==='Enter'&&(e.metaKey||e.ctrlKey)){e.preventDefault();e.target.form.requestSubmit();}});
+$('#thread').addEventListener('submit',e=>{
+  e.preventDefault();const form=e.target;let choice=new FormData(form).get('activity');
+  if(choice==='custom'){const field=$('#custom-preference');choice=field.value.trim();if(!choice){field.setAttribute('aria-invalid','true');$('#custom-error').hidden=false;field.focus();return;}}
+  resolveCard(form.closest('.card'),'How should tool activity appear?',escapeHTML(choice));
+  setState('Ready','good');
+  append(assistant('<p>Understood. I’ll keep the conversation calm and use <strong>'+escapeHTML(choice.charAt(0).toLowerCase()+choice.slice(1))+'</strong>. Open the appearance controls to try the spacing before implementation.</p>'));
+});
+$('#thread').addEventListener('click',async e=>{
+  const b=e.target.closest('button');if(!b)return;
+  if(b.dataset.toast)return toast(b.dataset.toast);
+  const card=b.closest('.card');
+  switch(b.dataset.action){
+    case'copy':try{await navigator.clipboard.writeText(b.closest('.message').innerText);toast('Response copied.');}catch{toast('Clipboard access is unavailable in this preview.');}break;
+    case'review':{const d=$('#file-list details');d.open=true;d.scrollIntoView({block:'center',behavior:'smooth'});d.querySelector('summary').focus({preventScroll:true});break;}
+    case'approve':resolveCard(card,'Replace the installed Marilyst app?','Approved in this example · nothing was installed');setState('Ready','good');toast('Example approval recorded. No app was replaced or restarted.');break;
+    case'decline':resolveCard(card,'Replace the installed Marilyst app?','Not now · the sample build stays available');setState('Ready','good');break;
+    case'retry':resolveCard(card,'Composer overflow at 480px','Fix requested · nothing ran in this preview');setState('Ready','good');append(assistant('<p>In the real chat I would shorten the compact composer, re-run the failing check and show the new output here. This preview runs no commands, so no result is shown.</p>'));break;
+    case'leave':resolveCard(card,'Composer overflow at 480px','Left as is · the failing check is still listed above');setState('Paused','warn');break;
+  }
+});
+
+/* ---------- Frame controls ---------- */
+$$('[data-scene]').forEach(b=>b.onclick=()=>render(b.dataset.scene));
+$('#view').onclick=e=>{const b=e.target.closest('button');if(!b)return;$$('#view button').forEach(x=>x.setAttribute('aria-pressed',x===b));document.body.classList.toggle('in-app',b.dataset.value==='app');};
+$('#side-toggle').onclick=()=>document.body.classList.toggle('side-toggled');
+$('#session-filter').oninput=e=>{listQuery=e.target.value.trim().toLowerCase();renderList();};
+document.addEventListener('click',e=>{const b=e.target.closest('[data-toast]');if(b&&!b.closest('#thread'))toast(b.dataset.toast);});
+function toggleSettings(open){const panel=$('#settings'),wasInside=panel.contains(document.activeElement);panel.hidden=!open;$('#appearance').setAttribute('aria-expanded',open);if(open)$('#settings-title').focus();else if(wasInside)$('#appearance').focus();}
+$('#appearance').onclick=()=>toggleSettings($('#settings').hidden);
+$('#settings-close').onclick=()=>{toggleSettings(false);$('#appearance').focus();};
+const pick=(group,b)=>$$(`#${group} button`).forEach(x=>x.setAttribute('aria-pressed',x===b));
+$('#density').onclick=e=>{const b=e.target.closest('button');if(!b)return;pick('density',b);const d={comfortable:[24,12,1.65,15],compact:[18,8,1.55,12],dense:[12,5,1.45,9]}[b.dataset.value];root.setProperty('--space',d[0]+'px');root.setProperty('--paragraph',d[1]+'px');root.setProperty('--leading',d[2]);root.setProperty('--pad',d[3]+'px');};
+$('#width').onclick=e=>{const b=e.target.closest('button');if(!b)return;pick('width',b);root.setProperty('--width',b.dataset.value);};
+$('#font').oninput=e=>{root.setProperty('--font',e.target.value+'px');$('#font-value').textContent=e.target.value+' px';};
+$('#tools-toggle').onchange=e=>{toolsVisible=e.target.checked;applyActivity();};
+$('#summaries-toggle').onchange=e=>document.body.classList.toggle('titles-only',!e.target.checked);$('#light-toggle').onchange=e=>document.body.classList.toggle('light',e.target.checked);
+$('#inspect').onclick=()=>{const i=$('#inspector');i.hidden=!i.hidden;$('#inspect').setAttribute('aria-expanded',!i.hidden);};
+$('#pending-hint').onclick=()=>{const card=$('.card:not(.resolved)');if(!card)return;card.scrollIntoView({block:'end',behavior:'smooth'});card.querySelector('input:checked,button')?.focus({preventScroll:true});};
+$('#attach').onclick=()=>{$('#attachments').innerHTML='<span class="attachment-chip">'+icon('file')+'chat-layout.png <button aria-label="Remove sample attachment" id="remove-attachment">'+icon('close')+'</button></span>';$('#remove-attachment').onclick=()=>{$('#attachments').innerHTML='';$('#attach').focus();};toast('Sample attachment only. No file was accessed.');};
+$('#model').onclick=()=>toast('Model selection belongs here; this preview makes no AI requests.');
+$('#effort').onclick=()=>{const v=$('#effort-value');v.textContent=v.textContent==='Medium'?'High':'Medium';};
+$('#send').onclick=send;
+$('#draft').oninput=e=>{const t=e.target;t.style.height='auto';t.style.height=Math.min(Math.max(t.scrollHeight,30),160)+'px';updateSend();};
+$('#draft').onkeydown=e=>{if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();if($('#draft').value.trim())send();}};
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!$('#settings').hidden)toggleSettings(false);});
+render('question');
+</script>
+</body></html>

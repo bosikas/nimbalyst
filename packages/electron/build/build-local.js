@@ -151,6 +151,9 @@ function main() {
   for (const step of plans.filter(step => !only || step.name === only)) {
     const getInputs = () => {
       const files = inputs().filter(file => affectsComponent(file, step.name));
+      if (step.name === 'dictation' && env.NIMBALYST_LOCAL_SWIFT_PROVENANCE) {
+        files.push(env.NIMBALYST_LOCAL_SWIFT_PROVENANCE);
+      }
       const graph = path.join(cacheDir, `${step.name}-inputs.json`);
       // Rollup's real dependency graph catches cross-layer imports, ignored
       // assets and installed JS dependencies, beyond the conservative groups.

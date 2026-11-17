@@ -39,6 +39,7 @@ import {
 } from '../extensionSessionsService';
 import { OWNER_METADATA_MERGE_SQL, isParentNotificationSuppressed, stripOwnerControlledMetadata } from '../sessionOwnership';
 import { translateAndBind } from '../../../database/sqlite/dialectTranslator';
+import { issueSessionWakeGrant } from '../sessionWakeGrants';
 
 const WS = '/ws/project';
 const ME = 'com.example.owner';
@@ -65,6 +66,35 @@ beforeEach(() => {
 });
 
 describe('extension session broker scoping', () => {
+  it('wakes only the token target once, preserving ownership and denying reads', async () => {
+    const token = issueSessionWakeGrant(scope, 'plain');
+    await expect(dispatchExtensionSessionsOp(scope, 'wake', { token, prompt: '  CI failed  ', sessionId: 'theirs' }))
+      .resolves.toEqual({ queuedPromptId: 'q-1' });
+    expect(queue.queuePromptForSession).toHaveBeenCalledWith('plain', 'CI failed', undefined, {
+      promptProvenance: { actor: 'system', origin: 'automation' },
+    });
+    await expect(dispatchExtensionSessionsOp(scope, 'wake', { token, prompt: 'again' })).rejects.toThrow(/Invalid/);
+    await expect(dispatchExtensionSessionsOp(scope, 'getResult', { sessionId: 'plain' })).rejects.toThrow(/not owned/);
+    expect(AISessionsRepository.updateMetadata).not.toHaveBeenCalled();
+    expect(queue.queuePromptForSession).toHaveBeenCalledTimes(1);
+  });
+
+  it('validates prompt before consumption and rejects canceled or unavailable targets', async () => {
+    const token = issueSessionWakeGrant(scope, 'plain');
+    await expect(dispatchExtensionSessionsOp(scope, 'wake', { token, prompt: ' ' })).rejects.toThrow(/prompt/);
+    await dispatchExtensionSessionsOp(scope, 'revokeWake', { token });
+    await expect(dispatchExtensionSessionsOp(scope, 'wake', { token, prompt: 'CI done' })).rejects.toThrow(/Invalid/);
+    for (const sessionId of ['missing', 'mine-elsewhere', 'mine-ws']) {
+      await expect(dispatchExtensionSessionsOp(scope, 'wake', {
+        token: issueSessionWakeGrant(scope, sessionId), prompt: 'CI done',
+      })).rejects.toThrow(/unavailable/);
+    }
+    sessions.get('plain').isArchived = true;
+    await expect(dispatchExtensionSessionsOp(scope, 'wake', {
+      token: issueSessionWakeGrant(scope, 'plain'), prompt: 'CI done',
+    })).rejects.toThrow(/unavailable/);
+    expect(queue.queuePromptForSession).not.toHaveBeenCalled();
+  });
   it('refuses every per-session op on sessions this extension does not own in this workspace', async () => {
     for (const sessionId of ['theirs', 'plain', 'mine-elsewhere', 'missing']) {
       for (const [op, args] of [

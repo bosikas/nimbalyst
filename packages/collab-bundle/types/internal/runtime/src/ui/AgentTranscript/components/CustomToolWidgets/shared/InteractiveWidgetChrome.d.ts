@@ -12,9 +12,9 @@
  * incapable of acquiring a network or collaboration dependency through its
  * chrome.
  *
- * The class strings below are byte-identical to the ones AskUserQuestionWidget
- * emitted before the extraction; `rootClassName` is optional so that widget can
- * keep its exact markup while new consumers attach their own DOM marker.
+ * Semantic classes let desktop themes adjust presentation without changing
+ * the widgets’ selection, submission or transport behavior. `rootClassName`
+ * remains optional for widget-specific markers.
  */
 import React from 'react';
 /** `active` is an open/pending widget; `resolved` is a completed or cancelled one. */

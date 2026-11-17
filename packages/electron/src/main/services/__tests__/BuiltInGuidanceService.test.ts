@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, expect, it, vi } from 'vitest';
-import { buildBuiltInGuidanceCatalog, createBuiltInGuidanceService } from '../BuiltInGuidanceService';
+import { buildAgentGuidancePreview, buildBuiltInGuidanceCatalog, createBuiltInGuidanceService } from '../BuiltInGuidanceService';
 import { BUILT_IN_GUIDANCE, setBuiltInGuidanceSettingsLoader } from '@nimbalyst/runtime/ai/builtInGuidance';
 import { buildClaudeCodeSystemPrompt } from '@nimbalyst/runtime/ai/prompt';
 import { buildCodexSystemPrompt } from '@nimbalyst/runtime/ai/server/providers/codex/codexSystemPrompt';
@@ -15,7 +15,57 @@ it('previews every built-in section from its real builder, including the optiona
     expect(entry.previews.every(({ text }) => text.trim().length > 0), entry.id).toBe(true);
   }
   expect(catalog.find(({ id }) => id === 'git-commits')).toMatchObject({ enabled: false });
-  expect(catalog.find(({ id }) => id === 'session-metadata')?.previews.some(({ text }) => text.includes('<SYSTEM_REMINDER>'))).toBe(true);
+  expect(catalog.find(({ id }) => id === 'session-naming-reminder')?.previews.some(({ text }) => text.includes('<SYSTEM_REMINDER>'))).toBe(true);
+});
+
+it('persists custom sections, preserves them across toggles, and restores provider defaults on reset', () => {
+  let saved: unknown = {};
+  let text: unknown = {};
+  const storage = { read: () => saved, write: (value: unknown) => { saved = value; }, readText: () => text, writeText: (value: unknown) => { text = value; } };
+  const service = createBuiltInGuidanceService(storage);
+  setBuiltInGuidanceSettingsLoader(service.getSettings, service.getText);
+  service.updateText('git-commits', 'Use my review process before committing.');
+  service.updateText('worktree', 'Keep changes in the assigned worktree.');
+  const options = { isMetaAgent: false, workflowPreset: 'default' as const, hasOutOfBandNaming: false, sessionDirective: 'Keep the human request.' };
+  const codex = buildCodexSystemPrompt(options);
+  expect(codex).toContain('Use my review process before committing.');
+  expect(codex).not.toContain('developer_git_commit_proposal');
+  expect(codex).not.toContain('Keep changes in the assigned worktree.');
+  expect(codex).toContain('Keep the human request.');
+  expect(buildClaudeCodeSystemPrompt({})).toContain('Use my review process before committing.');
+  service.update({ 'git-commits': false });
+  expect(buildCodexSystemPrompt(options)).not.toContain('Use my review process');
+  expect(createBuiltInGuidanceService(storage).getCatalog().find(entry => entry.id === 'git-commits')).toMatchObject({ enabled: false, customText: 'Use my review process before committing.' });
+  service.update({ 'git-commits': true });
+  expect(buildCodexSystemPrompt(options)).toContain('Use my review process');
+  service.updateText('git-commits', null);
+  expect(buildCodexSystemPrompt(options)).toContain('developer_git_commit_proposal');
+  expect(service.getCatalog().find(entry => entry.id === 'git-commits')?.customText).toBeUndefined();
+});
+
+it('rejects invalid text updates without writing, keeps the previous text on storage failures', () => {
+  const writeText = vi.fn();
+  const service = createBuiltInGuidanceService({ read: () => ({}), write: vi.fn(), readText: () => ({ identity: 'Saved identity.' }), writeText });
+  for (const [id, text] of [['unknown', 'text'], ['identity', ''], ['identity', '  '], ['identity', 42], ['identity', 'a'.repeat(100_001)]]) {
+    expect(() => service.updateText(id, text)).toThrow();
+  }
+  expect(writeText).not.toHaveBeenCalled();
+  writeText.mockImplementation(() => { throw new Error('Disk full'); });
+  expect(() => service.updateText('identity', 'New identity.')).toThrow('Disk full');
+  expect(service.getText()).toEqual({ identity: 'Saved identity.' });
+});
+
+it('resolves saved controls through the provider builders and labels baseline scope', () => {
+  const preview = buildAgentGuidancePreview('openai-codex', '/workspace', { 'git-commits': false }, { identity: 'Custom identity.' }, false);
+  expect(preview.role).toBe('Developer instructions');
+  expect(preview.text).toContain('Custom identity.');
+  expect(preview.text).not.toContain('developer_git_commit_proposal');
+  expect(preview.scope).toContain('Excludes provider-owned prompts');
+  const claude = buildAgentGuidancePreview('claude-code', '/workspace', {}, { identity: 'Custom identity.' }, false);
+  expect(claude.role).toBe('System prompt append');
+  expect(claude.text).toContain('Custom identity.');
+  expect(claude.text).not.toContain('## Tracker References');
+  expect(() => buildAgentGuidancePreview('claude-code', '', {}, {}, false)).toThrow('workspace path');
 });
 
 it('persists controls across service recreation and changes future prompts without losing human instructions', () => {

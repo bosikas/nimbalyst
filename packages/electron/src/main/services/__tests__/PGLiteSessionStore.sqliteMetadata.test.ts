@@ -40,6 +40,24 @@ import { readSessionWorkSummary } from '@nimbalyst/runtime/ai/sessionWorkSummary
 let tmpDir: string;
 let sqlite: SQLiteDatabase;
 
+it('automatically archives a completed worktree review without archiving its coordinator or deleting its checkout', async () => {
+  const store = createPGLiteSessionStore(sqlite);
+  const checkout = path.join(tmpDir, 'review-checkout');
+  fs.mkdirSync(checkout);
+  fs.writeFileSync(path.join(checkout, 'evidence.txt'), 'Review evidence');
+  await sqlite.query("INSERT INTO worktrees(id,workspace_id,name,path,branch) VALUES ('review-tree','/p','Review',$1,'review')", [checkout]);
+  await store.create({ id: 'coordinator', provider: 'openai-codex', workspaceId: '/p' });
+  const now = Date.now();
+  const completedAt = now - 11 * 60_000;
+  await store.create({ id: 'worktree-review', provider: 'openai-codex', workspaceId: '/p', parentSessionId: 'coordinator', worktreeId: 'review-tree', metadata: { autoArchiveAfterMinutes: 10, autoArchiveCompletedAt: completedAt } });
+  await sqlite.query("UPDATE ai_sessions SET status='idle', last_activity=$1, updated_at=$1, created_at=$1 WHERE id='worktree-review'", [new Date(completedAt).toISOString()]);
+  await store.updateMetadata('worktree-review', { isArchived: true, autoArchiveGuard: { minutes: 10, completedAt, cutoff: new Date(now - 10 * 60_000).toISOString() } });
+  expect((await store.get('worktree-review'))).toMatchObject({ isArchived: true, worktreeId: 'review-tree', parentSessionId: 'coordinator' });
+  expect((await store.get('coordinator'))?.isArchived).toBe(false);
+  expect((await sqlite.query("SELECT is_archived FROM worktrees WHERE id='review-tree'")).rows).toEqual([{ is_archived: 0 }]);
+  expect(fs.readFileSync(path.join(checkout, 'evidence.txt'), 'utf8')).toBe('Review evidence');
+});
+
 it('atomically defers automatic archival for active or pinned descendants and changed policies, then preserves the subtree on archive', async () => {
   const store = createPGLiteSessionStore(sqlite);
   const now = Date.now();

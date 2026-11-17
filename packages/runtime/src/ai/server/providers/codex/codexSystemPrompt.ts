@@ -2,6 +2,7 @@ import { buildMetaAgentSystemPrompt, type MetaAgentWorkflowPreset } from '../../
 import type { DocumentContext } from '../../types';
 import { createGuidanceRenderer, type GuidanceRenderOptions } from '../../../builtInGuidance';
 import { getPreferredAgentLanguage } from '../../preferredAgentLanguageConfig';
+import { SESSION_WORK_SUMMARY_GUIDANCE } from '../../../sessionWorkSummary';
 import {
   areTrackerToolsEnabled,
   isInternalMcpServerEnabled,
@@ -39,6 +40,7 @@ export function buildCodexSystemPrompt(options: CodexSystemPromptOptions): strin
       model: options.model,
       sessionDirective,
       guidanceSettings: options.guidanceSettings,
+      guidanceText: options.guidanceText,
       onGuidance: options.onGuidance,
     });
   }
@@ -70,6 +72,7 @@ When asked to commit, use developer_git_commit_proposal (server nimbalyst) for a
       : `Also set name: 2-5 words describing the user's request, descriptive part first and action last. Never rename without an explicit request.${language ? ` Use the preferred language: ${language}.` : ''}`;
     sections.push(guidance('session-metadata', `## Session metadata
 Before finishing the first turn, once the task is understood (read a referenced plan first), call update_session_meta (server nimbalyst) with add (2-4 lowercase hyphen-separated work/area tags) and phase. ${naming}
+${SESSION_WORK_SUMMARY_GUIDANCE}
 Update metadata when the work changes, not every message. Reuse workspace tags; status belongs in phase. Phases: backlog; planning for exploration/design/research and plan-only deliverables even when finished; implementing for code; validating for testing/review; complete. After file edits, add uncommitted/remove committed; after a commit includes these changes, reverse them; further edits reverse them again.`));
   }
   const voiceContext = documentContext as DocumentContext & {
