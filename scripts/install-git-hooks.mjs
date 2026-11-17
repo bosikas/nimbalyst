@@ -40,6 +40,21 @@ try {
   skip('not a git repository, or git is unavailable');
 }
 
+// Respect an explicit checkout-local opt-out across future pnpm installs.
+// This is Git's supported setting for disabling all automatic hooks.
+try {
+  const configuredPath = execFileSync('git', ['config', '--get', 'core.hooksPath'], {
+    cwd: repoRoot,
+    encoding: 'utf8',
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }).trim();
+  if (configuredPath === '/dev/null') {
+    skip('hooks explicitly disabled for this checkout');
+  }
+} catch (error) {
+  if (error.status !== 1) skip('could not read the existing hook configuration');
+}
+
 const hooksDir = path.join(repoRoot, '.githooks');
 if (!existsSync(hooksDir)) {
   skip(`hooks directory not found at ${hooksDir}`);
