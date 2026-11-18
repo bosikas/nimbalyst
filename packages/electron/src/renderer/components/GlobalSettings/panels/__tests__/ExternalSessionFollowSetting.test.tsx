@@ -53,6 +53,11 @@ it('offers external following only in Agent Features and persists deliberate tog
   const originalApi = window.electronAPI;
   window.electronAPI = { ...originalApi, settingsSet,
     claudeCode: { ...originalApi?.claudeCode, getSettings: vi.fn().mockResolvedValue({}) },
+    agentGuidance: {
+      ...originalApi?.agentGuidance,
+      getCatalog: vi.fn().mockResolvedValue([]),
+      getCodexBase: vi.fn().mockResolvedValue({}),
+    },
     agentWorkflows: { ...originalApi?.agentWorkflows, getSettings: vi.fn().mockResolvedValue({
       sourceSettings: { workspaceClaudeCompatibilityEnabled: false, includeProjectClaudeSources: false, includeUserClaudeSources: false, extensionWorkflowsEnabled: false },
       exportSettings: { codexEnabled: false, claudeGeneratedExtensionWorkflowsEnabled: false },

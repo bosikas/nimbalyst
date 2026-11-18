@@ -235,7 +235,8 @@ it('routes phone snapshots through production authority and publishes canonical 
   for (const id of ['root', 'other']) await store.create({ id, provider: 'claude-code', workspaceId: '/p' });
   await store.create({ id: 'child', provider: 'claude-code', workspaceId: '/p', parentSessionId: 'root', createdBySessionId: 'root' });
   await sqlite.query("INSERT INTO worktrees (id, workspace_id, name, path, branch) VALUES ('wt', '/p', 'wt', '/p/wt', 'tree-test')");
-  await store.create({ id: 'foreign', provider: 'claude-code', workspaceId: '/p', worktreeId: 'wt' });
+    await store.create({ id: 'worktree-parent', provider: 'claude-code', workspaceId: '/p', worktreeId: 'wt' });
+    await store.create({ id: 'foreign', provider: 'claude-code', workspaceId: '/foreign' });
   for (let depth = 0; depth <= MAX_SESSION_DEPTH; depth++) await store.create({ id: `deep-${depth}`, provider: 'claude-code', workspaceId: '/p', parentSessionId: depth ? `deep-${depth - 1}` : null });
   vi.mocked(AISessionsRepository.getStore).mockReturnValue(store);
   vi.mocked(AISessionsRepository.get).mockImplementation(id => store.get(id));
@@ -261,7 +262,8 @@ it('routes phone snapshots through production authority and publishes canonical 
     expect((await store.get('child'))?.createdBySessionId).toBeNull();
     expect(await phoneMove('other', 'child')).toMatchObject({ parentSessionId: null, createdBySessionId: null });
     expect((await store.get('other'))?.parentSessionId).toBeNull();
-    expect(await phoneMove('child', 'foreign')).toMatchObject({ parentSessionId: 'other', createdBySessionId: null });
+    expect(await phoneMove('child', 'worktree-parent')).toMatchObject({ parentSessionId: 'worktree-parent', createdBySessionId: null });
+    expect(await phoneMove('child', 'foreign')).toMatchObject({ parentSessionId: 'worktree-parent', createdBySessionId: null });
     expect(await phoneMove('child', null)).toMatchObject({ parentSessionId: null, createdBySessionId: null });
     expect((await store.get('child'))?.createdBySessionId).toBeNull();
     expect(await phoneMove('child', `deep-${MAX_SESSION_DEPTH}`)).toMatchObject({ parentSessionId: null, createdBySessionId: null });

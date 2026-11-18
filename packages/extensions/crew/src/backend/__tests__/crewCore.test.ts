@@ -242,6 +242,12 @@ class FakeSessions implements HostSessions {
     this.sent.push({ sessionId, prompt });
     return { queuedPromptId: `q${this.sent.length}` };
   }
+  async wake(_token: string, _prompt: string): Promise<{ queuedPromptId: string }> {
+    throw new Error('Wake is not implemented by this test fixture.');
+  }
+  async revokeWake(_token: string): Promise<void> {
+    throw new Error('Wake revocation is not implemented by this test fixture.');
+  }
   async getStatus(sessionId: string) {
     const s = this.sessions.get(sessionId)!;
     return {

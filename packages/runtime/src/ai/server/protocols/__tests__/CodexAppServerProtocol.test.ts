@@ -290,6 +290,24 @@ describe('CodexAppServerProtocol', () => {
     protocol.cleanupSession(session);
   });
 
+  it.each(['start', 'resume'] as const)('uses a selected base prompt only on thread %s while preserving developer guidance and permissions', async (kind) => {
+    const protocol = new CodexAppServerProtocol();
+    const options = { workspacePath: '/tmp/ws', raw: { baseInstructions: 'Custom base from Markdown.', systemPrompt: 'Nimbalyst developer additions.' } };
+    const pending = kind === 'start' ? protocol.createSession(options) : protocol.resumeSession('saved-thread', options);
+    const init = await nextWrittenMatching(child, 'initialize');
+    child.emitLine({ id: init.id, result: {} });
+    const request = await nextWrittenMatching(child, `thread/${kind}`);
+    child.emitLine({ id: request.id, result: { thread: { id: 'saved-thread' } } });
+    const session = await pending;
+    const params = request.params as Record<string, unknown>;
+    expect(params.developerInstructions).toBe('Nimbalyst developer additions.');
+    expect(params.approvalPolicy).toBe('on-request');
+    expect(params.sandbox).toBe('workspace-write');
+    if (kind === 'start') expect(params.baseInstructions).toBe('Custom base from Markdown.');
+    else expect(params).not.toHaveProperty('baseInstructions');
+    protocol.cleanupSession(session);
+  });
+
   it('spawns the codex binary, completes the initialize handshake, and starts a thread', async () => {
     const protocol = new CodexAppServerProtocol();
     const sessionPromise = protocol.createSession({

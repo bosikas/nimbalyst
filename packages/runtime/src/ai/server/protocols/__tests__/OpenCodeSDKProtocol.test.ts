@@ -1,6 +1,7 @@
 // @vitest-environment node
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { registerSessionStoreFixture } from '../../../adapters/__tests__/sessionStoreFixture';
 import { promises as fs } from 'fs';
 import { join } from 'path';
 import { tmpdir } from 'os';
@@ -113,6 +114,8 @@ function createMockSdkModule(
     permissionReplyFn,
   };
 }
+
+registerSessionStoreFixture();
 
 describe('OpenCodeSDKProtocol', () => {
   beforeEach(() => {

@@ -8,6 +8,7 @@
  * standalone HTTP server it used to run was retired in Phase 7.
  */
 
+import { instructionTemplate } from '@nimbalyst/runtime/ai/instructionTemplates';
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 
 let updateSessionSummaryFn: ((sessionId: string, args: unknown) => Promise<string>) | undefined;
@@ -99,49 +100,49 @@ export async function buildSessionMetaToolSchemas(_aiSessionId: string): Promise
     {
       name: "update_session_meta",
       description:
-        "Update session metadata. Set name, tags, and phase on the first call; update tags/phase on later calls. Do not rename an already-named session unless the user asks. Returns the full current metadata.",
+        instructionTemplate('metadata-tool.description'),
       inputSchema: {
         type: "object",
         properties: {
           name: {
             type: "string",
             description:
-              'Concise session name (2-5 words), descriptive part first (e.g. "Dark mode implementation"). Set on the first call only, unless the user asks for a rename.',
+              instructionTemplate('metadata-tool.name'),
           },
           add: {
             type: "array",
             items: { type: "string" },
-            description: "Tags to add: lowercase hyphen-separated type of work (bug-fix, feature, refactor) and area/module (electron, runtime, ios). Reuse existing workspace tags when known.",
+            description: instructionTemplate('metadata-tool.add'),
           },
           remove: {
             type: "array",
             items: { type: "string" },
-            description: "Tags to remove from the session",
+            description: instructionTemplate('metadata-tool.remove'),
           },
           phase: {
             type: "string",
             enum: ["backlog", "planning", "implementing", "validating", "complete"],
             description:
-              'Kanban phase: "planning" for exploration/design, "implementing" for coding, "validating" for testing/review. Do not set "complete" on your own judgment that the work is finished — but a commit is the user\'s approval, so set it once they have committed the work this session did.',
+              instructionTemplate('metadata-tool.phase'),
           },
           workflowPreset: {
             type: "string",
             enum: ["default", "implement-review-test", "research"],
             description:
-              'Meta-agent workflow mode: "default" autonomous loop, "implement-review-test" implement/review/test loop in one worktree, "research" decomposes across child sessions. Takes effect next turn.',
+              instructionTemplate('metadata-tool.workflow-preset'),
           },
         },
       },
     },
     {
       name: 'update_session_summary',
-      description: 'Before finishing a turn, update this session’s whole-work scope and remaining work. Metadata only; no extra inference. Disabled sessions are unchanged.',
+      description: instructionTemplate('metadata-tool.summary-description'),
       inputSchema: {
         type: 'object', additionalProperties: false,
         required: ['scope', 'remaining', 'attention', 'areas'],
         properties: {
-          scope: { type: 'string', maxLength: 220, description: 'Stable whole-session purpose, 6–16 words; not the latest activity.' },
-          remaining: { type: 'string', maxLength: 280, description: 'Concrete outstanding work or review; empty only when nothing remains.' },
+          scope: { type: 'string', maxLength: 220, description: instructionTemplate('metadata-tool.scope') },
+          remaining: { type: 'string', maxLength: 280, description: instructionTemplate('metadata-tool.remaining') },
           attention: { type: 'string', enum: ['next', 'blocked', 'review', 'none', 'unknown'] },
           areas: { type: 'array', maxItems: 6, items: { type: 'string', maxLength: 40 } },
         },
@@ -166,7 +167,7 @@ function buildSessionMetaResponse(
 ): string {
   const parts = [...notes];
   parts.push(`Name: ${after.name || '(not set)'}`);
-  parts.push(`Tags: ${after.tags.length > 0 ? after.tags.map(t => `#${t}`).join(', ') : '(none)'}`);
+  parts.push(instructionTemplate('metadata-tool.tags-response', [after.tags.length > 0 ? after.tags.map(t => `#${t}`).join(', ') : '(none)']));
   parts.push(`Phase: ${after.phase || '(not set)'}`);
   const summary = parts.join('\n');
   return JSON.stringify({ summary, before, after });
@@ -191,7 +192,7 @@ export async function dispatchSessionMetaTool(
         if (!updateSessionSummaryFn) throw new Error('Session summaries are not available.');
         return { content: [{ type: 'text', text: await updateSessionSummaryFn(aiSessionId, args) }], isError: false };
       } catch (error) {
-        return { content: [{ type: 'text', text: `Summary not updated: ${error instanceof Error ? error.message.slice(0, 240) : 'Invalid submission.'}` }], isError: true };
+        return { content: [{ type: 'text', text: instructionTemplate('metadata-tool.summary-error', [error instanceof Error ? error.message.slice(0, 240) : 'Invalid submission.']) }], isError: true };
       }
     }
     if (toolName === "update_session_meta") {
@@ -211,7 +212,7 @@ export async function dispatchSessionMetaTool(
           content: [
             {
               type: "text",
-              text: 'Error: "workflowPreset" must be one of "default", "implement-review-test", "research".',
+              text: instructionTemplate('metadata-tool.workflow-error'),
             },
           ],
           isError: true,
@@ -224,7 +225,7 @@ export async function dispatchSessionMetaTool(
           content: [
             {
               type: "text",
-              text: 'Error: At least one of "name", "add", "remove", "phase", or "workflowPreset" must be provided.',
+              text: instructionTemplate('metadata-tool.empty-error'),
             },
           ],
           isError: true,
@@ -235,7 +236,7 @@ export async function dispatchSessionMetaTool(
       const before = await snapshotSessionMeta(aiSessionId);
       const notes: string[] = [];
 
-      // Handle name (write-once)
+      // Explicit names may be initial assignments or user-requested renames.
       if (sessionName) {
         if (typeof sessionName !== "string") {
           return {
@@ -262,6 +263,8 @@ export async function dispatchSessionMetaTool(
         }
 
         try {
+          // The host also marks the session named; matching provisional text
+          // alone does not make an explicit first assignment a no-op.
           await updateSessionTitleFn!(aiSessionId, sessionName);
           notes.push(`Set name: "${sessionName}"`);
         } catch (error) {
@@ -311,22 +314,25 @@ export async function dispatchSessionMetaTool(
             }
           }
 
-          const metadataUpdate: Record<string, unknown> = { tags: newTags };
-          if (phase) metadataUpdate.phase = phase;
+          const metadataUpdate: Record<string, unknown> = {};
+          if (!getSessionTagsFn || newTags.length !== currentTags.length || newTags.some((tag, index) => tag !== currentTags[index])) metadataUpdate.tags = newTags;
+          if (phase && (!getSessionPhaseFn || phase !== before.phase)) metadataUpdate.phase = phase;
           if (workflowPreset) metadataUpdate.workflowPreset = workflowPreset;
 
-          await updateSessionMetadataFn(aiSessionId, metadataUpdate);
+          if (Object.keys(metadataUpdate).length) await updateSessionMetadataFn(aiSessionId, metadataUpdate);
 
-          if (addTags?.length) notes.push(`Added tags: ${addTags.map(t => `#${t}`).join(', ')}`);
-          if (removeTags?.length) notes.push(`Removed tags: ${removeTags.map(t => `#${t}`).join(', ')}`);
-          if (phase) notes.push(`Set phase: ${phase}`);
+          const added = newTags.filter(tag => !currentTags.includes(tag));
+          const removed = currentTags.filter(tag => !newTags.includes(tag));
+          if (added.length) notes.push(`Added tags: ${added.map(t => `#${t}`).join(', ')}`);
+          if (removed.length) notes.push(`Removed tags: ${removed.map(t => `#${t}`).join(', ')}`);
+          if (metadataUpdate.phase) notes.push(`Set phase: ${phase}`);
         } catch (error) {
           console.error("[Session Naming MCP] Failed to update tags:", error);
           return {
             content: [
               {
                 type: "text",
-                text: `Error updating tags: ${error instanceof Error ? error.message : "Unknown error"}`,
+                text: instructionTemplate('metadata-tool.tags-error', [error instanceof Error ? error.message : "Unknown error"]),
               },
             ],
             isError: true,
@@ -348,10 +354,10 @@ export async function dispatchSessionMetaTool(
 
         try {
           const metadataUpdate: Record<string, unknown> = {};
-          if (phase) metadataUpdate.phase = phase;
+          if (phase && (!getSessionPhaseFn || phase !== before.phase)) metadataUpdate.phase = phase;
           if (workflowPreset) metadataUpdate.workflowPreset = workflowPreset;
-          await updateSessionMetadataFn(aiSessionId, metadataUpdate);
-          if (phase) notes.push(`Set phase: ${phase}`);
+          if (Object.keys(metadataUpdate).length) await updateSessionMetadataFn(aiSessionId, metadataUpdate);
+          if (metadataUpdate.phase) notes.push(`Set phase: ${phase}`);
           if (workflowPreset) notes.push(`Set workflow preset: ${workflowPreset}`);
         } catch (error) {
           console.error("[Session Naming MCP] Failed to update session metadata:", error);
@@ -359,7 +365,7 @@ export async function dispatchSessionMetaTool(
             content: [
               {
                 type: "text",
-                text: `Error updating session metadata: ${error instanceof Error ? error.message : "Unknown error"}`,
+                text: instructionTemplate('metadata-tool.update-error', [error instanceof Error ? error.message : "Unknown error"]),
               },
             ],
             isError: true,

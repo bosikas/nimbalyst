@@ -9,6 +9,7 @@
  */
 
 import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { registerSessionStoreFixture } from '../../../adapters/__tests__/sessionStoreFixture';
 
 vi.mock('electron', async () => ({
   app: { ...(await import('../../../../../../electron/test-stubs/privateUserData')).testApp, isPackaged: false },
@@ -123,6 +124,8 @@ type PromptController = { isEnded(): boolean };
 async function waitForQueries(count: number): Promise<void> {
   await vi.waitFor(() => expect(queryMock.mock.calls.length).toBe(count), { timeout: 5000 });
 }
+
+registerSessionStoreFixture();
 
 describe('overlapping ClaudeCodeProvider turns', () => {
   const started: LiveQuery[] = [];

@@ -2,6 +2,9 @@
 import React from 'react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { createStore, Provider } from 'jotai';
+import { DEFAULT_SESSION_LIST_APPEARANCE } from '../../../../shared/sessionListAppearance';
+import { settingAtom } from '../../../store/atoms/settingAtomFamily';
 
 vi.mock('@nimbalyst/runtime/ui/icons/MaterialSymbol', () => ({
   MaterialSymbol: ({ icon, className }: { icon: string; className?: string }) => (
@@ -88,6 +91,12 @@ function renderExpandedWorkstream(
   onSessionPinToggle: (sessionId: string, isPinned: boolean) => void,
   onWorkstreamPinToggle = vi.fn(),
 ) {
+  const viewStore = createStore();
+  viewStore.set(settingAtom('ui.sessionListAppearance'), {
+    ...DEFAULT_SESSION_LIST_APPEARANCE,
+    activeChildrenFirst: false,
+    olderChildren: 1,
+  });
   return render(
     <WorkstreamGroup
       type="workstream"
@@ -106,6 +115,7 @@ function renderExpandedWorkstream(
       childCount={children.length}
       projectPath={workspacePath}
     />,
+    { wrapper: ({ children }) => <Provider store={viewStore}>{children}</Provider> },
   );
 }
 

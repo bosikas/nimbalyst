@@ -36,6 +36,7 @@ import { measureCodexContext, recordCodexContext } from './codex/codexContextIns
 import { codexToolExposure } from './codex/codexToolExposure';
 import { buildCodexSystemPrompt, CODEX_SESSION_NAMING_REMINDER_PROMPT } from './codex/codexSystemPrompt';
 import { createGuidanceRenderer, isBuiltInGuidanceEnabled } from '../../builtInGuidance';
+import { resolveCodexBaseInstructions } from '../../codexBaseInstructions';
 import { resolveCodexBinaryPath } from '../protocols/codexAppServer/codexAppServerBinary';
 import { listCodexCatalogModels, type CodexCatalogModel } from '../protocols/codexAppServer/modelCatalog';
 import { McpConfigService } from '../services/McpConfigService';
@@ -1187,6 +1188,11 @@ export class OpenAICodexProvider extends BaseAgentProvider {
         cachedLiveSession = undefined;
       }
       const existingSessionId = this.sessions.getSessionId(sessionId || '');
+      const baseInstructions = resolveCodexBaseInstructions({
+        hasLiveSession: !!cachedLiveSession,
+        persistedThreadId: existingSessionId,
+        transport: this.transport,
+      });
       // console.log('[CODEX] Session lookup:', {
       //   sessionId,
       //   existingSessionId,
@@ -1246,6 +1252,7 @@ export class OpenAICodexProvider extends BaseAgentProvider {
         raw: {
           nimbalystSessionId: sessionId,
           systemPrompt,
+          ...(baseInstructions === undefined ? {} : { baseInstructions }),
           abortSignal: abortController.signal,
           agentVerified: permissionDecision.agentVerified === true,
           codexConfigOverrides: {

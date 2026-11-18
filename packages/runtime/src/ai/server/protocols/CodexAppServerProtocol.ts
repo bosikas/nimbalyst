@@ -223,7 +223,9 @@ export class CodexAppServerProtocol implements AgentProtocol {
     // ThreadResumeParams accepts the same surface as ThreadStartParams minus
     // `ephemeral`. Drop it and replace `model: null` with omission so codex
     // can fall back to the persisted thread's model when we have no override.
-    const { ephemeral: _ephemeral, model, ...resumeBase } = startParams as ThreadStartParams & { ephemeral?: boolean };
+    // Base instructions belong to the persisted thread. Global file changes
+    // must never rewrite an existing conversation when it is reattached.
+    const { ephemeral: _ephemeral, baseInstructions: _baseInstructions, model, ...resumeBase } = startParams as ThreadStartParams & { ephemeral?: boolean };
     const resumeParams: Record<string, unknown> = {
       ...resumeBase,
       threadId: sessionId,

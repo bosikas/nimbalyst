@@ -5,6 +5,7 @@ import { activeSessionIdAtom, sessionPromptAdditionsAtom } from '../../store/ato
 import { navigateSettingsInPlaceAtom } from '../../store/atoms/settingsNavigation';
 import type { SettingsCategory } from './SettingsSidebar';
 import { BuiltInGuidancePanel } from './BuiltInGuidancePanel';
+import { CodexBasePromptPanel } from './CodexBasePromptPanel';
 import { InstalledSkillsPanel } from './InstalledSkillsPanel';
 import { ToolsMcpPanel } from './panels/ToolsMcpPanel';
 import { ProjectPermissionsPanel } from './panels/ProjectPermissionsPanel';
@@ -74,6 +75,11 @@ function EffectiveSetupPanel({ workspacePath }: { workspacePath: string | null }
       <p className="mb-2 break-all text-xs text-[var(--nim-text-muted)]">{workspacePath} · {preview.role}</p>
       <p className="mb-2 text-xs text-[var(--nim-text-muted)]">{preview.scope}</p>
       <pre aria-label="Resolved Nimbalyst guidance" className="agent-setup-prompt">{preview.text || 'No Nimbalyst guidance enabled for this baseline.'}</pre>
+      {preview.provider === 'openai-codex' && (preview.baseInstructions ? <details className="agent-setup-codex-base mt-3">
+        <summary className="cursor-pointer text-xs">Custom Codex base prompt</summary>
+        <p className="my-2 break-all text-xs text-[var(--nim-text-muted)]">{preview.baseInstructions.sourcePath} · {preview.baseInstructions.scope}</p>
+        <pre aria-label="Resolved Codex base prompt" className="agent-setup-prompt">{preview.baseInstructions.text}</pre>
+      </details> : <p className="mt-3 text-xs text-[var(--nim-text-muted)]">Codex base prompt: provider default (owned by Codex, not shown).</p>)}
     </>}
     {sessionId ? <CapturedPromptAdditions sessionId={sessionId} /> : <p className="mt-4 text-xs text-[var(--nim-text-muted)]">Select a session to inspect its captured prompt additions.</p>}
   </div>;
@@ -99,6 +105,7 @@ export function AgentSetupPanel({ workspacePath, children }: { workspacePath: st
     </div>
     <div role="tabpanel" id="agent-setup-content-instructions" aria-labelledby="agent-setup-tab-instructions" hidden={tab !== 'instructions'}>
       <BuiltInGuidancePanel />
+      <CodexBasePromptPanel />
       <InstalledSkillsPanel workspacePath={workspacePath} />
       {children}
     </div>

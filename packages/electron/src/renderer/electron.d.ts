@@ -1075,6 +1075,10 @@ interface ElectronAPI {
     previewSkill: (workspace: string, file: string) => Promise<string>;
     getCatalog: () => Promise<import('@nimbalyst/runtime/ai/builtInGuidance').BuiltInGuidanceEntry[]>;
     update: (settings: import('@nimbalyst/runtime/ai/builtInGuidance').BuiltInGuidanceSettings) => Promise<import('@nimbalyst/runtime/ai/builtInGuidance').BuiltInGuidanceEntry[]>;
+    selectSource: (id: import('@nimbalyst/runtime/ai/builtInGuidance').BuiltInGuidanceId, filePath: string) => Promise<import('@nimbalyst/runtime/ai/builtInGuidance').BuiltInGuidanceEntry[]>;
+    getCodexBase: () => Promise<import('@nimbalyst/runtime/ai/builtInGuidance').CodexBaseInstructionsSource>;
+    updateCodexBase: (text: string | null) => Promise<import('@nimbalyst/runtime/ai/builtInGuidance').CodexBaseInstructionsSource>;
+    selectCodexBaseSource: (filePath: string) => Promise<import('@nimbalyst/runtime/ai/builtInGuidance').CodexBaseInstructionsSource>;
   };
   agentWorkflows: {
     getSettings: () => Promise<{

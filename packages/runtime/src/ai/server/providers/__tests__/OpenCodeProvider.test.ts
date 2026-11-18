@@ -1,6 +1,7 @@
 // @vitest-environment node
 
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { registerSessionStoreFixture } from '../../../adapters/__tests__/sessionStoreFixture';
 import { OpenCodeProvider } from '../OpenCodeProvider';
 import { configureMcpServers } from '../../services/mcpServerConfig';
 import { EventEmitter } from 'events';
@@ -110,6 +111,8 @@ function providerListModel(id: string, name: string) {
     options: {},
   };
 }
+
+registerSessionStoreFixture();
 
 describe('OpenCodeProvider', () => {
   beforeEach(() => {

@@ -16,16 +16,27 @@ import { AgentSetupPanel } from '../AgentSetupPanel';
 
 afterEach(cleanup);
 
+function codexBaseApi(initial: { sourcePath?: string; text?: string; error?: string } = {}) {
+  let base = initial;
+  return {
+    getCodexBase: vi.fn(async () => base),
+    updateCodexBase: vi.fn(async (text: string | null) => { base = text === null ? {} : { sourcePath: '/guidance/codex-base-2.md', text }; return base; }),
+    selectCodexBaseSource: vi.fn(async (filePath: string) => { base = { sourcePath: filePath, text: 'Picked base.' }; return base; }),
+  };
+}
+
 function setup(preview = vi.fn(async (_workspace: string, provider: string): Promise<AgentGuidancePreview> => ({ provider: provider as AgentGuidancePreview['provider'], role: 'Developer instructions', scope: 'Baseline only.', text: `${provider} saved guidance.` }))) {
   const invoke = vi.fn(async (channel: string) => channel === 'mcp-config:get-tool-budget' ? {
     eagerEstTokens: 0,
     groups: [{ configKey: 'nimbalyst-trackers', displayName: 'Trackers', source: 'first-party', loadPolicy: 'deferred', toolCount: 1, estTokens: 10, schemaBytes: 40, enabled: true, lockedOn: false, inclusionReason: 'Workspace tools', tools: [{ name: 'tracker_read', description: 'Read an item.', inputSchema: { type: 'object', properties: { key: { type: 'string' } } } }] }],
   } : undefined);
+  const codexBase = codexBaseApi();
+  const openFileDialog = vi.fn(async () => ({ canceled: false, filePaths: ['/prompts/base.md'] }));
   Object.defineProperty(window, 'electronAPI', { configurable: true, value: {
-    invoke,
-    agentGuidance: { getCatalog: vi.fn(async () => []), preview },
+    invoke, openFileDialog,
+    agentGuidance: { getCatalog: vi.fn(async () => []), preview, ...codexBase },
   } });
-  return { invoke, preview };
+  return { invoke, preview, codexBase, openFileDialog };
 }
 
 it('resolves the selected provider in the explicit workspace and keeps captured additions distinct', async () => {
@@ -67,4 +78,20 @@ it('inspects supplied tool schemas and keeps the saved toggle on a failed update
   fireEvent.click(toggle);
   await view.findByText('Disk full');
   expect((toggle as HTMLInputElement).checked).toBe(true);
+});
+
+it('reports an unreadable Codex base source and shows a custom base in the Codex effective preview', async () => {
+  const preview = vi.fn(async (_workspace: string, provider: string): Promise<AgentGuidancePreview> => ({
+    provider: provider as AgentGuidancePreview['provider'], role: 'Developer instructions', scope: 'Baseline.', text: 'Guidance.',
+    ...(provider === 'openai-codex' ? { baseInstructions: { sourcePath: '/prompts/base.md', text: 'Resolved base.', scope: 'Fresh native threads only.' } } : {}),
+  }));
+  setup(preview);
+  const api = (window as any).electronAPI.agentGuidance;
+  api.getCodexBase.mockResolvedValueOnce({ sourcePath: '/prompts/gone.md', error: 'Cannot open guidance source /prompts/gone.md: ENOENT' });
+  const view = render(<Provider store={createStore()}><AgentSetupPanel workspacePath="/workspace" /></Provider>);
+  expect((await view.findByRole('alert')).textContent).toContain('ENOENT');
+  fireEvent.click(view.getByRole('tab', { name: 'Effective setup' }));
+  expect((await view.findByLabelText('Resolved Codex base prompt')).textContent).toBe('Resolved base.');
+  fireEvent.change(view.getByRole('combobox', { name: 'Guidance preview provider' }), { target: { value: 'claude-code' } });
+  await waitFor(() => expect(view.queryByLabelText('Resolved Codex base prompt')).toBeNull());
 });

@@ -20,6 +20,7 @@
  */
 import * as os from 'os';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { registerSessionStoreFixture } from '../../../../adapters/__tests__/sessionStoreFixture';
 
 import {
   GeminiAntigravityProvider,
@@ -33,6 +34,8 @@ async function collect(stream: AsyncIterableIterator<StreamChunk>): Promise<Stre
   for await (const chunk of stream) out.push(chunk);
   return out;
 }
+
+registerSessionStoreFixture();
 
 describe('GeminiAntigravityProvider.sendMessage', () => {
   // vi.MockInstance with the explicit method signature. The unparameterized
