@@ -5,6 +5,7 @@ import type { SessionChange } from '@nimbalyst/runtime/sync/types';
 import { sessionInbox } from './sessionInboxService';
 import { codexQuestionTurns } from './codexQuestionTurns';
 import { supersedeOpenQuestions } from './supersedeOpenQuestions';
+import { claimTurn } from './turnOwnership';
 import { beginTurnSetup, TurnSetupCancelledError } from './turnSetupStages';
 import { canDispatchIntoDrain } from './drainFollowUp';
 import { publishTurnNotExecuting } from './turnExecutingSync';
@@ -1274,6 +1275,8 @@ export class MessageStreamingHandler {
     let inboxTurn: ReturnType<typeof sessionInbox.current>;
     let questionTurn: ReturnType<typeof codexQuestionTurns.current>;
     const setup = beginTurnSetup(session.id, { submissionId: (documentContext as any)?.submissionId });
+    // A later message for this session replaces this turn; see turnOwnership.ts.
+    const turnClaim = claimTurn(session.id);
     try {
       inboxTurn = ['claude-code', 'openai-codex'].includes(session.provider)
         ? await setup.stage('inbox', () => sessionInbox.begin(session.id, session.workspacePath ?? workspacePath)) : undefined;
@@ -1290,6 +1293,7 @@ export class MessageStreamingHandler {
       let providerCrashed = false;  // The agent subprocess died from a native fault (#1361)
       let sawCompleteChunk = false;  // A terminal 'complete' chunk arrived
       let endedSessionAtComplete = false;  // This turn called endSession; a later 'running' is a new turn
+      let replacedByNewerTurn = false;  // A newer message took the session over before this turn completed
       let settledOnErrorChunk = false;  // The error branch already ended the session
       let firstChunkTime: number | undefined;
       let chunkCount = 0;
@@ -2274,6 +2278,11 @@ export class MessageStreamingHandler {
             // if (isClaudeCode) {
             // }
             sawCompleteChunk = true;
+            // Read once, before this branch can dispatch a queued prompt of its own.
+            replacedByNewerTurn = !turnClaim.isCurrent();
+            if (replacedByNewerTurn) {
+              logger.main.info(`[AIService] Turn for ${session.id} was replaced by a newer message; leaving session state to the newer turn`);
+            }
             perfLog.totalTime = Date.now() - startTime;
             perfLog.streamTime = Date.now() - streamStartTime;
             perfLog.chunkCount = chunkCount;
@@ -2529,15 +2538,18 @@ export class MessageStreamingHandler {
               }
             }
 
-            // Send complete response
-            safeSend(event, 'ai:streamResponse', {
-              sessionId: session.id,
-              content: fullResponse,
-              lastTextSection: lastTextSection.trim() || prevTextSection,
-              isComplete: true,
-              error: providerError,
-              autoContextPending: session.provider === 'claude-code'
-            });
+            // Send complete response. A replaced turn sends none: the renderer
+            // reads `isComplete` as the end of the session's live turn.
+            if (!replacedByNewerTurn) {
+              safeSend(event, 'ai:streamResponse', {
+                sessionId: session.id,
+                content: fullResponse,
+                lastTextSection: lastTextSection.trim() || prevTextSection,
+                isComplete: true,
+                error: providerError,
+                autoContextPending: session.provider === 'claude-code'
+              });
+            }
 
             // Mark session as complete so UI shows agent is ready.
             // Skip if teammates are still active OR if the lead will resume
@@ -2555,7 +2567,9 @@ export class MessageStreamingHandler {
               && (provider as any).willResumeAfterCompletion();
             const queuedChainAlreadyActive = this.svc.sessionsProcessingQueue.has(session.id);
             let queuedContinuationScheduled = false;
-            if (!hasTeammates && !willResume && !queuedChainAlreadyActive) {
+            if (replacedByNewerTurn) {
+              // The newer turn owns the session: it settles it and drives the queue.
+            } else if (!hasTeammates && !willResume && !queuedChainAlreadyActive) {
               queuedContinuationScheduled = await this.svc.tryDispatchNextQueuedPrompt(
                 session.id,
                 workspacePath,
@@ -2575,8 +2589,10 @@ export class MessageStreamingHandler {
               // queued earlier goes onto the live query instead of waiting for it.
               this.svc.requestQueueDrive(session.id, workspacePath, 'drain-follow-up');
             }
-            if (hasTeammates || willResume || queuedChainAlreadyActive || queuedContinuationScheduled) {
-              const reason = hasTeammates
+            if (replacedByNewerTurn || hasTeammates || willResume || queuedChainAlreadyActive || queuedContinuationScheduled) {
+              const reason = replacedByNewerTurn
+                ? 'replaced by a newer turn'
+                : hasTeammates
                 ? 'teammates still active'
                 : willResume
                 ? 'lead resuming'
@@ -2810,7 +2826,7 @@ export class MessageStreamingHandler {
       // running; don't mark it idle.
       const liveState = endedSessionAtComplete ? stateManager.getSessionState(session.id) : undefined;
       const followUpRunning = !!liveState && (liveState.status === 'running' || liveState.isStreaming);
-      if (syncProvider && !this.svc.sessionsProcessingQueue.has(session.id) && !followUpRunning) {
+      if (syncProvider && !this.svc.sessionsProcessingQueue.has(session.id) && !followUpRunning && !replacedByNewerTurn) {
         await publishTurnNotExecuting(syncProvider, session.id);
       }
 
@@ -2860,8 +2876,11 @@ export class MessageStreamingHandler {
         });
       }
 
-      // Mark session as error and end it
-      if (session?.id) {
+      // Mark session as error and end it. Not when a newer turn owns the
+      // session: this turn's failure must not end that one.
+      if (session?.id && !turnClaim.isCurrent()) {
+        logger.main.warn(`[AIService] Replaced turn for ${session.id} failed; leaving session state to the newer turn`);
+      } else if (session?.id) {
         await stateManager.updateActivity({
           sessionId: session.id,
           status: 'error'
@@ -2959,6 +2978,7 @@ export class MessageStreamingHandler {
       // parked-generator case reaches neither exit and is covered by the
       // ticker's own expiry.
       stopTurnLiveness();
+      turnClaim.release();
       await Promise.all([questionRetirement, inboxRetirement]);
 
       // A cancelled turn or a provider that disconnected mid-command never sends
