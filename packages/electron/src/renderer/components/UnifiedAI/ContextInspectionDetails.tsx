@@ -1,10 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import type { CodexContextInspection, CodexContextEvidence } from '@nimbalyst/runtime/ai/server/providers/codex/codexContextInspection';
+import { RecordedStartupDetails, type RecordedStartup } from './RecordedStartupDetails';
 
 interface Inspection {
   preparedRequest: CodexContextInspection | null;
   unavailable: string;
   nativeEvidence?: CodexContextEvidence;
+  recordedStartup?: RecordedStartup;
   toolDefinitions?: { groups: Array<{ configKey: string; displayName: string; enabled: boolean; loadPolicy: string; toolCount: number }> };
 }
 
@@ -38,6 +40,7 @@ export function ContextInspectionDetails({ sessionId }: { sessionId: string }) {
       <p className="mt-2">{inspection.preparedRequest.nativeContext}</p>
     </>}
     {inspection && !inspection.preparedRequest && <p className="mt-2">{inspection.unavailable}</p>}
+    {inspection?.recordedStartup && <RecordedStartupDetails recorded={inspection.recordedStartup} />}
     {inspection && <details className="context-tool-visibility mt-3">
       <summary className="cursor-pointer">Tools: configured, deferred &amp; observed</summary>
       <p className="mt-2">Configuration shows availability and discovery policy. Observed calls prove use, not the complete loaded-tool set. Native loaded schemas remain unknown.</p>

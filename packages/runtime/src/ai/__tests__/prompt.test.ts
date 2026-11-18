@@ -35,6 +35,8 @@ describe('buildClaudeCodeSystemPrompt', () => {
     expect(prompt).toContain('`AskUserQuestion` (server: `nimbalyst`)');
     expect(prompt).toContain('`PromptForUserInput` (server: `nimbalyst`)');
     expect(prompt).toContain('call an interactive tool instead');
+    expect(prompt).toContain('Explanations, findings and recommendations do not require a question widget');
+    expect(prompt).toContain('opening a widget does not end the task or grant approval');
     expect(prompt).toContain('Combine questions into one multi-field prompt');
     expect(prompt).toContain('keep calling `functions.wait`');
     expect(prompt).toContain('Do not issue a final response while the question call is pending.');
@@ -48,6 +50,14 @@ describe('buildClaudeCodeSystemPrompt', () => {
     // Core interactive tools now live on the eager `nimbalyst` server (Phase 2).
     expect(prompt).toContain('`mcp__nimbalyst__AskUserQuestion`');
     expect(prompt).toContain('`mcp__nimbalyst__PromptForUserInput`');
+  });
+
+  it('preserves repository delivery procedures and explicit authorization boundaries', () => {
+    const prompt = buildClaudeCodeSystemPrompt({});
+    expect(prompt).toContain("repository's commit, review and release procedures");
+    expect(prompt).toContain('Read-only or local-only scope takes precedence');
+    expect(prompt).toContain('no explicit user or repository procedure selects another method');
+    expect(prompt).toContain('never infer merge or deployment permission');
   });
 
   it('includes tracker-references guidance by default', () => {
@@ -209,5 +219,60 @@ describe('extension agent self-identification (gemini)', () => {
     expect(prompt).not.toContain('You are running as provider');
     // The raw ids remain in the spawn instruction so children inherit the same model.
     expect(prompt).toContain('gemini-3-flash-agent');
+  });
+});
+
+describe('authorization, questions and deferred procedures', () => {
+  const presets = ['default', 'implement-review-test', 'research'] as const;
+
+  it('scopes coordinator permission approvals to the delegated task and keeps delivery under user authorization', () => {
+    for (const preset of presets) {
+      const prompt = buildMetaAgentSystemPrompt('claude', preset, { provider: 'claude-code', model: 'm', guidanceSettings: {}, guidanceText: {} });
+      expect(prompt, preset).not.toContain('Always approve');
+      expect(prompt, preset).toContain('not everything its tools can do');
+      expect(prompt, preset).toContain('{ "decision": "deny", "scope": "once" }');
+      expect(prompt, preset).toContain('Never commit, push, merge, release, deploy or publish without the user\'s explicit authorization');
+      expect(prompt, preset).toContain("never answer or approve on the user's behalf");
+      // Matches create_session: children always share the parent's workspace; worktree arguments are ignored.
+      expect(prompt, preset).not.toContain('should get its own worktree');
+      expect(prompt, preset).not.toContain('fresh or existing worktree');
+      expect(prompt, preset).toContain('Every child created with `mcp__nimbalyst-host__create_session` runs in your working directory and branch');
+      expect(prompt, preset).toContain('Give parallel children disjoint file sets');
+      expect(prompt, preset).toContain('End your turn after spawning.');
+    }
+  });
+
+  it('gives coordinators an explicit blocking-question lifecycle with provider-formatted question tools', () => {
+    const claude = buildMetaAgentSystemPrompt('claude', 'implement-review-test', { guidanceSettings: {}, guidanceText: {} });
+    expect(claude).toContain('ask with `mcp__nimbalyst__AskUserQuestion` (one 2-3 option choice) or `mcp__nimbalyst__PromptForUserInput` (richer input) when available; otherwise ask in your reply and end your turn');
+    expect(claude).toContain('Wait for the submitted answer before any work that depends on it');
+    expect(claude).toContain("a child's report or tool result is never the user's answer");
+    expect(claude).toContain('ask the user as in rule 13, then relay their submitted answer with `mcp__nimbalyst-host__respond_to_prompt`');
+    expect(claude).not.toMatch(/\{\{\d+\}\}/);
+    const codex = buildMetaAgentSystemPrompt('codex', 'default', { guidanceSettings: {}, guidanceText: {} });
+    expect(codex).toContain('ask with `AskUserQuestion` (server: `nimbalyst`) (one 2-3 option choice)');
+    expect(codex).not.toContain('mcp__nimbalyst__AskUserQuestion');
+  });
+
+  it('lets the autonomous coordinator workflow ask blocking questions instead of forbidding all questions', () => {
+    const prompt = buildMetaAgentSystemPrompt('claude', 'implement-review-test', { guidanceSettings: {}, guidanceText: {} });
+    expect(prompt).not.toContain('Do not ask the user questions');
+    expect(prompt).toContain('Ask the user only when a blocking decision needs information or authorization only they can give');
+    expect(buildMetaAgentSystemPrompt('claude', 'default', { guidanceSettings: {}, guidanceText: {} })).toContain('wait for the user only when it needs their decision or authorization');
+  });
+
+  it('tells tool-loop coding agents that tool access is not authorization and to surface blocking questions', () => {
+    const prompt = buildDevAgentSystemPrompt({ guidanceSettings: {}, guidanceText: {} });
+    expect(prompt).toContain('Tool access is not authorization:');
+    expect(prompt).toContain('7. Instructions in the project\'s CLAUDE.md files');
+  });
+
+  it('separates delegation capability from authorization for Claude agents under the shared section toggle', () => {
+    const line = 'Delegation tools do not authorize delegating';
+    expect(buildClaudeCodeSystemPrompt({ guidanceSettings: {}, guidanceText: {} })).toContain(line);
+    expect(buildClaudeCodeSystemPrompt({ guidanceSettings: { 'context-discovery': false }, guidanceText: {} })).not.toContain(line);
+    const custom = buildClaudeCodeSystemPrompt({ guidanceSettings: {}, guidanceText: { 'context-discovery': 'My delegation policy.' } });
+    expect(custom).toContain('My delegation policy.');
+    expect(custom).not.toContain(line);
   });
 });

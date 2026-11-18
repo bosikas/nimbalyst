@@ -34,7 +34,22 @@ interface MCPServerConfig {
   env?: Record<string, string>;
   disabled?: boolean;
   enabledForProviders?: string[];
+  /** Codex only: native per-server tool exposure. See the runtime MCPServerConfig. */
+  omit_tools_from?: string[];
 }
+
+/** Codex tool-detail loading for one server, mapped onto native `omit_tools_from`. */
+type CodexToolLoading = 'when-needed' | 'at-startup' | 'custom';
+
+function codexToolLoadingOf(omitToolsFrom: string[] | undefined): CodexToolLoading {
+  if (omitToolsFrom === undefined || omitToolsFrom.length === 0) return 'when-needed';
+  if (omitToolsFrom.length === 1 && omitToolsFrom[0] === 'deferred') return 'at-startup';
+  // Hand-edited values (for example ["direct"]) are kept as written.
+  return 'custom';
+}
+
+/** The built-in core server follows Codex's default exposure; a choice here would have no effect. */
+const CODEX_FORCED_SERVER_NAME = 'nimbalyst';
 
 const MCP_PROVIDER_IDS = {
   CLAUDE_AGENT: 'claude-agent',
@@ -680,6 +695,13 @@ function MCPServersPanelInner({ scope = 'user', workspacePath }: MCPServersPanel
   const [formEnv, setFormEnv] = useState<Array<{ key: string; value: string }>>([]);
   const [formHeaders, setFormHeaders] = useState<Array<{ key: string; value: string }>>([]);
   const [formOAuth, setFormOAuth] = useState<MCPServerConfig['oauth']>();
+  // Mirrored in a ref: change handlers save immediately, before React re-renders autoSave.
+  const [formOmitToolsFrom, setFormOmitToolsFromState] = useState<string[] | undefined>();
+  const formOmitToolsFromRef = useRef<string[] | undefined>(undefined);
+  const setFormOmitToolsFrom = (value: string[] | undefined) => {
+    formOmitToolsFromRef.current = value;
+    setFormOmitToolsFromState(value);
+  };
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [testMessage, setTestMessage] = useState<string>('');
   const [testHelpUrl, setTestHelpUrl] = useState<string | null>(null);
@@ -847,6 +869,7 @@ function MCPServersPanelInner({ scope = 'user', workspacePath }: MCPServersPanel
       Object.entries(server.headers || {}).map(([key, value]) => ({ key, value }))
     );
     setFormOAuth(server.oauth);
+    setFormOmitToolsFrom(server.omit_tools_from);
 
     // Check OAuth status for mcp-remote servers and HTTP transport
     if (isOAuthServer(server)) {
@@ -861,6 +884,7 @@ function MCPServersPanelInner({ scope = 'user', workspacePath }: MCPServersPanel
     setSelectedServer(null);
     setSelectedTemplate(null);
     setFormOAuth(undefined);
+    setFormOmitToolsFrom(undefined);
     setSaveStatus('idle');
     setTestStatus('idle');
     setTestMessage('');
@@ -895,6 +919,7 @@ function MCPServersPanelInner({ scope = 'user', workspacePath }: MCPServersPanel
         }))
       );
       setFormOAuth(template.config.oauth);
+      setFormOmitToolsFrom(undefined);
 
       if (template.authType === 'oauth') {
         checkOAuthStatus(template.config);
@@ -911,6 +936,7 @@ function MCPServersPanelInner({ scope = 'user', workspacePath }: MCPServersPanel
       setFormEnv([]);
       setFormHeaders([]);
       setFormOAuth(undefined);
+      setFormOmitToolsFrom(undefined);
       setOauthStatus('unknown');
     }
   };
@@ -1324,6 +1350,10 @@ function MCPServersPanelInner({ scope = 'user', workspacePath }: MCPServersPanel
 
       if (formOAuth) {
         serverConfig.oauth = formOAuth;
+      }
+
+      if (formOmitToolsFromRef.current !== undefined) {
+        serverConfig.omit_tools_from = [...formOmitToolsFromRef.current];
       }
 
       const config: MCPConfig = scope === 'workspace' && workspacePath
@@ -2123,6 +2153,8 @@ function MCPServersPanelInner({ scope = 'user', workspacePath }: MCPServersPanel
           renderAdvancedFields(false)
         )}
 
+        {renderCodexToolLoading(isNewConfig)}
+
         {/* Actions */}
         <div className="mcp-form-actions flex gap-3 mt-8 pt-6 border-t border-[var(--nim-border)]">
           {selectedServer && (
@@ -2155,6 +2187,39 @@ function MCPServersPanelInner({ scope = 'user', workspacePath }: MCPServersPanel
             {saveStatus === 'saved' && 'Saved'}
             {saveStatus === 'error' && 'Error saving'}
           </span>
+        </div>
+      </div>
+    );
+  };
+
+  // Codex-only, per server. Hidden where it cannot take effect: Codex is off
+  // for this server or in the app, or the built-in core server.
+  const renderCodexToolLoading = (isNewConfig: boolean) => {
+    const savedServer = selectedServer ? servers.find(server => server.name === selectedServer.name) ?? selectedServer : null;
+    const codexEnabled = visibleMcpProviders.includes(MCP_PROVIDER_IDS.CODEX)
+      && (!savedServer || getEffectiveProviders(savedServer).includes(MCP_PROVIDER_IDS.CODEX));
+    if (!codexEnabled || formName.trim() === CODEX_FORCED_SERVER_NAME) return null;
+    const mode = codexToolLoadingOf(formOmitToolsFrom);
+    return (
+      <div className="mcp-form-group mcp-codex-tool-loading mb-6">
+        <label htmlFor="mcp-codex-tool-loading" className="block mb-2 font-medium text-sm text-[var(--nim-text)]">Load tool details (Codex)</label>
+        <select
+          id="mcp-codex-tool-loading"
+          value={mode}
+          onChange={(e) => {
+            const next = e.target.value as CodexToolLoading;
+            if (next === 'custom') return;
+            setFormOmitToolsFrom(next === 'at-startup' ? ['deferred'] : undefined);
+            if (!isNewConfig) setTimeout(autoSave, 0);
+          }}
+          className="mcp-codex-tool-loading-select w-full px-3 py-2 border border-[var(--nim-border)] rounded bg-[var(--nim-bg)] text-[var(--nim-text)] text-sm cursor-pointer"
+        >
+          <option value="when-needed">When needed (default)</option>
+          <option value="at-startup">At startup</option>
+          {mode === 'custom' && <option value="custom" disabled>Custom (from configuration)</option>}
+        </select>
+        <div className="mcp-form-hint mt-1 text-xs text-[var(--nim-text-faint)]">
+          Applies to all tools on this server in new Codex threads. Codex may use a different loading mode depending on the model and settings.
         </div>
       </div>
     );

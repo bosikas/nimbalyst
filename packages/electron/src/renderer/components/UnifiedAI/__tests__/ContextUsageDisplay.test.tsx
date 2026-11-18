@@ -44,6 +44,45 @@ describe('ContextUsageDisplay - context meter opens on click, not hover (#429)',
     expect(invoke.mock.calls.filter(([channel]) => channel === 'mcp-config:get-context-inspection')).toHaveLength(2);
     expect(screen.queryByRole('tooltip')).not.toBeNull();
   });
+  it('lists recorded native messages apart from audit snapshots and shows transcript text inertly', async () => {
+    const recordedStartup = { status: 'Recorded in the local Codex rollout log.', report: {
+      session: { role: 'agent', model: 'gpt' }, boundaryLine: 3, recordedMessageBytes: 30, repeatedMessages: [],
+      toolRecords: [{ line: 1, bytes: 40, definitions: 2 }],
+      messages: [{ line: 2, role: 'developer', kinds: ['model.base_instructions'], bytes: 25, text: '<img src=x onerror=alert(1)>', textTruncated: false }],
+      snapshots: [{ line: 1, name: 'Session metadata: base instructions', bytes: 25, sameTextAsMessageLine: 2 }, { line: 4, name: 'Turn settings snapshot', bytes: 99 }],
+    } };
+    Object.defineProperty(window, 'electronAPI', { configurable: true, value: {
+      invoke: vi.fn(async () => ({ preparedRequest: null, unavailable: 'No prepared request yet.', recordedStartup })),
+    } });
+    const { container } = render(<ContextUsageDisplay {...props} provider="openai-codex" sessionId="recorded-session" />);
+    fireEvent.click(screen.getByTestId('context-indicator'));
+    await screen.findByText(/1 records · 30 UTF-8 text bytes · through the opening input at log line 3/);
+    expect(screen.getByText('<img src=x onerror=alert(1)>').tagName).toBe('PRE');
+    expect(container.ownerDocument.querySelector('.context-recorded-startup img')).toBeNull();
+    expect(screen.getByText(/Line 1: Session metadata: base instructions/).textContent).toContain('same text as the message at line 2');
+    expect(screen.getByText(/Line 4: Turn settings snapshot/).textContent).toContain('not a message');
+  });
+  it('states unavailable, truncated and incomplete recorded startup instead of implying a full record', async () => {
+    let recordedStartup: any = { status: 'No local Codex rollout found for this thread; recorded native startup is unavailable.', report: null };
+    Object.defineProperty(window, 'electronAPI', { configurable: true, value: {
+      invoke: vi.fn(async () => ({ preparedRequest: null, unavailable: 'No prepared request yet.', recordedStartup })),
+    } });
+    const { container } = render(<ContextUsageDisplay {...props} provider="openai-codex" sessionId="recorded-states" />);
+    fireEvent.click(screen.getByTestId('context-indicator'));
+    await screen.findByText(/No local Codex rollout found/);
+    expect(container.ownerDocument.querySelectorAll('.context-recorded-message')).toHaveLength(0);
+    recordedStartup = { status: 'Recorded in the local Codex rollout log.', report: {
+      session: { role: 'automatic-approval-reviewer' }, boundaryLine: null, recordedMessageBytes: 70_000, repeatedMessages: [], toolRecords: [], snapshots: [],
+      messages: [{ line: 1, role: 'developer', kinds: [], bytes: 70_000, text: 'first 64 KB', textTruncated: true }],
+    } };
+    fireEvent.click(screen.getByRole('button', { name: 'Refresh evidence' }));
+    await screen.findByText(/opening input not found; the capture may be incomplete/);
+    const message = container.ownerDocument.querySelector('.context-recorded-message');
+    expect(message?.querySelector('summary')?.textContent).toContain('70,000 bytes');
+    expect(message?.textContent).toContain('Showing the first 64 KB; the byte count covers the full record.');
+    expect(screen.getByText(/Automatic approval reviewer/).textContent).toContain('model unavailable');
+    expect(container.ownerDocument.querySelector('.context-recorded-startup')?.textContent).not.toMatch(/delivered/i);
+  });
   it('keeps the panel open when expanding prepared context or using its keyboard controls', async () => {
     Object.defineProperty(window, 'electronAPI', { configurable: true, value: {
       invoke: vi.fn(async (channel: string) => channel === 'mcp-config:get-context-inspection'

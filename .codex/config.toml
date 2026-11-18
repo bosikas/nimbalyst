@@ -1,0 +1,4 @@
+# Repository-only context-mode response budget; global configuration stays intact.
+[mcp_servers.context-mode]
+command = "sh"
+args = ["-c", "exec node \"$(git rev-parse --show-toplevel)/scripts/context-mode-server.mjs\" --agent codex"]

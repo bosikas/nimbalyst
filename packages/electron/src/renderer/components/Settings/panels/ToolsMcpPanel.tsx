@@ -265,7 +265,7 @@ export function ToolsMcpPanel({
       )}
 
       <div className="footer-note text-[11.5px] text-[var(--nim-text-faint)]">
-        For selective Codex loading, set <code>omit_tools_from: [&quot;direct&quot;]</code> on a server in your existing .mcp.json configuration. A supported native client keeps its tools in discovery instead of the initial direct surface. Omit the field or use [] for native defaults. Core tools stay accessible; hiding discovery surfaces is rejected. Use a fresh Codex thread after changing native exposure; existing thread history is unchanged. No app restart is needed.
+        Choose when Codex loads tool details in MCP Servers: When needed (default) or At startup. This applies to all tools on a server in new Codex threads. Availability depends on the model and Codex settings. Core Nimbalyst tools follow Codex&apos;s default loading mode.
       </div>
     </div>
   );

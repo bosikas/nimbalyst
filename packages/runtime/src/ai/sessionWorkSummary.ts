@@ -1,5 +1,7 @@
+import { instructionTemplate } from './instructionTemplates';
+
 /** Small, derived sidebar state. The canonical transcript remains authoritative. */
-export const SESSION_WORK_SUMMARY_GUIDANCE = 'Before your final response each turn, call update_session_summary on server nimbalyst: scope is the stable whole-session purpose (6–16 words), remaining is concrete outstanding work/review (empty only if none), attention is next/blocked/review/none/unknown, and areas are up to six topics. Preserve unresolved human requests. Metadata only; do not repeat it in your reply. If disabled, continue normally.';
+export const SESSION_WORK_SUMMARY_GUIDANCE = instructionTemplate('session-metadata.work-summary');
 
 export interface SessionWorkSummary {
   scope: string;

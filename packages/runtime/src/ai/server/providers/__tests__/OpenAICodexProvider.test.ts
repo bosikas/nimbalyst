@@ -37,10 +37,13 @@ describe('OpenAICodexProvider', () => {
     const config = (provider as any).buildCodexConfigOverrides({
       remote: { type: 'http', url: 'https://example.test/mcp', omit_tools_from: ['direct'] },
       local: { command: 'server', omit_tools_from: ['direct'] },
+      eager: { command: 'eager-server', omit_tools_from: ['deferred'] },
       nimbalyst: { type: 'http', url: 'http://127.0.0.1/mcp/core', omit_tools_from: ['direct', 'deferred', 'code_mode'] },
     });
     expect(config.mcp_servers.remote.omit_tools_from).toEqual(['direct']);
     expect(config.mcp_servers.local.omit_tools_from).toEqual(['direct']);
+    // User chose "At startup" for this server: Codex exposes its tools directly.
+    expect(config.mcp_servers.eager.omit_tools_from).toEqual(['deferred']);
     expect(config.mcp_servers.nimbalyst.omit_tools_from).toEqual([]);
     expect(config.mcp_servers.remote).not.toHaveProperty('disabled_tools');
   });

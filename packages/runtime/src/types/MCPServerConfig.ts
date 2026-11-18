@@ -128,6 +128,19 @@ export interface MCPServerConfig {
    * When both `disabled` and `enabledForProviders` are present, `enabledForProviders` takes priority.
    */
   enabledForProviders?: string[];
+
+  /**
+   * Codex only: when Codex loads this server's tool details (native `omit_tools_from`).
+   * Applies to every tool on the server, for new Codex threads.
+   * - undefined or []: Codex default; details load when needed through tool search (models without
+   *   tool search get them directly).
+   * - ['deferred']: asks Codex to include details when a thread starts. Codex ignores this and keeps
+   *   third-party tools deferred when the model's tool mode is code_mode_only and Codex's strict
+   *   third-party tools feature is enabled (Codex 0.167.0 spec_plan.rs).
+   * - ['direct']: tools stay discoverable only (hand-edited; not offered in Settings).
+   * Ignored for the built-in `nimbalyst` server. `code_mode` and both values together are rejected.
+   */
+  omit_tools_from?: Array<'direct' | 'deferred'>;
 }
 
 /** Provider IDs for enabledForProviders field */

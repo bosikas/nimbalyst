@@ -4,10 +4,10 @@ export const BUILT_IN_GUIDANCE = [
   { id: 'interactive-input', title: 'Interactive questions', description: 'Use Nimbalyst question and approval widgets instead of asking in chat.' },
   { id: 'visual-communication', title: 'Visual communication', description: 'Prefer charts, diagrams, screenshots and live editor embeds when useful.' },
   { id: 'file-references', title: 'Clickable file references', description: 'Format file references as links that open in the editor.' },
-  { id: 'context-discovery', title: 'Context and skill discovery', description: 'Use native skill/tool discovery and distinguish agent reports from human requests (Codex).' },
+  { id: 'context-discovery', title: 'Context and skill discovery', description: 'Delegation tools do not authorize delegation, and agent reports are not human requests. Codex also gets native skill and tool discovery guidance.' },
   { id: 'git-commits', title: 'Nimbalyst commit proposals', description: 'Direct commit requests to the Nimbalyst commit widget. Turning this off removes that preference; the tool remains available.' },
   { id: 'trackers', title: 'Tracker references', description: 'Check teammate activity and format tracker links.' },
-  { id: 'plan-tracking', title: 'Plan file tracking', description: 'Include tracking frontmatter in plan files when plan tracking is enabled.' },
+  { id: 'plan-tracking', title: 'Plan file tracking', description: 'Legacy guidance for integrations that enable plan tracking. Current built-in providers do not emit this section; planning procedures come from the applicable skill.' },
   { id: 'worktree', title: 'Worktree guidance', description: 'Tell agents to stay in their assigned worktree and preserve shared edits.' },
   { id: 'repository-context', title: 'Repository snapshot', description: 'Include the session-start Git snapshot supplied by Claude Code.' },
   { id: 'session-metadata', title: 'Session names, tags and phase', description: 'Ask agents to maintain session metadata and commit-status tags.' },
@@ -27,6 +27,14 @@ export interface AgentGuidancePreview {
   role: string;
   text: string;
   scope: string;
+  /** Codex only: a custom base prompt from a Markdown file, applied to fresh native threads. Absent means the provider-owned default. */
+  baseInstructions?: { sourcePath: string; text: string; scope: string };
+}
+/** The Codex base prompt source. Without a sourcePath the provider-owned default applies and is not shown. */
+export interface CodexBaseInstructionsSource {
+  sourcePath?: string;
+  text?: string;
+  error?: string;
 }
 export interface GuidanceRenderOptions {
   guidanceSettings?: BuiltInGuidanceSettings;
@@ -41,6 +49,10 @@ export interface BuiltInGuidanceEntry {
   enabled: boolean;
   /** A replacement for this section in every provider variant, when applicable. */
   customText?: string;
+  /** The Markdown file supplying customText. Settings store this path, never the prose. */
+  sourcePath?: string;
+  /** Why the selected source could not be read; prompts fail rather than fall back while this is set. */
+  sourceError?: string;
   previews: Array<{ provider: string; text: string }>;
 }
 

@@ -11,11 +11,10 @@
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js";
 import { database } from '../database/PGLiteDatabaseWorker';
 import { findSessionTreeRoot, readSessionSubtree } from '../services/sessionHierarchy';
-import {
-  AISessionsRepository,
-  SessionFilesRepository,
-} from "@nimbalyst/runtime";
-import type { SessionMeta } from "@nimbalyst/runtime";
+import { AISessionsRepository } from '@nimbalyst/runtime/storage/repositories/AISessionsRepository';
+import { SessionFilesRepository } from '@nimbalyst/runtime/storage/repositories/SessionFilesRepository';
+import type { SessionMeta } from '@nimbalyst/runtime/ai/adapters/sessionStore';
+import { boundSessionOutput } from './sessionOutput';
 import { handleGetSessionSummary, stripWorkspacePath } from "./sessionSummary";
 export { fetchLastAssistantResponse, type MessageRowDb } from "./sessionSummary";
 import {
@@ -732,7 +731,9 @@ export async function dispatchSessionContextTool(
           workspaceId
         );
         return {
-          content: [{ type: "text", text: result }],
+          content: [{ type: "text", text: await boundSessionOutput(result, result,
+            'Use context-mode to inspect the full file; read all file paths before preparing a commit.',
+            { maxBytes: 8192, maxLines: 20 }) }],
           isError: result.startsWith("Error:"),
         };
       }
@@ -771,7 +772,9 @@ export async function dispatchSessionContextTool(
           workspaceId
         );
         return {
-          content: [{ type: "text", text: result }],
+          content: [{ type: "text", text: await boundSessionOutput(result, result,
+            'Use context-mode to inspect the full file; read all file paths before preparing a commit.',
+            { maxBytes: 8192, maxLines: 20 }) }],
           isError: result.startsWith("Error:"),
         };
       }

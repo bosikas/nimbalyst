@@ -1,13 +1,35 @@
 // @vitest-environment node
 import { afterEach, expect, it, vi } from 'vitest';
-import { buildAgentGuidancePreview, buildBuiltInGuidanceCatalog, createBuiltInGuidanceService } from '../BuiltInGuidanceService';
+import { mkdtempSync, readdirSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import path from 'path';
+import { buildAgentGuidancePreview, buildBuiltInGuidanceCatalog, createBuiltInGuidanceService, type BuiltInGuidanceStorage } from '../BuiltInGuidanceService';
 import { BUILT_IN_GUIDANCE, setBuiltInGuidanceSettingsLoader } from '@nimbalyst/runtime/ai/builtInGuidance';
 import { buildClaudeCodeSystemPrompt } from '@nimbalyst/runtime/ai/prompt';
 import { buildCodexSystemPrompt } from '@nimbalyst/runtime/ai/server/providers/codex/codexSystemPrompt';
 
-afterEach(() => setBuiltInGuidanceSettingsLoader());
+const dirs: string[] = [];
+afterEach(() => {
+  setBuiltInGuidanceSettingsLoader();
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+function memoryStorage(overrides: Partial<BuiltInGuidanceStorage> = {}) {
+  const directory = mkdtempSync(path.join(tmpdir(), 'guidance-service-'));
+  dirs.push(directory);
+  let saved: unknown = {};
+  let sources: unknown = {};
+  const storage: BuiltInGuidanceStorage = {
+    directory,
+    read: () => saved, write: (value) => { saved = value; },
+    readSources: () => sources, writeSources: (value) => { sources = value; },
+    ...overrides,
+  };
+  return storage;
+}
 
 it('previews every built-in section from its real builder, including the optional Codex reminder', () => {
+  // Default variants never consult the installed loaders, so an unreadable custom file cannot hide them.
+  setBuiltInGuidanceSettingsLoader(() => ({}), () => { throw new Error('custom file missing'); });
   const catalog = buildBuiltInGuidanceCatalog({ 'git-commits': false });
   expect(catalog.map(({ id }) => id)).toEqual(BUILT_IN_GUIDANCE.map(({ id }) => id));
   for (const entry of catalog) {
@@ -19,9 +41,7 @@ it('previews every built-in section from its real builder, including the optiona
 });
 
 it('persists custom sections, preserves them across toggles, and restores provider defaults on reset', () => {
-  let saved: unknown = {};
-  let text: unknown = {};
-  const storage = { read: () => saved, write: (value: unknown) => { saved = value; }, readText: () => text, writeText: (value: unknown) => { text = value; } };
+  const storage = memoryStorage();
   const service = createBuiltInGuidanceService(storage);
   setBuiltInGuidanceSettingsLoader(service.getSettings, service.getText);
   service.updateText('git-commits', 'Use my review process before committing.');
@@ -43,16 +63,20 @@ it('persists custom sections, preserves them across toggles, and restores provid
   expect(service.getCatalog().find(entry => entry.id === 'git-commits')?.customText).toBeUndefined();
 });
 
-it('rejects invalid text updates without writing, keeps the previous text on storage failures', () => {
-  const writeText = vi.fn();
-  const service = createBuiltInGuidanceService({ read: () => ({}), write: vi.fn(), readText: () => ({ identity: 'Saved identity.' }), writeText });
+it('rejects invalid text updates without writing, keeps the previous source and draft files on storage failures', () => {
+  const writeSources = vi.fn();
+  const storage = memoryStorage({ writeSources });
+  const service = createBuiltInGuidanceService(storage);
   for (const [id, text] of [['unknown', 'text'], ['identity', ''], ['identity', '  '], ['identity', 42], ['identity', 'a'.repeat(100_001)]]) {
     expect(() => service.updateText(id, text)).toThrow();
   }
-  expect(writeText).not.toHaveBeenCalled();
-  writeText.mockImplementation(() => { throw new Error('Disk full'); });
+  expect(writeSources).not.toHaveBeenCalled();
+  expect(readdirSync(storage.directory)).toEqual([]);
+  writeSources.mockImplementation(() => { throw new Error('Disk full'); });
   expect(() => service.updateText('identity', 'New identity.')).toThrow('Disk full');
-  expect(service.getText()).toEqual({ identity: 'Saved identity.' });
+  expect(service.getText()).toEqual({});
+  // The attempted text survives on disk as a recoverable version even though the pointer did not move.
+  expect(readdirSync(storage.directory)).toHaveLength(1);
 });
 
 it('resolves saved controls through the provider builders and labels baseline scope', () => {
@@ -69,8 +93,7 @@ it('resolves saved controls through the provider builders and labels baseline sc
 });
 
 it('persists controls across service recreation and changes future prompts without losing human instructions', () => {
-  let saved: unknown = {};
-  const storage = { read: () => saved, write: (value: unknown) => { saved = value; } };
+  const storage = memoryStorage();
   const service = createBuiltInGuidanceService(storage);
   setBuiltInGuidanceSettingsLoader(service.getSettings);
   const options = { isMetaAgent: false, workflowPreset: 'default' as const, hasOutOfBandNaming: false, sessionDirective: 'Keep the human request.' };
@@ -88,7 +111,7 @@ it('persists controls across service recreation and changes future prompts witho
 
 it('ignores corrupt stored keys but rejects invalid updates before writing and reports storage failures', () => {
   const write = vi.fn();
-  const service = createBuiltInGuidanceService({ read: () => ({ unknown: false, 'git-commits': false, identity: 'false' }), write });
+  const service = createBuiltInGuidanceService(memoryStorage({ read: () => ({ unknown: false, 'git-commits': false, identity: 'false' }), write }));
   expect(service.getSettings()).toEqual({ 'git-commits': false });
   for (const update of [null, [], { unknown: false }, { identity: 'false' }]) {
     expect(() => service.update(update)).toThrow();
@@ -96,4 +119,25 @@ it('ignores corrupt stored keys but rejects invalid updates before writing and r
   expect(write).not.toHaveBeenCalled();
   write.mockImplementation(() => { throw new Error('Disk full'); });
   expect(() => service.update({ identity: false })).toThrow('Disk full');
+});
+
+it('completes a failed legacy migration before reset so legacy prose cannot silently return', () => {
+  let legacy: unknown = { identity: 'Legacy identity.' };
+  const clearLegacyText = vi.fn((): void => { throw new Error('Disk full'); });
+  const storage = memoryStorage({ readLegacyText: () => legacy, clearLegacyText });
+  const service = createBuiltInGuidanceService(storage);
+  expect(() => service.migrateLegacyText()).toThrow('Disk full');
+  expect(service.getText()).toEqual({ identity: 'Legacy identity.' });
+  // While the legacy value cannot be removed, changes are refused and nothing moves.
+  const pointer = service.getCatalog().find(entry => entry.id === 'identity')?.sourcePath;
+  expect(() => service.updateText('identity', null)).toThrow('Disk full');
+  expect(service.getCatalog().find(entry => entry.id === 'identity')?.sourcePath).toBe(pointer);
+  expect(service.getText()).toEqual({ identity: 'Legacy identity.' });
+  clearLegacyText.mockImplementation(() => { legacy = undefined; });
+  service.updateText('identity', null);
+  expect(service.getText()).toEqual({});
+  const reset = service.getCatalog().find(entry => entry.id === 'identity');
+  expect([reset?.customText, reset?.sourcePath]).toEqual([undefined, undefined]);
+  // Every attempt left a backup of the raw legacy value.
+  expect(readdirSync(path.join(storage.directory, 'legacy-backups')).length).toBeGreaterThanOrEqual(2);
 });

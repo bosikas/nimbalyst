@@ -4,14 +4,18 @@ import { mkdtemp, mkdir, readFile, realpath, rm, symlink, writeFile } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const state = vi.hoisted(() => ({ files: [] as any[], prompts: [] as any[], reply: 'Latest result', pending: [] as any[], query: vi.fn() }));
+const state = vi.hoisted(() => ({ children: [] as any[], files: [] as any[], prompts: [] as any[], reply: 'Latest result', pending: [] as any[], query: vi.fn() }));
 vi.mock('@nimbalyst/runtime/storage/repositories/SessionFilesRepository', () => ({
-  SessionFilesRepository: { getFilesBySession: async () => state.files },
+  SessionFilesRepository: { getFilesBySession: async () => state.files, getFilesBySessionMany: async () => state.files },
 }));
 vi.mock('@nimbalyst/runtime/storage/repositories/AISessionsRepository', () => ({
   AISessionsRepository: { get: async () => ({ id: 's1', title: 'Context work', provider: 'codex', createdAt: 1, updatedAt: 2, metadata: { phase: 'implementing' } }) },
 }));
 vi.mock('../../database/initialize', () => ({ getDatabase: () => ({ query: state.query }) }));
+vi.mock('../../database/PGLiteDatabaseWorker', () => ({ database: {} }));
+vi.mock('../../services/sessionHierarchy', () => ({ findSessionTreeRoot: async () => 's1', readSessionSubtree: async () => state.children }));
+vi.mock('../../services/pageCitations/listCitableInputsHandler', () => ({ handleListCitableInputs: vi.fn() }));
+import { dispatchSessionContextTool } from '../sessionContextServer';
 import { handleGetSessionEditedFiles } from '../sessionEditedFiles';
 import { handleGetSessionSummary } from '../sessionSummary';
 import { boundSessionOutput } from '../sessionOutput';
@@ -32,6 +36,7 @@ function expectBounded(text: string) {
 beforeEach(async () => {
   root = await realpath(await mkdtemp(join(tmpdir(), 'session-context-test-')));
   state.files = [];
+  state.children = [];
   state.prompts = [{ searchable_text: 'Implement context limits', metadata: null }];
   state.reply = 'Latest result';
   state.pending = [];
@@ -75,6 +80,32 @@ describe('session edited-file discovery', () => {
   });
 });
 
+describe('workstream delivery budget', () => {
+  it.each([
+    ['get_workstream_overview', {}],
+    ['get_workstream_edited_files', {}],
+    ['get_workstream_edited_files', { groupBySession: true }],
+  ] as const)('caps %s while preserving all omitted evidence', async (name, args) => {
+    state.children = Array.from({ length: 30 }, (_, i) => ({ id: 'child-' + i, title: 'Child ' + i, updated_at: new Date() }));
+    state.files = state.children.flatMap(child => Array.from({ length: 10 }, (_, i) => ({
+      sessionId: child.id, filePath: join(root, child.id, '界'.repeat(100) + '-' + i + '.ts'),
+    })));
+    const result = await dispatchSessionContextTool(name, args, 's1', root);
+    expect(result.isError).toBe(false);
+    const text = result.content[0].text;
+    expect(Buffer.byteLength(text)).toBeLessThanOrEqual(8192);
+    expect(text.split('\n').length).toBeLessThanOrEqual(20);
+    const full = await fullOutput(text);
+    expect(full).toContain('child-29');
+    expect(full).toContain('-9.ts');
+    expect(text).toContain('context-mode');
+  });
+  it('retains short workstream results without creating a recovery file', async () => {
+    const result = await dispatchSessionContextTool('get_workstream_overview', {}, 's1', root);
+    expect(result.content[0].text).toContain('No child sessions');
+    expect(result.content[0].text).not.toContain('Full output saved');
+  });
+});
 describe('session summary output', () => {
   it('keeps useful current context without expanding old prompts and synthetic inbox history', async () => {
     state.prompts = [

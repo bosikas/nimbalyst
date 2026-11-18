@@ -18,8 +18,14 @@ function setup() {
     entries = entries.map(entry => entry.id === id ? { ...entry, customText: text ?? undefined } : entry);
     return entries;
   });
-  Object.defineProperty(window, 'electronAPI', { configurable: true, value: { agentGuidance: { getCatalog: vi.fn(async () => entries), update, updateText } } });
-  return { update, updateText };
+  const selectSource = vi.fn(async (id: string, filePath: string) => {
+    entries = entries.map(entry => entry.id === id ? { ...entry, sourcePath: filePath, customText: `Text from ${filePath}`, sourceError: undefined } : entry);
+    return entries;
+  });
+  const openFileDialog = vi.fn(async () => ({ canceled: false, filePaths: ['/notes/commits.md'] }));
+  const getCatalog = vi.fn(async () => entries);
+  Object.defineProperty(window, 'electronAPI', { configurable: true, value: { openFileDialog, agentGuidance: { getCatalog, update, updateText, selectSource } } });
+  return { update, updateText, selectSource, openFileDialog, getCatalog, setEntries: (next: BuiltInGuidanceEntry[]) => { entries = next; } };
 }
 
 it('saves a control and reads its persisted value after reopening, with instructions available for review', async () => {
@@ -68,4 +74,29 @@ it('disables all entries even when search hides some, and retains saved state on
   fireEvent.click(view.getByRole('checkbox'));
   expect((await view.findByRole('alert')).textContent).toContain('Disk full');
   expect((view.getByRole('checkbox') as HTMLInputElement).checked).toBe(false);
+});
+
+it('selects an existing Markdown source, reloads external edits, and surfaces unreadable files', async () => {
+  const { selectSource, openFileDialog, getCatalog, setEntries } = setup();
+  const view = render(<BuiltInGuidancePanel />);
+  openFileDialog.mockResolvedValueOnce({ canceled: true, filePaths: [] });
+  fireEvent.click(await view.findByRole('button', { name: 'Choose Markdown file for Commit proposals' }));
+  await waitFor(() => expect(openFileDialog).toHaveBeenCalledTimes(1));
+  expect(selectSource).not.toHaveBeenCalled();
+  selectSource.mockRejectedValueOnce(new Error('Guidance source is not valid UTF-8 text'));
+  fireEvent.click(view.getByRole('button', { name: 'Choose Markdown file for Commit proposals' }));
+  expect((await view.findByRole('alert')).textContent).toContain('not valid UTF-8');
+  expect(view.queryByText('/notes/commits.md')).toBeNull();
+  fireEvent.click(view.getByRole('button', { name: 'Choose Markdown file for Commit proposals' }));
+  await waitFor(() => expect(selectSource).toHaveBeenLastCalledWith('git-commits', '/notes/commits.md'));
+  expect((await view.findByText('/notes/commits.md')).textContent).toBe('/notes/commits.md');
+  setEntries([
+    { id: 'git-commits', title: 'Commit proposals', description: 'Commit guidance', enabled: true, sourcePath: '/notes/commits.md', customText: 'Edited in another editor.', previews: [{ provider: 'Codex', text: 'Default.' }] },
+    { id: 'session-metadata', title: 'Session metadata', description: 'Naming guidance', enabled: true, sourcePath: '/gone.md', sourceError: 'Cannot open guidance source /gone.md: ENOENT', previews: [{ provider: 'Codex', text: 'Default.' }] },
+  ]);
+  fireEvent.click(view.getByRole('button', { name: 'Reload from files' }));
+  await waitFor(() => expect(getCatalog).toHaveBeenCalledTimes(2));
+  expect((await view.findByText('Edited in another editor.')).textContent).toBe('Edited in another editor.');
+  expect(view.getByRole('alert').textContent).toContain('ENOENT');
+  expect(view.getByRole('button', { name: 'Reset Session metadata to default' })).not.toBeNull();
 });

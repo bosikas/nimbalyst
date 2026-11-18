@@ -1,3 +1,4 @@
+// @vitest-environment node
 import { describe, it, expect } from 'vitest';
 import {
   FIRST_PARTY_TOOL_TO_SERVER,
@@ -6,10 +7,9 @@ import {
   MCP_TRACKERS,
   MCP_SITUATIONAL,
   CORE_ALWAYS_LOAD_TOOLS,
-  buildToolBudgetReport,
-  formatToolBudgetReport,
-  type MeasurableToolSchema,
-} from '@nimbalyst/runtime/ai/server';
+} from '@nimbalyst/runtime/ai/server/services/mcpTopology';
+import { buildToolBudgetReport, formatToolBudgetReport, type MeasurableToolSchema } from '@nimbalyst/runtime/ai/server/services/mcpTokenBudget';
+import { buildSessionMetaToolSchemas } from '../sessionNamingServer';
 
 import { getInteractiveToolSchemas } from '../tools/interactiveToolHandlers';
 import { displayToolSchemas } from '../tools/displayToolHandler';
@@ -34,8 +34,9 @@ import { getRequestFeedbackToolSchemas } from '../tools/requestFeedbackToolHandl
  * numbers (descriptions still churn).
  */
 describe('MCP tool budget characterization (current first-party surface)', () => {
-  function collectCurrentFirstPartySchemas(): MeasurableToolSchema[] {
+  async function collectCurrentFirstPartySchemas(): Promise<MeasurableToolSchema[]> {
     return [
+      ...await buildSessionMetaToolSchemas('characterization-session'),
       ...getInteractiveToolSchemas('characterization-session'),
       ...displayToolSchemas,
       ...getEditorToolSchemas('characterization-session'),
@@ -49,8 +50,8 @@ describe('MCP tool budget characterization (current first-party surface)', () =>
     ];
   }
 
-  it('reports the per-target-server token budget for the current surface', () => {
-    const all = collectCurrentFirstPartySchemas();
+  it('reports the per-target-server token budget for the current surface', async () => {
+    const all = await collectCurrentFirstPartySchemas();
 
     // Group current tools by their TARGET server (mcpTopology reverse index).
     const byServer: Record<string, MeasurableToolSchema[]> = {};
@@ -83,8 +84,8 @@ describe('MCP tool budget characterization (current first-party surface)', () =>
     expect(report.eagerEstTokens).toBeLessThan(3200);
   });
 
-  it('maps every current first-party tool to a topology server (except known IPC-only names)', () => {
-    const all = collectCurrentFirstPartySchemas();
+  it('maps every current first-party tool to a topology server (except known IPC-only names)', async () => {
+    const all = await collectCurrentFirstPartySchemas();
     // open_workspace is intentionally retired in favor of workspace_open; it is
     // still listed by the current editor schemas, so allow it during migration.
     const allowedUnmapped = new Set(['open_workspace']);
@@ -137,19 +138,16 @@ describe('MCP tool budget characterization (current first-party surface)', () =>
   // Scope: core, trackers, and situational — the servers fully covered by the
   // leaf schema modules importable in a node test env. The host schema modules
   // pull in the electron service graph (monaco, etc.) and can't be imported
-  // here; `update_session_meta` (session-naming) is likewise excluded and is
-  // covered by the routing tests.
-  it('every first-party core/trackers/situational topology tool has a real schema', () => {
-    const builtInNames = new Set(collectCurrentFirstPartySchemas().map((t) => t.name));
+  // here. Session metadata schemas are importable and included in this measurement.
+  it('every first-party core/trackers/situational topology tool has a real schema', async () => {
+    const builtInNames = new Set((await collectCurrentFirstPartySchemas()).map((t) => t.name));
     const guardedServers = new Set([MCP_CORE, MCP_TRACKERS, MCP_SITUATIONAL]);
     // These tools live on guarded servers but their schemas are defined in host
-    // modules (settingsServer / sessionNamingServer) that can't be imported in
+    // modules (settingsServer) that can't be imported in
     // this node test env. Their schema-backing is covered by the routing tests.
-    //   - update_session_meta       → sessionNamingServer (core)
     //   - tracker_set_sync_policy    → settingsServer (trackers, moved in Phase 5)
     //   - tracker_set_issue_key_prefix → settingsServer (trackers, moved in Phase 5)
     const excluded = new Set([
-      'update_session_meta',
       'tracker_set_sync_policy',
       'tracker_set_issue_key_prefix',
     ]);

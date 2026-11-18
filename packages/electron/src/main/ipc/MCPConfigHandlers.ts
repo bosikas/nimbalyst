@@ -34,7 +34,7 @@ export function registerMCPConfigHandlers() {
   safeHandle('mcp-config:get-context-inspection', async (event, sessionId: string) => {
     const workspacePath = senderWorkspacePath(event);
     if (!workspacePath || typeof sessionId !== 'string') throw new Error('An active workspace and session are required.');
-    return getSessionContextInspection(sessionId, workspacePath);
+    return getSessionContextInspection(sessionId, workspacePath, { includeRecordedStartup: true });
   });
   safeHandle('mcp-config:read-user', async () => {
     try {

@@ -2105,6 +2105,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
     getCatalog: () => ipcRenderer.invoke('agent-guidance:get-catalog') as Promise<import('@nimbalyst/runtime/ai/builtInGuidance').BuiltInGuidanceEntry[]>,
     update: (settings: import('@nimbalyst/runtime/ai/builtInGuidance').BuiltInGuidanceSettings) =>
       ipcRenderer.invoke('agent-guidance:update', settings) as Promise<import('@nimbalyst/runtime/ai/builtInGuidance').BuiltInGuidanceEntry[]>,
+    selectSource: (id: import('@nimbalyst/runtime/ai/builtInGuidance').BuiltInGuidanceId, filePath: string) =>
+      ipcRenderer.invoke('agent-guidance:select-source', id, filePath) as Promise<import('@nimbalyst/runtime/ai/builtInGuidance').BuiltInGuidanceEntry[]>,
+    getCodexBase: () => ipcRenderer.invoke('agent-guidance:get-codex-base') as Promise<import('@nimbalyst/runtime/ai/builtInGuidance').CodexBaseInstructionsSource>,
+    updateCodexBase: (text: string | null) =>
+      ipcRenderer.invoke('agent-guidance:update-codex-base', text) as Promise<import('@nimbalyst/runtime/ai/builtInGuidance').CodexBaseInstructionsSource>,
+    selectCodexBaseSource: (filePath: string) =>
+      ipcRenderer.invoke('agent-guidance:select-codex-base-source', filePath) as Promise<import('@nimbalyst/runtime/ai/builtInGuidance').CodexBaseInstructionsSource>,
   },
 
   agentWorkflows: {

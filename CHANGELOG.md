@@ -14,8 +14,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Sessions can automatically archive after an idle interval while preserving transcripts and worktrees; summaries default on and automatic archiving defaults off, while new built-in PR reviews use summaries off and a 30-minute archive timer
 - The session sidebar offers device-local typography, spacing, visibility and activity-label color controls with a live preview, shows icons beside activity sections, and initially shows active children with older chats available through expansion arrows
 - Installed Codex skills can be searched, previewed and enabled or disabled through their native configuration in Agent Features settings
-- Agent Features settings bring instructions, tools, execution permissions and effective setup together, with searchable guidance previews, editable replacements and individual or bulk toggles
-- Reviewed fresh-session handoffs preserve pending human requests, decisions, ownership and evidence without replaying full history; Codex context inspection separates measured request bytes from native token usage, and MCP configuration supports native on-demand exposure while keeping discovery and Core access
+- Agent setup brings instructions, tools, execution permissions and effective setup together, with searchable guidance previews, individual or bulk toggles, and editable Markdown sources for guidance and new Codex threads
+- Reviewed fresh-session handoffs preserve pending human requests, decisions, ownership and evidence without replaying full history
+- The Codex context inspector shows recorded startup messages and audit snapshots alongside measured request bytes and native token usage
+- MCP server settings let you choose when Codex loads each server’s tool details in new threads
 - New sessions can select an instruction profile and independently skip automatic repository instructions for Codex and Claude Agent
 - Chat appearance controls customize reading width, text size, spacing and tool visibility, with descriptive activity cards that preserve expandable tool output
 - Extension monitors can queue a revocable one-time callback to the session that requested a watch without gaining access to its conversation

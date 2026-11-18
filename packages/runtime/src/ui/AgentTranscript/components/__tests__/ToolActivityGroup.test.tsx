@@ -52,7 +52,7 @@ describe('activity interaction', () => {
     const failed = entry(0, 'command_execution', kind === 'status' ? 'error' : 'completed');
     failed.message.createdAt = new Date();
     Object.assign(failed.message.toolCall!, { arguments: { command: 'cat missing-file' }, result: 'No such file or directory', ...(kind === 'flag' ? { isError: true } : {}) });
-    const renderShell = (e: TranscriptToolEntry) => <BashWidget key={e.index} message={e.message} isExpanded={false} onToggle={() => {}} />;
+    const renderShell = (e: TranscriptToolEntry) => <BashWidget key={e.index} sessionId="test-session" message={e.message} isExpanded={false} onToggle={() => {}} />;
     const { rerender } = render(<ToolActivityGroup entries={[failed]} isProcessing={false} renderEntry={renderShell} />);
     expect(screen.getByRole('button', { name: /Run command.*Failed/ }).getAttribute('aria-expanded')).toBe('true');
     const command = within(document.querySelector('.transcript-tool-activity-steps') as HTMLElement).getByRole('button', { name: /cat missing-file/ });

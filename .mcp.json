@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "context-mode": {
+      "type": "stdio",
+      "command": "sh",
+      "args": ["-c", "exec node \"$(git rev-parse --show-toplevel)/scripts/context-mode-server.mjs\""]
+    }
+  }
+}

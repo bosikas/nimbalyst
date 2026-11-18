@@ -46,6 +46,9 @@ export function buildCodexThreadStartParams(options: SessionOptions): ThreadStar
       ? { approvalsReviewer: permissionProfile.approvalsReviewer }
       : {}),
     ephemeral: false,
+    ...(typeof options.raw?.baseInstructions === 'string'
+      ? { baseInstructions: options.raw.baseInstructions }
+      : {}),
     developerInstructions: systemPrompt,
     config,
     ...(additionalDirectories.length > 0

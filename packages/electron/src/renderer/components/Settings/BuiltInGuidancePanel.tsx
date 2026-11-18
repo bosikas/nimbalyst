@@ -2,6 +2,12 @@ import React, { useEffect, useState } from 'react';
 import type { BuiltInGuidanceEntry, BuiltInGuidanceId, BuiltInGuidanceSettings } from '@nimbalyst/runtime/ai/builtInGuidance';
 import { SettingsToggle } from '../GlobalSettings/SettingsToggle';
 
+/** Asks the user for an existing Markdown file; undefined when cancelled. */
+export async function chooseMarkdownFile(title: string): Promise<string | undefined> {
+  const result = await window.electronAPI.openFileDialog({ title, buttonLabel: 'Use file', filters: [{ name: 'Markdown', extensions: ['md', 'markdown'] }] });
+  return result.canceled ? undefined : result.filePaths[0];
+}
+
 export function BuiltInGuidancePanel() {
   const [entries, setEntries] = useState<BuiltInGuidanceEntry[]>([]);
   const [loading, setLoading] = useState(true);
@@ -9,14 +15,16 @@ export function BuiltInGuidancePanel() {
   const [query, setQuery] = useState('');
   const [error, setError] = useState<string>();
   const [editing, setEditing] = useState<{ id: BuiltInGuidanceId; text: string }>();
+  const [revision, setRevision] = useState(0);
   useEffect(() => {
     let cancelled = false;
+    setLoading(true);
     window.electronAPI.agentGuidance.getCatalog().then(
-      (catalog) => { if (!cancelled) setEntries(catalog); },
+      (catalog) => { if (!cancelled) { setEntries(catalog); setError(undefined); } },
       (err) => { if (!cancelled) setError(String(err)); },
     ).finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, []);
+  }, [revision]);
 
   async function update(settings: BuiltInGuidanceSettings) {
     setSaving(true);
@@ -34,6 +42,17 @@ export function BuiltInGuidancePanel() {
     } catch (err) { setError(`Could not save instructions: ${String(err)}`); }
     finally { setSaving(false); }
   }
+  async function selectSource(entry: BuiltInGuidanceEntry) {
+    setError(undefined);
+    let filePath: string | undefined;
+    try { filePath = await chooseMarkdownFile(`Markdown instructions for ${entry.title}`); }
+    catch (err) { setError(`Could not open the file picker: ${String(err)}`); return; }
+    if (!filePath) return;
+    setSaving(true);
+    try { setEntries(await window.electronAPI.agentGuidance.selectSource(entry.id, filePath)); }
+    catch (err) { setError(`Could not use ${filePath}: ${String(err)}`); }
+    finally { setSaving(false); }
+  }
   const filtered = entries.filter((entry) => `${entry.title} ${entry.description}`.toLowerCase().includes(query.toLowerCase()));
   const disabled = loading || saving || entries.length === 0;
   return (
@@ -43,12 +62,14 @@ export function BuiltInGuidancePanel() {
         These are Nimbalyst’s built-in instructions, including commit proposals. Toggle or replace each section for all projects and providers that use it. Tools stay available.
         Changes apply to future prompts. Start a fresh session to avoid instructions retained in earlier history.
         Repository instructions and provider-owned skills are separate; installed skills are managed in Extensions and the source controls below.
+        Custom instructions live in Markdown files. Saving creates a new file version and keeps earlier ones; edits made to the file outside Nimbalyst apply to the next prompt.
       </p>
       <div className="built-in-guidance-actions my-2 flex flex-wrap items-center gap-2">
         <input aria-label="Search built-in guidance" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search built-in guidance…"
           className="min-w-0 flex-1 rounded border border-[var(--nim-border)] bg-[var(--nim-bg)] px-2 py-1 text-sm text-[var(--nim-text)]" />
         <button type="button" disabled={disabled} onClick={() => void update(Object.fromEntries(entries.map(({ id }) => [id, true])))} className="text-xs text-[var(--nim-link)] disabled:opacity-50">Enable all</button>
         <button type="button" disabled={disabled} onClick={() => void update(Object.fromEntries(entries.map(({ id }) => [id, false])))} className="text-xs text-[var(--nim-link)] disabled:opacity-50">Disable all</button>
+        <button type="button" disabled={loading || saving} onClick={() => setRevision(value => value + 1)} className="text-xs text-[var(--nim-link)] disabled:opacity-50">Reload from files</button>
       </div>
       {loading && <p role="status" className="text-xs text-[var(--nim-text-muted)]">Loading built-in guidance…</p>}
       {error && <p role="alert" className="text-xs text-[var(--nim-error)]">{error}</p>}
@@ -57,12 +78,15 @@ export function BuiltInGuidancePanel() {
         <div key={entry.id} className="built-in-guidance-entry border-t border-[var(--nim-border)]">
           <SettingsToggle name={entry.title} description={entry.description} checked={entry.enabled} disabled={disabled} onChange={(enabled) => void update({ [entry.id]: enabled })} />
           <div className="built-in-guidance-edit-actions mb-2 flex flex-wrap items-center gap-3 text-xs">
-            <span className="text-[var(--nim-text-muted)]">{entry.customText === undefined ? 'Nimbalyst default' : 'Custom instructions'} · All projects</span>
+            <span className="text-[var(--nim-text-muted)]">{entry.sourcePath ? 'Custom Markdown file' : entry.customText === undefined ? 'Nimbalyst default' : 'Custom instructions (legacy settings)'} · All projects</span>
             <button type="button" disabled={disabled || editing !== undefined} onClick={() => setEditing({ id: entry.id, text: entry.customText ?? entry.previews[0]?.text ?? '' })} className="text-[var(--nim-link)] disabled:opacity-50">Edit {entry.title}</button>
-            {entry.customText !== undefined && <button type="button" disabled={disabled || (editing !== undefined && editing.id !== entry.id)} onClick={() => void updateText(entry.id, null)} className="text-[var(--nim-link)] disabled:opacity-50">Reset {entry.title} to default</button>}
+            <button type="button" disabled={disabled || editing !== undefined} onClick={() => void selectSource(entry)} className="text-[var(--nim-link)] disabled:opacity-50">Choose Markdown file for {entry.title}</button>
+            {(entry.customText !== undefined || entry.sourcePath) && <button type="button" disabled={disabled || (editing !== undefined && editing.id !== entry.id)} onClick={() => void updateText(entry.id, null)} className="text-[var(--nim-link)] disabled:opacity-50">Reset {entry.title} to default</button>}
           </div>
+          {entry.sourcePath && <p className="built-in-guidance-source mb-2 break-all text-xs text-[var(--nim-text-muted)]">Source: <span className="font-mono">{entry.sourcePath}</span></p>}
+          {entry.sourceError && <p role="alert" className="built-in-guidance-source-error mb-2 break-words text-xs text-[var(--nim-error)]">Cannot read this file: {entry.sourceError}. While this section is on, new prompts fail instead of using the default. Fix the file, choose another, or reset.</p>}
           {editing?.id === entry.id && <div className="built-in-guidance-editor mb-3">
-            <p className="mb-2 text-xs text-[var(--nim-text-muted)]">This replacement applies to every provider variant of this section, only when the section applies. Saving preserves its enabled state.</p>
+            <p className="mb-2 text-xs text-[var(--nim-text-muted)]">This replacement applies to every provider variant of this section, only when the section applies. Saving writes a new Markdown file, keeps the previous one, and preserves the enabled state.</p>
             <textarea aria-label={`Instructions for ${entry.title}`} value={editing.text} onChange={event => setEditing({ id: entry.id, text: event.target.value })} disabled={saving} rows={10} maxLength={100000} className="w-full rounded border border-[var(--nim-border)] bg-[var(--nim-bg)] p-2 font-mono text-xs text-[var(--nim-text)] select-text" />
             <div className="mt-2 flex gap-3 text-xs">
               <button type="button" disabled={saving || !editing.text.trim()} onClick={() => void updateText(entry.id, editing.text)} className="text-[var(--nim-link)] disabled:opacity-50">Save instructions</button>

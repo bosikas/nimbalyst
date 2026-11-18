@@ -202,3 +202,37 @@ describe('MCPConfigService.getMergedConfigWithOrigins', () => {
     expect([...repositoryProvided]).toEqual([]);
   });
 });
+
+describe('Codex tool loading persistence', () => {
+  let dir: string;
+  let service: MCPConfigService;
+
+  beforeEach(async () => {
+    dir = await fs.mkdtemp(path.join(os.tmpdir(), 'nim-mcp-codex-loading-'));
+    service = new MCPConfigService();
+    // Never touch the real ~/.claude.json: both scopes write through it.
+    (service as unknown as { userConfigPath: string }).userConfigPath = path.join(dir, 'claude.json');
+  });
+
+  afterEach(async () => {
+    await fs.rm(dir, { recursive: true, force: true });
+  });
+
+  it('keeps omit_tools_from through user and workspace write/read', async () => {
+    const config = { mcpServers: {
+      eager: { command: 'eager-server', omit_tools_from: ['deferred'] as Array<'deferred'> },
+      onDemand: { url: 'https://example.test/mcp', type: 'http' as const },
+    } };
+    await service.writeUserMCPConfig(config);
+    const user = await service.readUserMCPConfig();
+    expect(user.mcpServers.eager.omit_tools_from).toEqual(['deferred']);
+    expect(user.mcpServers.onDemand).not.toHaveProperty('omit_tools_from');
+
+    const workspace = path.join(dir, 'project');
+    await fs.mkdir(workspace);
+    await service.writeWorkspaceMCPConfig(workspace, config);
+    const project = await service.readWorkspaceMCPConfig(workspace);
+    expect(project.mcpServers.eager.omit_tools_from).toEqual(['deferred']);
+    expect(JSON.parse(await fs.readFile(path.join(workspace, '.mcp.json'), 'utf8')).mcpServers.eager.omit_tools_from).toEqual(['deferred']);
+  });
+});

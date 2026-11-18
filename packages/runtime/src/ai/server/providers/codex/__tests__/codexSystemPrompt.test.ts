@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { buildCodexSystemPrompt, type CodexSystemPromptOptions } from '../codexSystemPrompt';
+import { buildCodexSystemPrompt, CODEX_SESSION_NAMING_REMINDER_PROMPT, type CodexSystemPromptOptions } from '../codexSystemPrompt';
 import { buildClaudeCodeSystemPrompt, buildMetaAgentSystemPrompt } from '../../../../prompt';
 import { setPreferredAgentLanguage } from '../../../preferredAgentLanguageConfig';
 import type { DocumentContext } from '../../../types';
@@ -25,6 +25,15 @@ afterEach(() => {
 });
 
 describe('buildCodexSystemPrompt', () => {
+  it('distinguishes recommendations from questions and honors repository delivery/delegation rules', () => {
+    const prompt = buildCodexSystemPrompt(options);
+    expect(prompt).toContain('Findings and recommendations do not require a widget');
+    expect(prompt).toContain('opening a widget does not end the task or grant approval');
+    expect(prompt).toContain('Available delegation tools do not authorize delegation');
+    expect(prompt).toContain('repository commit/review/release procedures');
+    expect(prompt).toContain('without another explicit procedure');
+    expect(prompt).toContain('implementation alone does not authorize merge or deployment');
+  });
   it('honors disabled commit and interactive guidance instead of unconditionally injecting it', () => {
     const input = {
       ...options,
@@ -109,4 +118,10 @@ describe('buildCodexSystemPrompt', () => {
       provider: 'openai-codex', model: input.model, sessionDirective: input.sessionDirective,
     }));
   });
+});
+
+it('does not tell a session whose name was assigned by its caller to set a name in the first-turn reminder', () => {
+  expect(CODEX_SESSION_NAMING_REMINDER_PROMPT).not.toContain('set at least `name`');
+  expect(CODEX_SESSION_NAMING_REMINDER_PROMPT).toContain('plus `name` unless the session name was already assigned for you');
+  expect(CODEX_SESSION_NAMING_REMINDER_PROMPT).toContain('update_session_meta');
 });
