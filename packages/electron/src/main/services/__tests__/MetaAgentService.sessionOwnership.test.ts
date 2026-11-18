@@ -286,6 +286,33 @@ describe('MetaAgentService session ownership', () => {
     },
   );
 
+  it('queues only the final response and file count for a completed worker', async () => {
+    const { svc, aiService } = settleHarness('coordinator');
+    const report = `Verified the final change. ${'Review evidence. '.repeat(40)}`.trimEnd();
+    vi.mocked(svc.buildSessionResultData).mockResolvedValue({
+      sessionId: 'child', title: 'Worker', status: 'idle',
+      recentMessages: [
+        { direction: 'input', text: 'Launch prompt with scope and acceptance criteria' },
+        { direction: 'output', text: 'Interim progress update' },
+        { direction: 'output', text: report },
+      ],
+      lastResponse: `${report.slice(0, 500)}...`,
+      editedFiles: ['src/first-update.ts', 'src/second-update.ts'],
+      toolScope: 'write',
+    });
+
+    await svc.handleChildSessionEvent('child', 'session:completed');
+
+    const notification = aiService.queuePromptForSession.mock.calls[0][1];
+    expect(notification).toContain(`Last response: ${report}`);
+    expect(notification).toContain('Files modified: 2 (paths in get_session_result)');
+    expect(notification).toContain('Tool scope: write (no run_command).');
+    expect(notification).not.toContain('src/first-update.ts');
+    expect(notification).not.toContain('src/second-update.ts');
+    expect(notification).not.toContain('Launch prompt');
+    expect(notification).not.toContain('Interim progress');
+  });
+
   it('routes a quiet worker to an explicitly assigned coordinator', async () => {
     const { svc, aiService } = settleHarness('coordinator', { notifyParent: false, notifyCoordinator: true });
     await svc.handleChildSessionEvent('child', 'session:completed');

@@ -68,9 +68,8 @@ interface SessionResultData {
   originalPrompt: string | null;
   userPrompts: string[];
   lastResponse: string | null;
-  /** Full final assistant response (large cap), for get_session_result so the
-   *  meta-agent can synthesize from the child's real work, not a 500-char stub.
-   *  The notification preview deliberately uses lastResponse, not this. */
+  /** Full final assistant turn for get_session_result. Notifications use
+   *  the bounded message previews instead. */
   fullResponse: string | null;
   recentMessages: Array<{ direction: 'input' | 'output'; text: string }>;
   editedFiles: string[];
@@ -1415,9 +1414,14 @@ export class MetaAgentService {
       `Event: ${eventType}`,
     ];
 
-    // Keep routine updates compact. The recipient can use get_session_result
-    // to retrieve the full prompt when needed.
-    if (result.recentMessages.length > 0) {
+    // The completion report is the child's last response. The recipient can
+    // use get_session_result to read the full turn or launch prompt.
+    if (eventType === 'session:completed') {
+      const lastMessage = result.recentMessages.at(-1);
+      if (lastMessage?.direction === 'output') {
+        lines.push(`Last response: ${lastMessage.text}`);
+      }
+    } else if (result.recentMessages.length > 0) {
       lines.push('Recent messages:');
       for (const message of result.recentMessages) {
         const label = message.direction === 'input' ? 'User' : 'Assistant';
@@ -1427,16 +1431,11 @@ export class MetaAgentService {
       lines.push(`Last response: ${result.lastResponse}`);
     }
     if (result.editedFiles.length > 0) {
-      lines.push('Files modified:');
-      for (const filePath of result.editedFiles) {
-        lines.push(`- ${filePath}`);
-      }
+      lines.push(`Files modified: ${result.editedFiles.length} (paths in get_session_result)`);
     }
     if (result.toolScope === 'read' || result.toolScope === 'write') {
       const denied = result.toolScope === 'read' ? 'write_file or run_command' : 'run_command';
-      lines.push(
-        `Tool scope: ${result.toolScope} (this child had NO ${denied}). Any claim it ran, built, or tested anything is false; "Files modified" above is the complete list of files it changed.`,
-      );
+      lines.push(`Tool scope: ${result.toolScope} (no ${denied}).`);
     }
     if (result.errorMessage) {
       lines.push(`Error: ${result.errorMessage}`);
