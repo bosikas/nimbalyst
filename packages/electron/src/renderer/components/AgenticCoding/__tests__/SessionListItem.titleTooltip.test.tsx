@@ -2,15 +2,16 @@
 import React from 'react';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { render, cleanup, fireEvent, screen, waitFor } from '@testing-library/react';
+import { settingAtom } from '../../../store/atoms/settingAtomFamily';
+import { DEFAULT_SESSION_LIST_APPEARANCE } from '../../../../shared/sessionListAppearance';
 
 // Keep the component isolated: jotai atom reads return defaults, and the store
 // atom families are callable stubs so importing them has no side effects.
 vi.mock('jotai', async (importOriginal) => ({
   ...(await importOriginal<typeof import('jotai')>()),
-  useAtomValue: () => undefined,
+  useAtomValue: (value: unknown) => value === settingAtom('ui.sessionListAppearance') ? DEFAULT_SESSION_LIST_APPEARANCE : undefined,
   useSetAtom: () => () => {},
 }));
-vi.mock('@nimbalyst/runtime', () => ({ MaterialSymbol: () => null, ProviderIcon: () => null }));
 // The store atoms are callable stubs (atom families called with a sessionId);
 // their values are read through the mocked jotai useAtomValue above, so the
 // stub return value never matters. Factories are inlined (no outer ref) to

@@ -11,6 +11,7 @@
  */
 
 import { describe, expect, it } from 'vitest';
+import { registerSessionStoreFixture } from '../../../adapters/__tests__/sessionStoreFixture';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
@@ -80,6 +81,8 @@ function createMetadataStore(): ISessionMetadataStore {
     },
   };
 }
+
+registerSessionStoreFixture();
 
 describe('Codex ACP transcript end-to-end', () => {
   it('chunked agent reply renders as a single assistant_message bubble', async () => {

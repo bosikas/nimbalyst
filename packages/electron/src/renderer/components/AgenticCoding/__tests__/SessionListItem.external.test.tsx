@@ -10,7 +10,8 @@ vi.mock('../../../store', async () => {
 });
 vi.mock('../../../store/atoms/sessions', async () => {
   const { atom } = await import('jotai');
-  return { sessionRegistryAtom: atom(new Map()), pendingSessionRenameAtom: atom(null), createWorkstreamAtom: atom(null, () => {}) };
+  const children = atom<string[]>([]);
+  return { sessionRegistryAtom: atom(new Map()), sessionChildrenAtom: () => children, pendingSessionRenameAtom: atom(null), createWorkstreamAtom: atom(null, () => {}) };
 });
 vi.mock('../../../store/atoms/teamInbox', async () => {
   const { atom } = await import('jotai'); const value = atom(false);
@@ -29,6 +30,8 @@ it('reacts to its own metadata, expires following, and revokes it immediately wh
   vi.useFakeTimers(); vi.setSystemTime(base);
   window.electronAPI = {} as any;
   const store = createStore();
+  const appearance = settingAtom('ui.sessionListAppearance');
+  store.set(appearance, { ...store.get(appearance), showParentIcon: true });
   const following = settingAtom('app.externalSessionFollowEnabled');
   store.set(sessionRegistryAtom, new Map([['s1', { id: 's1', externalSource: 'openai-codex', externalLastActivityAt: base } as any]]));
   const ownRender = vi.fn();
@@ -37,6 +40,7 @@ it('reacts to its own metadata, expires following, and revokes it immediately wh
     <React.Profiler id="own" onRender={ownRender}><SessionListItem id="s1" title="External task" createdAt={base} isActive={false} onClick={() => {}} /></React.Profiler>
     <React.Profiler id="sibling" onRender={siblingRender}><SessionListItem id="s2" title="Local task" createdAt={base} isActive={false} onClick={() => {}} /></React.Profiler>
   </Provider>);
+  act(() => screen.getByLabelText(/Session: External task/).focus());
   screen.getByText('External');
   expect(screen.queryByText('Following')).toBeNull();
   act(() => { store.set(following, true); });

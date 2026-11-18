@@ -15,6 +15,7 @@
  * every `rm` inside `run_command` invisible. See `providerFileTracking.ts`.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { registerSessionStoreFixture } from '../../../adapters/__tests__/sessionStoreFixture';
 
 import {
   GeminiAntigravityProvider,
@@ -35,6 +36,8 @@ async function collect(stream: AsyncIterableIterator<StreamChunk>): Promise<Stre
 }
 
 const WRITE_TOOL = [{ type: 'function' as const, function: { name: 'write_file' } }];
+
+registerSessionStoreFixture();
 
 describe('gemini file-tracking declaration', () => {
   it('declares tool-args so the watcher keeps attributing shell-driven changes', () => {

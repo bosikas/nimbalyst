@@ -2,7 +2,8 @@ import { codexSandboxSetupCompleted } from '../../protocols/codexAppServer/windo
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { registerSessionStoreFixture } from '../../../adapters/__tests__/sessionStoreFixture';
 import { OpenAICodexProvider } from '../OpenAICodexProvider';
 import { OpenAICodexACPProvider } from '../OpenAICodexACPProvider';
 import { parseCodexModelListPage } from '../../protocols/codexAppServer/modelCatalog';
@@ -31,6 +32,8 @@ function createAsyncEventStream(events: any[]): AsyncIterable<any> {
   };
 }
 
+registerSessionStoreFixture();
+
 describe('OpenAICodexProvider', () => {
   it('preserves native tool exposure for discovery without hiding required core tools', () => {
     const provider = new OpenAICodexProvider({}, { transport: 'app-server' });
@@ -50,15 +53,6 @@ describe('OpenAICodexProvider', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
-    AISessionsRepository.setStore({
-      ensureReady: async () => {},
-      create: async () => {},
-      updateMetadata: async () => {},
-      get: async () => null,
-      list: async () => [],
-      search: async () => [],
-      delete: async () => {},
-    });
     // Reset all static configuration to null for clean test isolation
     OpenAICodexProvider.setTrustChecker(null);
     OpenAICodexProvider.setPermissionPatternChecker(null);
@@ -83,8 +77,6 @@ describe('OpenAICodexProvider', () => {
     OpenAICodexProvider.setPermissionPatternSaver(async () => {});
     OpenAICodexProvider.setSecurityLogger(() => {});
   });
-
-  afterEach(() => AISessionsRepository.clearStore());
 
   describe('transport-specific pre-edit hook configuration', () => {
     const protocol = {

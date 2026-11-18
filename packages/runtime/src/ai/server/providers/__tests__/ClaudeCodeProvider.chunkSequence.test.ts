@@ -18,6 +18,7 @@
  */
 
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { registerSessionStoreFixture } from '../../../adapters/__tests__/sessionStoreFixture';
 
 vi.mock('electron', async () => ({
   app: { ...(await import('../../../../../../electron/test-stubs/privateUserData')).testApp, isPackaged: false },
@@ -164,6 +165,8 @@ const INIT_CHUNK = {
   mcp_servers: [],
   tools: [],
 };
+
+registerSessionStoreFixture();
 
 describe('ClaudeCodeProvider.sendMessage chunk sequence', () => {
   beforeEach(() => {

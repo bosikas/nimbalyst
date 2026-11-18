@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { registerSessionStoreFixture } from '../../../adapters/__tests__/sessionStoreFixture';
 import { OpenAICodexProvider } from '../OpenAICodexProvider';
 import { configureMcpServers } from '../../services/mcpServerConfig';
 
@@ -119,6 +120,8 @@ function createHarness(options: {
     idleScheduler,
   };
 }
+
+registerSessionStoreFixture();
 
 describe('OpenAICodexProvider app-server lifecycle retention', () => {
   beforeEach(() => {

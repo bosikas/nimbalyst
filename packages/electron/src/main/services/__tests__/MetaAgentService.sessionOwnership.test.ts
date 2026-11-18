@@ -125,7 +125,14 @@ describe('MetaAgentService session ownership', () => {
     const row = vi.mocked(AISessionsRepository.create).mock.calls[0][0] as any;
     // Owner (with its routing opt-in) is inherited; the directive and the
     // owner's per-session bag are not.
-    expect(row.metadata).toEqual({ sessionOwner: ROUTED_OWNER, notifyParent: false });
+    expect(row.metadata).toEqual({
+      sessionOwner: ROUTED_OWNER,
+      notifyParent: false,
+      generateSummary: true,
+      autoArchiveAfterMinutes: 0,
+      instructionSnapshot: null,
+      skipDefaultInstructions: false,
+    });
     expect(row.createdBySessionId).toBe('caller');
     // Written at creation, before the first prompt exists -- no follow-up write.
     expect(AISessionsRepository.updateMetadata).not.toHaveBeenCalled();
@@ -156,7 +163,13 @@ describe('MetaAgentService session ownership', () => {
     await (svc as any).spawnSession('caller', '/workspace/path', { prompt: 'x', notifyOnComplete: true });
 
     const metadata = (vi.mocked(AISessionsRepository.create).mock.calls[0][0] as any).metadata;
-    expect(Object.keys(metadata)).toEqual(['sessionDirective']);
+    expect(metadata).toEqual({
+      sessionDirective: expect.any(String),
+      generateSummary: true,
+      autoArchiveAfterMinutes: 0,
+      instructionSnapshot: null,
+      skipDefaultInstructions: false,
+    });
   });
 
   describe('child reporting', () => {
@@ -174,7 +187,13 @@ describe('MetaAgentService session ownership', () => {
       for (const via of ['spawnSession', 'createChildSession'] as const) {
         vi.mocked(AISessionsRepository.create).mockReset();
         const { metadata, prompt } = await childPrompt({}, via);
-        expect(metadata).toEqual({ notifyParent: false });
+        expect(metadata).toEqual({
+          notifyParent: false,
+          generateSummary: true,
+          autoArchiveAfterMinutes: 0,
+          instructionSnapshot: null,
+          skipDefaultInstructions: false,
+        });
         expect(prompt).toBe(buildClaudeCodeSystemPrompt({ hasSessionNaming: true }));
         expect(prompt).not.toMatch(/send_prompt|messageKind|consume_session_inbox|sibling/);
       }
