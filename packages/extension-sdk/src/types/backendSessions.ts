@@ -141,6 +141,7 @@ export interface CreateOwnedWorkstreamOptions {
 
 export interface OwnedSessionStatusResult {
   sessionId: string;
+  coordinatorSessionId: string | null;
   status: OwnedSessionStatus;
   title: string;
   lastActivity: number | null;
@@ -228,6 +229,7 @@ export type OwnedSessionSettleOutcome = 'completed' | 'error' | 'waiting' | 'int
  */
 export interface OwnedSessionSettledEvent {
   sessionId: string;
+  coordinatorSessionId: string | null;
   ownerKey: string;
   outcome: OwnedSessionSettleOutcome;
   createdBySessionId: string | null;

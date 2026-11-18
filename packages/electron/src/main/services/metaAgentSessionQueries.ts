@@ -17,7 +17,8 @@ const LIFETIME_BACKSTOP = 50;
 
 export async function getSessionStatusRow(sessionId: string, workspaceId: string): Promise<any | null> {
   const { rows } = await databaseWorker.query<any>(
-    `SELECT id, title, provider, model, status, last_activity, updated_at, created_by_session_id, agent_role
+    `SELECT id, title, provider, model, status, last_activity, updated_at, created_by_session_id, agent_role,
+            metadata->>'coordinatorSessionId' AS coordinator_session_id
        FROM ai_sessions
        WHERE id = $1 AND workspace_id = $2
        LIMIT 1`,

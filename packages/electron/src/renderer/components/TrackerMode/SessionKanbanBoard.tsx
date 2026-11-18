@@ -28,6 +28,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useAtomValue, useSetAtom } from 'jotai';
+import { CoordinatedSessionsLinks, CoordinatorLink } from '../AgenticCoding/SessionCoordination';
 import { usePostHog } from 'posthog-js/react';
 import { MaterialSymbol, ProviderIcon } from '@nimbalyst/runtime';
 import type { SessionMeta } from '@nimbalyst/runtime';
@@ -404,6 +405,9 @@ function SessionKanbanCard({ session, onSelect, onArchive, onRename, phaseColor,
           </div>
           <CardStatusBadge info={cardState} />
         </div>
+
+        <CoordinatorLink sessionId={session.id} onOpen={onSelect} />
+        {cardType === 'workstream' && <CoordinatedSessionsLinks sessionId={session.id} onOpen={onSelect} />}
 
         {/* Child session count (workstream/worktree only) */}
         {cardType !== 'session' && session.childCount > 0 && (

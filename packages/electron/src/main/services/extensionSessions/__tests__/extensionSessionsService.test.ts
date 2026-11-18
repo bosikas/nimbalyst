@@ -226,12 +226,20 @@ describe('extension session broker scoping', () => {
 });
 
 describe('owned session settle delivery', () => {
+  it('exposes the coordinator in owned session status', async () => {
+    sessions.set('mine', { ...sessions.get('mine'), coordinatorSessionId: 'coordinator' });
+    dbQuery.mockResolvedValueOnce({ rows: [{ status: 'idle', queued: '0' }] });
+    await expect(dispatchExtensionSessionsOp(scope, 'getStatus', { sessionId: 'mine' }))
+      .resolves.toMatchObject({ coordinatorSessionId: 'coordinator' });
+  });
+
   it('delivers settles to the owning extension only, and completed only once the queue is empty', async () => {
     const emit = vi.fn();
     setOwnedSessionEventSink({ hasListeners: () => true, emit });
     sessions.set('mine', {
       ...sessions.get('mine'),
       createdBySessionId: 'mine-parent',
+      coordinatorSessionId: 'coordinator',
       parentSessionId: 'mine-ws',
       metadata: {
         ...owner(ME),
@@ -267,6 +275,7 @@ describe('owned session settle delivery', () => {
       sessionId: 'mine',
       ownerKey: 'ada',
       createdBySessionId: 'mine-parent',
+      coordinatorSessionId: 'coordinator',
       workstreamId: 'mine-ws',
       tokenUsage: {
         inputTokens: 10,

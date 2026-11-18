@@ -96,7 +96,7 @@ export type PromptProvenanceOrigin =
   | 'mobile'
   | 'automation';
 
-export type OrchestrationMessageKind = 'instruction' | 'report' | 'status' | 'question' | 'error';
+export type OrchestrationMessageKind = 'instruction' | 'report' | 'final' | 'status' | 'question' | 'error';
 
 export interface PromptProvenance {
   messageKind?: OrchestrationMessageKind;
@@ -443,6 +443,7 @@ export interface SessionData {
   mode?: SessionMode;  // Session behavior mode: 'planning' | 'agent'
   agentRole?: AgentRole;
   createdBySessionId?: string | null;
+  coordinatorSessionId?: string | null;
   messages: TranscriptViewMessage[];
   /** Renderer-only: messages were dropped from memory; metadata is still current. */
   messagesEvicted?: boolean;

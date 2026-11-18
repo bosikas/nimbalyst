@@ -62,10 +62,10 @@ export function readOwnerMetadata(metadata: unknown): Record<string, unknown> {
  * cleanup). True when the child opted out of parent updates, or when its owner
  * routes child settles to itself instead.
  */
-export function isParentNotificationSuppressed(metadata: unknown): boolean {
+export function isParentNotificationSuppressed(metadata: unknown, notifyCoordinator = false): boolean {
   const md = asObject(metadata);
   if (!md) return false;
-  if (md.notifyParent === false) return true;
+  if (md.notifyParent === false && !notifyCoordinator) return true;
   return readSessionOwner(md)?.routeChildUpdatesToOwner === true;
 }
 

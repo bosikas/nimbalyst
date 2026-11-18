@@ -132,6 +132,7 @@ async function deliverSettle(sessionId: string, outcome: OwnedSessionSettleOutco
       ownerKey: owner.key,
       outcome,
       createdBySessionId: session.createdBySessionId ?? null,
+      coordinatorSessionId: session.coordinatorSessionId ?? null,
       workstreamId: session.parentSessionId ?? null,
       at: Date.now(),
       tokenUsage: readUsage(session.metadata),
@@ -357,6 +358,7 @@ async function getStatus(scope: ExtensionSessionScope, sessionId: string): Promi
   const row = rows[0];
   return {
     sessionId,
+    coordinatorSessionId: session.coordinatorSessionId ?? null,
     status: (row?.status || 'idle') as OwnedSessionStatus,
     title: session.title || 'Untitled Session',
     lastActivity: toMillis(row?.last_activity),

@@ -48,6 +48,7 @@ import { usePushRepresentedFile } from '../../hooks/useRepresentedFileSync';
 import { resolveRepresentedFile } from '../../utils/representedFile';
 import { saveSessionArchived } from '../../utils/saveSessionArchived';
 import { WorkstreamSessionTabs } from './WorkstreamSessionTabs';
+import { CoordinatedSessionsLinks, CoordinatorLink } from '../AgenticCoding/SessionCoordination';
 import { FilesEditedSidebar } from './FilesEditedSidebar';
 import { AgentReviewPanel } from './AgentReviewPanel';
 import { ChatSidebar } from '../ChatSidebar/ChatSidebar';
@@ -503,7 +504,8 @@ const WorkstreamHeader: React.FC<{
   onOpenTerminal?: () => void;
   onCreateNewTerminal?: () => void;
   onShowArchiveDialog?: () => void;
-}> = React.memo(({ workstreamId, workspacePath, activeSessionId, worktreeId, worktreePath, onArchiveStatusChange, onOpenTerminal, onCreateNewTerminal, onShowArchiveDialog }) => {
+  onOpenSession?: (sessionId: string) => void;
+}> = React.memo(({ workstreamId, workspacePath, activeSessionId, worktreeId, worktreePath, onArchiveStatusChange, onOpenTerminal, onCreateNewTerminal, onShowArchiveDialog, onOpenSession }) => {
   const title = useAtomValue(workstreamTitleAtom(workstreamId));
   const isProcessing = useAtomValue(workstreamProcessingAtom(workstreamId));
   const sessionData = useAtomValue(sessionStoreAtom(workstreamId));
@@ -721,6 +723,8 @@ const WorkstreamHeader: React.FC<{
             )}
             <WorkstreamHeaderTagsRow workstreamId={workstreamId} />
           </div>
+          <CoordinatorLink sessionId={activeSessionId ?? workstreamId} onOpen={onOpenSession} />
+          <CoordinatedSessionsLinks sessionId={workstreamId} onOpen={onOpenSession} />
         </div>
 
         {isProcessing && (
@@ -1594,6 +1598,7 @@ export const AgentWorkstreamPanel = React.memo(React.forwardRef<AgentWorkstreamP
             onCreateNewTerminal={sessionWorktreeId ? handleCreateNewTerminal : undefined}
             onShowArchiveDialog={sessionWorktreeId ? handleShowArchiveDialog : undefined}
             onArchiveStatusChange={onWorktreeArchived}
+            onOpenSession={onSwitchToAgentMode && (sessionId => onSwitchToAgentMode(undefined, sessionId))}
           />
         }
         editor={worktreePathReady ? (

@@ -41,6 +41,7 @@ export function projectSessionList(
       sessionType: entry.sessionType || "session",
       agentRole: entry.agentRole || "standard",
       createdBySessionId: entry.createdBySessionId || null,
+      coordinatorSessionId: entry.coordinatorSessionId ?? null,
       messageCount: entry.messageCount || 0,
       isArchived: entry.isArchived || false,
       isPinned: entry.isPinned || false, // Include isPinned from repository

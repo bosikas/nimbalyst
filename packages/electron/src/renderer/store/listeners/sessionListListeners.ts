@@ -91,6 +91,8 @@ export function initSessionListListeners(): () => void {
           sessionType: updates.sessionType as 'session' | 'workstream' | 'blitz' | 'voice'
         }),
         ...(updates.agentRole !== undefined && { agentRole: updates.agentRole as 'standard' | 'meta-agent' }),
+        ...(updates.coordinatorSessionId === null || typeof updates.coordinatorSessionId === 'string'
+          ? { coordinatorSessionId: updates.coordinatorSessionId } : {}),
         ...(updates.createdBySessionId !== undefined && { createdBySessionId: updates.createdBySessionId as string | null }),
         ...(updates.parentSessionId !== undefined && { parentSessionId: updates.parentSessionId as string | null }),
         ...(updates.worktreeId !== undefined && { worktreeId: updates.worktreeId as string | null }),
