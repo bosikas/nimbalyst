@@ -118,6 +118,15 @@ export interface CreateOwnedSessionOptions {
    * extension-contributed agent providers.
    */
   directive?: string;
+  /**
+   * Markdown instruction profile, absolute or relative to the workspace root.
+   * Snapshotted at creation (up to 24,000 UTF-8 bytes). Codex and Claude Agent only.
+   */
+  instructionFile?: string;
+  /** Skip automatic repository instructions on Codex or Claude Agent. */
+  skipDefaultInstructions?: boolean;
+  /** Run in this existing, active worktree of the workspace. Path may be absolute or workspace-relative. */
+  cwd?: string;
   /** Owned workstream container to file the session under (see `createWorkstream`). */
   workstreamId?: string;
   /**

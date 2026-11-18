@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 <!-- New features go here -->
+- Extensions can start their own sessions with a saved instruction profile, skip repository defaults, and start work in an existing workspace worktree.
 - Session headers and board cards link to the session coordinating their work, and final results can wake an idle coordinator.
 - Session scope summaries show the area of work and remaining steps, accept updates from the working agent with background fallback, and support search filters, per-session generation controls and recorded native usage when available
 - Sessions can automatically archive after an idle interval while preserving transcripts and worktrees; summaries default on and automatic archiving defaults off, while new built-in PR reviews use summaries off and a 30-minute archive timer

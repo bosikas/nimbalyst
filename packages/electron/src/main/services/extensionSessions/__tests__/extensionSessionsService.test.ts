@@ -1,6 +1,6 @@
 // @vitest-environment node
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { mkdtempSync, rmSync } from 'fs';
+import { afterAll, beforeAll, beforeEach, afterEach, describe, expect, it, vi } from 'vitest';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 
@@ -152,6 +152,8 @@ describe('extension session broker scoping', () => {
       ownerMetadata: { chapter: 1 },
       sessionDirective: 'You are Ada.',
       effortLevel: 'high',
+      instructionSnapshot: null,
+      skipDefaultInstructions: false,
     });
     expect(AISessionsRepository.updateMetadata).not.toHaveBeenCalled();
     // The prompt is queued only after the row (and its owner) exists.
@@ -166,6 +168,104 @@ describe('extension session broker scoping', () => {
         dispatchExtensionSessionsOp(scope, 'create', { ownerKey: 'ada', name: 'n', provider: 'claude-code', model: 'opus', ...args })
       ).rejects.toThrow(/not owned by this extension/);
     }
+  });
+
+  describe('owned session instructions and worktrees', () => {
+    const createArgs = { ownerKey: 'ada', name: 'Fix PR', provider: 'openai-codex', model: 'gpt-5.5' };
+    let workspacePath: string;
+
+    beforeEach(() => {
+      workspacePath = mkdtempSync(join(tmpdir(), 'nim-owned-instructions-'));
+    });
+    afterEach(() => {
+      dbQuery.mockReset();
+      rmSync(workspacePath, { recursive: true, force: true });
+    });
+
+    it.each(['relative', 'absolute'])('snapshots a %s profile with owner metadata before dispatch', async (kind) => {
+      const profile = '.claude/agents/pr-fixer.md';
+      const contents = '# Fix the pull request\n';
+      mkdirSync(join(workspacePath, '.claude', 'agents'), { recursive: true });
+      writeFileSync(join(workspacePath, profile), contents);
+      const { sessionId } = await dispatchExtensionSessionsOp({ ...scope, workspacePath }, 'create', {
+        ...createArgs, instructionFile: kind === 'relative' ? profile : join(workspacePath, profile),
+        skipDefaultInstructions: true, directive: 'Review the patch.', prompt: 'Start',
+      }) as { sessionId: string };
+      writeFileSync(join(workspacePath, profile), 'replaced');
+
+      expect(AISessionsRepository.create).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        id: sessionId,
+        metadata: expect.objectContaining({
+          sessionOwner: { extensionId: ME, key: 'ada' },
+          sessionDirective: 'Review the patch.',
+          skipDefaultInstructions: true,
+          instructionSnapshot: expect.objectContaining({ content: contents }),
+        }),
+      }));
+      expect(AISessionsRepository.updateMetadata).not.toHaveBeenCalled();
+      expect(vi.mocked(AISessionsRepository.create).mock.invocationCallOrder[0])
+        .toBeLessThan(queue.queuePromptForSession.mock.invocationCallOrder[0]);
+    });
+
+    it('accepts skipping default instructions without an instruction file', async () => {
+      await dispatchExtensionSessionsOp({ ...scope, workspacePath }, 'create', {
+        ...createArgs, skipDefaultInstructions: true,
+      });
+      expect(AISessionsRepository.create).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        metadata: expect.objectContaining({ skipDefaultInstructions: true, instructionSnapshot: null }),
+      }));
+    });
+
+    it('rejects missing or oversized profiles before creating or queueing a session', async () => {
+      writeFileSync(join(workspacePath, 'large.md'), 'é'.repeat(12_001));
+      await expect(dispatchExtensionSessionsOp({ ...scope, workspacePath }, 'create', {
+        ...createArgs, instructionFile: 'missing.md', prompt: 'Start',
+      })).rejects.toThrow(/missing\.md/);
+      await expect(dispatchExtensionSessionsOp({ ...scope, workspacePath }, 'create', {
+        ...createArgs, instructionFile: 'large.md', prompt: 'Start',
+      })).rejects.toThrow(/24,000 UTF-8 bytes/);
+      expect(AISessionsRepository.create).not.toHaveBeenCalled();
+      expect(queue.queuePromptForSession).not.toHaveBeenCalled();
+    });
+
+    it.each([{ instructionFile: 'profile.md' }, { skipDefaultInstructions: true }])(
+      'rejects unsupported providers with %j',
+      async options => {
+        await expect(dispatchExtensionSessionsOp({ ...scope, workspacePath }, 'create', {
+          ...createArgs, provider: 'claude-code-cli', model: 'opus', ...options,
+        })).rejects.toThrow(/Codex and Claude Agent/);
+        expect(AISessionsRepository.create).not.toHaveBeenCalled();
+      },
+    );
+
+    it('inserts the worktree and dispatches the first prompt there', async () => {
+      const worktreePath = join(workspacePath, 'fixer-worktree');
+      mkdirSync(worktreePath);
+      writeFileSync(join(workspacePath, 'fixer.md'), '# Workspace profile');
+      dbQuery.mockResolvedValueOnce({ rows: [{ id: 'fixer-tree', workspace_id: workspacePath, path: worktreePath }] });
+
+      const { sessionId } = await dispatchExtensionSessionsOp({ ...scope, workspacePath }, 'create', {
+        ...createArgs, cwd: 'fixer-worktree', instructionFile: 'fixer.md', prompt: 'Start',
+      }) as { sessionId: string };
+      expect(AISessionsRepository.create).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        id: sessionId, workspaceId: workspacePath, worktreeId: 'fixer-tree',
+        metadata: expect.objectContaining({
+          instructionSnapshot: expect.objectContaining({ content: '# Workspace profile' }),
+        }),
+      }));
+      expect(queue.triggerQueuedPromptProcessingForSession).toHaveBeenCalledWith(sessionId, worktreePath, 'meta-agent');
+    });
+
+    it('rejects worktrees outside the owning workspace', async () => {
+      const worktreePath = join(workspacePath, 'foreign-tree');
+      mkdirSync(worktreePath);
+      dbQuery.mockResolvedValueOnce({ rows: [{ id: 'foreign', workspace_id: '/other', path: worktreePath }] });
+
+      await expect(dispatchExtensionSessionsOp({ ...scope, workspacePath }, 'create', {
+        ...createArgs, cwd: worktreePath,
+      })).rejects.toThrow(/worktree.*workspace/i);
+      expect(AISessionsRepository.create).not.toHaveBeenCalled();
+    });
   });
 
   it('rejects a directive on providers that never read it, and leaves directive-less creates alone', async () => {

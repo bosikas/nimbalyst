@@ -13,6 +13,10 @@
  * registers, so it never imports the host (which imports this module).
  */
 import { randomUUID } from 'crypto';
+import { stat } from 'node:fs/promises';
+import { resolve } from 'node:path';
+import { snapshotSessionInstructions } from '../sessionInstructions';
+import { createWorktreeStore } from '../WorktreeStore';
 import { consumeSessionWakeGrant, revokeSessionWakeGrant } from './sessionWakeGrants';
 import type {
   CreateOwnedSessionOptions,
@@ -259,6 +263,7 @@ async function createOwnedSession(
   if (directive && !providerAppliesSessionDirective(provider)) {
     throw new Error(`Provider ${provider} does not apply session directives; use an agent provider or omit directive`);
   }
+  const instructionSelection = await snapshotSessionInstructions(options, scope.workspacePath, provider);
   const model = resolveModel(provider, requireString(args, 'model'));
 
   let effortLevel: string | undefined;
@@ -276,22 +281,33 @@ async function createOwnedSession(
   const createdBySessionId = optionalString(args, 'createdBySessionId');
   if (createdBySessionId) await requireOwned(scope, createdBySessionId);
 
+  let worktree;
+  if (options.cwd !== undefined) {
+    const cwd = resolve(scope.workspacePath, requireString(args, 'cwd').trim());
+    worktree = await createWorktreeStore(database).getByPath(cwd);
+    if (!worktree || worktree.isArchived || !sameWorkspaceIdentity(worktree.projectPath, scope.workspacePath)
+      || !(await stat(worktree.path).catch(() => null))?.isDirectory()) {
+      throw new Error(`cwd must be an existing, active worktree in this workspace: ${cwd}`);
+    }
+  }
+
   const metadata: Record<string, unknown> = {
     [SESSION_OWNER_KEY]: ownerFor(scope, ownerKey, options.routeChildUpdatesToOwner),
     [OWNER_METADATA_KEY]: plainObject(options.ownerMetadata) ?? {},
+    ...instructionSelection,
     ...(directive ? { [SESSION_DIRECTIVE_KEY]: directive } : {}),
     ...(effortLevel ? { effortLevel } : {}),
   };
 
   const sessionId = randomUUID();
-  // Owner, directive, and effort land in the same insert as the row, so no
-  // reader (the provider's first turn, a settle, a spawn) can see it unowned.
+  // Persist the owner and startup instructions before the first turn can run.
   await AISessionsRepository.create({
     id: sessionId,
     provider,
     model,
     title: name,
     workspaceId: scope.workspacePath,
+    worktreeId: worktree?.id,
     sessionType: 'session',
     agentRole: 'standard',
     createdBySessionId: createdBySessionId ?? null,
@@ -299,11 +315,13 @@ async function createOwnedSession(
     hasBeenNamed: true,
     metadata,
   } as Parameters<typeof AISessionsRepository.create>[0]);
-  broadcastSessionCreated({ workspacePath: scope.workspacePath, sessionId, parentSessionId: workstreamId });
+  broadcastSessionCreated({
+    workspacePath: scope.workspacePath, sessionId, parentSessionId: workstreamId, worktreeId: worktree?.id,
+  });
 
   const prompt = options.prompt?.trim();
   if (!prompt) return { sessionId, queuedPromptId: null };
-  const { queuedPromptId } = await enqueue(sessionId, scope.workspacePath, prompt);
+  const { queuedPromptId } = await enqueue(sessionId, worktree?.path ?? scope.workspacePath, prompt);
   return { sessionId, queuedPromptId };
 }
 
