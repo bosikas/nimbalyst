@@ -523,6 +523,10 @@ export async function registerSessionHandlers() {
                     mode: row.mode || null,
                     agentRole: row.agent_role || 'standard',
                     createdBySessionId: row.created_by_session_id || null,
+                    // The renderer replaces the child's registry entry with this
+                    // row, so a missing coordinator blanks "Coordinated by".
+                    coordinatorSessionId: typeof metadata.coordinatorSessionId === 'string' && metadata.coordinatorSessionId
+                        ? metadata.coordinatorSessionId : null,
                     createdAt: row.created_at instanceof Date ? row.created_at.getTime() : new Date(row.created_at).getTime(),
                     updatedAt: row.updated_at instanceof Date ? row.updated_at.getTime() : new Date(row.updated_at).getTime(),
                     workspaceId: row.workspace_id,
