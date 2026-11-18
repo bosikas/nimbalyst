@@ -2,7 +2,7 @@ import { codexSandboxSetupCompleted } from '../../protocols/codexAppServer/windo
 import fs from 'fs/promises';
 import os from 'os';
 import path from 'path';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OpenAICodexProvider } from '../OpenAICodexProvider';
 import { OpenAICodexACPProvider } from '../OpenAICodexACPProvider';
 import { parseCodexModelListPage } from '../../protocols/codexAppServer/modelCatalog';
@@ -50,6 +50,15 @@ describe('OpenAICodexProvider', () => {
 
   beforeEach(() => {
     vi.restoreAllMocks();
+    AISessionsRepository.setStore({
+      ensureReady: async () => {},
+      create: async () => {},
+      updateMetadata: async () => {},
+      get: async () => null,
+      list: async () => [],
+      search: async () => [],
+      delete: async () => {},
+    });
     // Reset all static configuration to null for clean test isolation
     OpenAICodexProvider.setTrustChecker(null);
     OpenAICodexProvider.setPermissionPatternChecker(null);
@@ -74,6 +83,8 @@ describe('OpenAICodexProvider', () => {
     OpenAICodexProvider.setPermissionPatternSaver(async () => {});
     OpenAICodexProvider.setSecurityLogger(() => {});
   });
+
+  afterEach(() => AISessionsRepository.clearStore());
 
   describe('transport-specific pre-edit hook configuration', () => {
     const protocol = {
