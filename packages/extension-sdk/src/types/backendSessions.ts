@@ -127,6 +127,8 @@ export interface CreateOwnedSessionOptions {
   skipDefaultInstructions?: boolean;
   /** Run in this existing, active worktree of the workspace. Path may be absolute or workspace-relative. */
   cwd?: string;
+  /** Idle minutes after a finished turn before automatic archival. Defaults to 0 (off). */
+  autoArchiveAfterMinutes?: number;
   /** Owned workstream container to file the session under (see `createWorkstream`). */
   workstreamId?: string;
   /**
@@ -274,6 +276,11 @@ export interface BackendSessionsService {
   /** Queue a prompt; it is delivered when the session is idle. */
   sendPrompt(sessionId: string, prompt: string): Promise<{ queuedPromptId: string }>;
   getStatus(sessionId: string): Promise<OwnedSessionStatusResult>;
+  /**
+   * Set automatic archival for an owned session. The timer starts when the turn
+   * finishes, or immediately if the session is idle. Zero disables archival.
+   */
+  setAutoArchive(sessionId: string, minutes: number): Promise<void>;
   getResult(sessionId: string): Promise<OwnedSessionResult>;
   /** Owned sessions in this workspace, optionally filtered to one owner key. Newest first. */
   listOwned(options?: { key?: string }): Promise<OwnedSessionSummary[]>;

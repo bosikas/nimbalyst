@@ -248,6 +248,9 @@ class FakeSessions implements HostSessions {
   async revokeWake(_token: string): Promise<void> {
     throw new Error('Wake revocation is not implemented by this test fixture.');
   }
+  async setAutoArchive(_sessionId: string, _minutes: number): Promise<void> {
+    throw new Error('Auto-archive is not implemented by this test fixture.');
+  }
   async getStatus(sessionId: string) {
     const s = this.sessions.get(sessionId)!;
     return {

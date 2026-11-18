@@ -100,6 +100,7 @@ describe('extension session broker scoping', () => {
       for (const [op, args] of [
         ['sendPrompt', { sessionId, prompt: 'go' }],
         ['getStatus', { sessionId }],
+        ['setAutoArchive', { sessionId, minutes: 30 }],
         ['getResult', { sessionId }],
         ['updateOwnerMetadata', { sessionId, patch: { chapter: 2 } }],
         ['notifyUser', { sessionId, title: 't', body: 'b' }],
@@ -127,6 +128,7 @@ describe('extension session broker scoping', () => {
       model: 'opus',
       directive: 'You are Ada.',
       effortLevel: 'high',
+      autoArchiveAfterMinutes: 30,
       workstreamId: 'mine-ws',
       ownerMetadata: { chapter: 1 },
       routeChildUpdatesToOwner: true,
@@ -152,6 +154,7 @@ describe('extension session broker scoping', () => {
       ownerMetadata: { chapter: 1 },
       sessionDirective: 'You are Ada.',
       effortLevel: 'high',
+      autoArchiveAfterMinutes: 30,
       instructionSnapshot: null,
       skipDefaultInstructions: false,
     });
@@ -266,6 +269,17 @@ describe('extension session broker scoping', () => {
       })).rejects.toThrow(/worktree.*workspace/i);
       expect(AISessionsRepository.create).not.toHaveBeenCalled();
     });
+  });
+
+  it.each([-1, 1.5, '30', 525_601])('rejects an invalid auto-archive interval (%j)', async minutes => {
+    await expect(dispatchExtensionSessionsOp(scope, 'create', {
+      ownerKey: 'ada', name: 'Fix PR', provider: 'openai-codex', model: 'gpt-5.5',
+      autoArchiveAfterMinutes: minutes,
+    })).rejects.toThrow(/autoArchiveAfterMinutes/);
+    await expect(dispatchExtensionSessionsOp(scope, 'setAutoArchive', { sessionId: 'mine', minutes }))
+      .rejects.toThrow(/autoArchiveAfterMinutes/);
+    expect(AISessionsRepository.create).not.toHaveBeenCalled();
+    expect(dbQuery).not.toHaveBeenCalled();
   });
 
   it('rejects a directive on providers that never read it, and leaves directive-less creates alone', async () => {
@@ -482,6 +496,67 @@ describe('owned-session query on both live backends', () => {
   it('selects only this extension\'s sessions on PGLite', async () => {
     const { rows: out } = await pglite.query(OWNED_SESSIONS_SQL, [ME]);
     expect(out.map((r: any) => r.id).sort()).toEqual(['elsewhere', 'owned']);
+  });
+
+  async function exerciseAutoArchive(
+    query: (sql: string, binds?: unknown[]) => Promise<{ rows: Array<{ metadata: unknown }> }>,
+  ) {
+    const sessionId = 'archive-timer';
+    const metadata = { ...owner(ME), autoArchiveCompletedAt: 42 };
+    sessions.set(sessionId, { id: sessionId, workspacePath: WS, metadata });
+    await query(`INSERT INTO ai_sessions (id, workspace_id, status, metadata) VALUES ($1, $2, 'running', $3::jsonb)`,
+      [sessionId, WS, JSON.stringify(metadata)]);
+    dbQuery.mockReset().mockImplementation(query);
+    try {
+      const read = async () => {
+        const { rows } = await query('SELECT metadata FROM ai_sessions WHERE id = $1', [sessionId]);
+        const value = rows[0].metadata;
+        return typeof value === 'string' ? JSON.parse(value) : value as typeof metadata;
+      };
+      const set = (minutes: number) => dispatchExtensionSessionsOp(scope, 'setAutoArchive', { sessionId, minutes });
+
+      await set(30);
+      let stored = await read();
+      expect(stored).toMatchObject({ ...owner(ME), autoArchiveAfterMinutes: 30 });
+      expect(stored.autoArchiveCompletedAt ?? null).toBeNull();
+
+      await query("UPDATE ai_sessions SET status = 'idle' WHERE id = $1", [sessionId]);
+      const start = Date.now();
+      await set(30);
+      stored = await read();
+      expect(stored.autoArchiveCompletedAt).toBeGreaterThanOrEqual(start);
+      expect(stored.autoArchiveCompletedAt).toBeLessThanOrEqual(Date.now());
+
+      await set(0);
+      stored = await read();
+      expect(stored).toMatchObject({ ...owner(ME), autoArchiveAfterMinutes: 0 });
+      expect(stored.autoArchiveCompletedAt ?? null).toBeNull();
+    } finally {
+      dbQuery.mockReset();
+      sessions.delete(sessionId);
+      await query('DELETE FROM ai_sessions WHERE id = $1', [sessionId]);
+    }
+  }
+
+  it('updates the timer atomically against session status on PGLite', async () => {
+    await exerciseAutoArchive((sql, binds) => pglite.query(sql, binds));
+  });
+
+  it('updates the timer atomically against session status on SQLite', async () => {
+    const Database = (await import('better-sqlite3')).default;
+    const db = new Database(':memory:');
+    try {
+      db.exec(ddl('TEXT', 'INTEGER', 'TEXT'));
+      await exerciseAutoArchive(async (statement, params = []) => {
+        const { sql, binds } = translateAndBind(statement, params);
+        const prepared = db.prepare(sql);
+        if (prepared.reader) return { rows: prepared.all(binds) as Array<{ metadata: unknown }> };
+        prepared.run(binds);
+        return { rows: [] };
+      });
+    } finally {
+      db.close();
+    }
   });
 
   it('selects only this extension\'s sessions on SQLite', async () => {

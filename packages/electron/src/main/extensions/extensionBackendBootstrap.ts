@@ -448,6 +448,7 @@ function buildSessionsService(
     revokeWake: (token) => call('revokeWake', { token }),
     sendPrompt: (sessionId, prompt) => call('sendPrompt', { sessionId, prompt }),
     getStatus: (sessionId) => call('getStatus', { sessionId }),
+    setAutoArchive: (sessionId, minutes) => call('setAutoArchive', { sessionId, minutes }),
     getResult: (sessionId) => call('getResult', { sessionId }),
     listOwned: (options) => call('listOwned', options ?? {}),
     getUsage: (options) => call('getUsage', options),

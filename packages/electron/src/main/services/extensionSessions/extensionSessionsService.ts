@@ -14,6 +14,7 @@
  */
 import { randomUUID } from 'crypto';
 import { stat } from 'node:fs/promises';
+import { sessionPolicyPatch } from '@nimbalyst/runtime/ai/sessionPolicy';
 import { resolve } from 'node:path';
 import { snapshotSessionInstructions } from '../sessionInstructions';
 import { createWorktreeStore } from '../WorktreeStore';
@@ -187,6 +188,8 @@ export async function dispatchExtensionSessionsOp(
       return createOwnedWorkstream(scope, args as unknown as CreateOwnedWorkstreamOptions);
     case 'sendPrompt':
       return sendPrompt(scope, requireString(args, 'sessionId'), requireString(args, 'prompt'));
+    case 'setAutoArchive':
+      return setAutoArchive(scope, requireString(args, 'sessionId'), args.minutes);
     case 'getStatus':
       return getStatus(scope, requireString(args, 'sessionId'));
     case 'getResult':
@@ -295,6 +298,7 @@ async function createOwnedSession(
     [SESSION_OWNER_KEY]: ownerFor(scope, ownerKey, options.routeChildUpdatesToOwner),
     [OWNER_METADATA_KEY]: plainObject(options.ownerMetadata) ?? {},
     ...instructionSelection,
+    ...sessionPolicyPatch({ autoArchiveAfterMinutes: options.autoArchiveAfterMinutes }),
     ...(directive ? { [SESSION_DIRECTIVE_KEY]: directive } : {}),
     ...(effortLevel ? { effortLevel } : {}),
   };
@@ -554,6 +558,24 @@ export function summarizeOwnedUsage(
 // ---------------------------------------------------------------------------
 
 const ownerMetadataWrites = new Map<string, Promise<unknown>>();
+
+async function setAutoArchive(scope: ExtensionSessionScope, sessionId: string, minutes: unknown): Promise<void> {
+  await requireOwned(scope, sessionId);
+  const { autoArchiveAfterMinutes } = sessionPolicyPatch({ autoArchiveAfterMinutes: minutes });
+  if (autoArchiveAfterMinutes === undefined) throw new Error('minutes is required');
+
+  // Set the policy and start or reset the timer against the status at write time.
+  // A running session receives its timestamp from the normal completion listener.
+  await database.query(
+    `UPDATE ai_sessions SET metadata = COALESCE(metadata, '{}'::jsonb) ||
+      jsonb_build_object(
+        'autoArchiveAfterMinutes', $2::integer,
+        'autoArchiveCompletedAt', CASE WHEN status = 'idle' AND $2::integer > 0 THEN $3::bigint ELSE NULL END
+      )
+      WHERE id = $1`,
+    [sessionId, autoArchiveAfterMinutes, Date.now()],
+  );
+}
 
 async function updateOwnerMetadata(scope: ExtensionSessionScope, sessionId: string, patch: unknown) {
   const changes = plainObject(patch);
