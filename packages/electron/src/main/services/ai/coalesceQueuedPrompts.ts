@@ -36,7 +36,7 @@ export interface CoalescibleQueuedPrompt {
  */
 export const MAX_COALESCED_PROMPTS = 20;
 
-type Author = { kind: 'user' } | { kind: 'agent'; originSessionId?: string };
+type Author = { kind: 'user' } | { kind: 'agent'; originSessionId?: string; finalResult: boolean };
 
 /**
  * Who wrote a row. Rows without a known human or agent author (no provenance,
@@ -46,19 +46,22 @@ type Author = { kind: 'user' } | { kind: 'agent'; originSessionId?: string };
 function authorOf(prompt: CoalescibleQueuedPrompt): Author | null {
   const provenance = prompt.documentContext?.promptProvenance;
   if (provenance?.actor === 'human') return { kind: 'user' };
-  if (provenance?.actor === 'agent') return { kind: 'agent', originSessionId: provenance.originSessionId };
+  if (provenance?.actor === 'agent') {
+    return { kind: 'agent', originSessionId: provenance.originSessionId, finalResult: provenance.messageKind === 'final' };
+  }
   return null;
 }
 
 function authorLabel(author: Author | null, resolveSessionTitle?: (id: string) => string | undefined): string {
   if (!author) return 'system';
   if (author.kind === 'user') return 'user';
-  if (!author.originSessionId) return 'agent';
+  const resultLabel = author.finalResult ? ' · final result' : '';
+  if (!author.originSessionId) return `agent${resultLabel}`;
   // The short id stays beside the title so two sessions with the same name
   // remain distinguishable.
   const shortId = author.originSessionId.slice(0, 8);
   const title = resolveSessionTitle?.(author.originSessionId)?.replace(/[\r\n\[\]]/g, ' ').trim();
-  return `session: ${title ? `${title} (${shortId})` : shortId}`;
+  return `session: ${title ? `${title} (${shortId})` : shortId}${resultLabel}`;
 }
 
 /**
@@ -207,7 +210,7 @@ export function mergeClaimedRun<T extends CoalescibleQueuedPrompt>(run: readonly
     const isChildUpdate =
       head.documentContext?.promptProvenance?.origin === 'child-session-update' &&
       head.prompt.startsWith('[Child Session Update]');
-    if (author?.kind !== 'agent' || isSlashCommand(head) || isChildUpdate) return head;
+    if (author?.kind !== 'agent' || isChildUpdate || (!author.finalResult && isSlashCommand(head))) return head;
     return { ...head, prompt: formatCoalescedPrompt([{ prompt: head.prompt, author: authorLabel(author, resolveSessionTitle), createdAt: head.createdAt }]) };
   }
 

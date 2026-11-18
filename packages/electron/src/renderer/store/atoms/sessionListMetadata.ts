@@ -18,6 +18,7 @@ export function sessionListMetadata(
     sessionType: s.sessionType || "session",
     agentRole: s.agentRole || "standard",
     createdBySessionId: s.createdBySessionId || null,
+    coordinatorSessionId: s.coordinatorSessionId ?? null,
     messageCount: s.messageCount || 0,
     workspaceId: workspacePath,
     isArchived: s.isArchived || false,
@@ -40,6 +41,7 @@ export function sessionListMetadata(
     generateSummary: s.generateSummary ?? true,
     autoArchiveAfterMinutes: s.autoArchiveAfterMinutes ?? 0,
     ...(s.agentRole && { agentRole: s.agentRole }),
+    ...(s.coordinatorSessionId !== undefined && { coordinatorSessionId: s.coordinatorSessionId }),
     ...(s.createdBySessionId !== undefined && {
       createdBySessionId: s.createdBySessionId,
     }),

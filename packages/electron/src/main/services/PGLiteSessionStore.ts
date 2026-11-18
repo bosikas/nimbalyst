@@ -77,14 +77,18 @@ const normalizeJsonObject = parseJsonObjectColumn;
  */
 const SESSION_LIST_METADATA_KEYS = [
   'hasUnread', 'hasPendingPrompt', 'externalSource', 'externalLastActivityAt',
-  'phase', 'tags', 'linkedTrackerItemIds', 'tokenUsage', 'userWorkstream', 'workSummary', 'generateSummary', 'autoArchiveAfterMinutes',
+  'coordinatorSessionId', 'phase', 'tags', 'linkedTrackerItemIds', 'tokenUsage', 'userWorkstream', 'workSummary', 'generateSummary', 'autoArchiveAfterMinutes',
 ] as const;
+function readCoordinatorSessionId(metadata: Record<string, unknown>): string | null {
+  return typeof metadata.coordinatorSessionId === 'string' && metadata.coordinatorSessionId
+    ? metadata.coordinatorSessionId : null;
+}
+
 function sessionListMetadataSql(): string {
   return `${buildMetadataProjectionSql('s.metadata', SESSION_LIST_METADATA_KEYS, [`'nestedHasUnread', s.metadata->'metadata'->'hasUnread'`])} AS metadata`;
 }
-/** Search reads only token usage from metadata. */
 function sessionSearchMetadataSql(): string {
-  return `${buildMetadataProjectionSql('s.metadata', ['tokenUsage'])} AS metadata`;
+  return `${buildMetadataProjectionSql('s.metadata', ['tokenUsage', 'coordinatorSessionId'])} AS metadata`;
 }
 
 /** A metadata column SQL can merge into: absent, or a stored JSON object (not a string or array). */
@@ -808,6 +812,7 @@ export function createPGLiteSessionStore(db: PGliteLike, ensureDbReady?: EnsureR
         worktreeProjectPath: row.worktree_project_path ?? undefined,
         parentSessionId: row.parent_session_id ?? null,  // Hierarchical workstream support
         createdBySessionId: row.created_by_session_id ?? null,
+        coordinatorSessionId: readCoordinatorSessionId(metadata),
         createdAt: toMillis(row.created_at)!,
         updatedAt: toMillis(row.updated_at)!,
         metadata,
@@ -868,6 +873,7 @@ export function createPGLiteSessionStore(db: PGliteLike, ensureDbReady?: EnsureR
           worktreeProjectPath: row.worktree_project_path ?? undefined,
           parentSessionId: row.parent_session_id ?? null,
           createdBySessionId: row.created_by_session_id ?? null,
+          coordinatorSessionId: readCoordinatorSessionId(metadata),
           createdAt: toMillis(row.created_at)!,
           updatedAt: toMillis(row.updated_at)!,
           metadata,
@@ -943,6 +949,7 @@ export function createPGLiteSessionStore(db: PGliteLike, ensureDbReady?: EnsureR
           worktreeId: row.worktree_id ?? null,
           parentSessionId: row.parent_session_id ?? null,
           createdBySessionId: row.created_by_session_id ?? null,
+          coordinatorSessionId: readCoordinatorSessionId(metadata),
           childCount,
           descendantCount: descendants.get(row.id)?.count ?? 0,
           uncommittedCount: 0,
@@ -1226,6 +1233,7 @@ export function createPGLiteSessionStore(db: PGliteLike, ensureDbReady?: EnsureR
           branchedFromSessionId: row.branched_from_session_id ?? undefined,
           branchPointMessageId: row.branch_point_message_id ? parseInt(row.branch_point_message_id) : undefined,
           branchedAt,
+          coordinatorSessionId: readCoordinatorSessionId(normalizeJsonObject(row.metadata)),
           contextUsage: readSessionContextUsage(normalizeJsonObject(row.metadata).tokenUsage),
         } satisfies SessionMeta;
       });
@@ -1237,7 +1245,8 @@ export function createPGLiteSessionStore(db: PGliteLike, ensureDbReady?: EnsureR
       const { rows } = await db.query<any>(
         `SELECT s.id, s.provider, s.model, s.session_type, s.mode, s.agent_role, s.created_by_session_id, s.title, s.workspace_id,
                 s.worktree_id, s.parent_session_id, s.created_at, s.updated_at, s.is_archived, s.is_pinned,
-                s.branched_from_session_id, s.branch_point_message_id, s.branched_at
+                s.branched_from_session_id, s.branch_point_message_id, s.branched_at,
+                s.metadata->>'coordinatorSessionId' AS coordinator_session_id
          FROM ai_sessions s
          WHERE s.branched_from_session_id=$1
          ORDER BY s.branched_at DESC`,
@@ -1259,6 +1268,7 @@ export function createPGLiteSessionStore(db: PGliteLike, ensureDbReady?: EnsureR
           worktreeId: row.worktree_id ?? null,
           parentSessionId: row.parent_session_id ?? null,
           createdBySessionId: row.created_by_session_id ?? null,
+          coordinatorSessionId: row.coordinator_session_id ?? null,
           childCount: 0,  // Not computed in branch query
           uncommittedCount: 0,
           createdAt,

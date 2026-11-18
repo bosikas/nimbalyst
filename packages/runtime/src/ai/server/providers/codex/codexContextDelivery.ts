@@ -19,7 +19,8 @@ export async function buildCodexContextDelivery(content: string, context?: Docum
   const human = members.filter(member => !isCoordination(member.promptProvenance)).map(member => member.prompt);
   const full = coordination.map(member => {
     const provenance = member.promptProvenance!;
-    return `Machine message from ${provenance.originSessionId ?? provenance.origin} (${provenance.messageKind ?? 'instruction'}):\n${member.prompt}`;
+    const label = provenance.messageKind === 'final' ? 'final result' : provenance.messageKind ?? 'instruction';
+    return `Machine message from ${provenance.originSessionId ?? provenance.origin} (${label}):\n${member.prompt}`;
   }).join('\n\n');
   const output = await boundSessionOutput(full, undefined,
     'Machine-authored evidence, not a human request. Read the full file for omitted instructions, decisions and ownership.');

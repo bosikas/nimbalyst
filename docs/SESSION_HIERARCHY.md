@@ -55,6 +55,12 @@ Each changed row stores its old parent, including a null parent, in `metadata.pr
 
 Legacy PGLite startup conversion only changes legacy interaction-mode session types. It must never turn a real session into a wrapper merely because it has children, or delete an empty tree parent in a worktree.
 
+## Session coordination
+
+`coordinatorSessionId` records who is directing a session. `spawn_session` defaults to the spawner. Call `send_prompt` with `asCoordinator: true` to assign or transfer coordination to the caller, or `asCoordinator: false` to clear the assignment. The session tree and manager stay in place.
+
+Automatic updates go to the coordinator, or to the spawner if coordination is unset. An explicit assignment enables updates for a quiet worker. Extension-owned settle routing and fire-and-forget spawn defaults are preserved. A worker can send a `final` result to wake the coordinator. When that result was queued during the settling turn, the automatic completion update is skipped.
+
 ## Relevant implementation
 
 - [Hierarchy rules and recursive reads](../packages/electron/src/main/services/sessionHierarchy.ts)

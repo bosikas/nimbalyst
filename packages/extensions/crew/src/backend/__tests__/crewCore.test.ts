@@ -251,7 +251,7 @@ class FakeSessions implements HostSessions {
   async getStatus(sessionId: string) {
     const s = this.sessions.get(sessionId)!;
     return {
-      sessionId, status: s.status, title: s.title, lastActivity: s.updatedAt, updatedAt: s.updatedAt,
+      sessionId, coordinatorSessionId: null, status: s.status, title: s.title, lastActivity: s.updatedAt, updatedAt: s.updatedAt,
       hasPendingPrompt: s.hasPendingPrompt, queuedPromptCount: s.queuedPromptCount,
     };
   }
@@ -291,7 +291,7 @@ class FakeSessions implements HostSessions {
     Object.assign(s, { status: 'idle', lastResponse, queuedPromptCount, updatedAt: this.clock.now });
     if (totalTokens !== undefined) s.totalTokens = totalTokens;
     return {
-      sessionId, ownerKey: s.key, outcome: 'completed', createdBySessionId: s.createdBySessionId, workstreamId: s.workstreamId,
+      sessionId, ownerKey: s.key, outcome: 'completed', coordinatorSessionId: null, createdBySessionId: s.createdBySessionId, workstreamId: s.workstreamId,
       at: this.clock.now, tokenUsage: usageOf(s.totalTokens),
     };
   }

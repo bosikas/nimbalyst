@@ -329,6 +329,17 @@ describe('queuedPromptDispatcher', () => {
       expect((await drain([agentPrompt('a', update)])).sent).toEqual([update]);
     });
 
+    it('labels a final result and treats command-like result text as a message', async () => {
+      const result = agentPrompt('final', '/compact output', {
+        promptProvenance: {
+          actor: 'agent', origin: 'session-orchestration', originSessionId: 'child-1', messageKind: 'final',
+        },
+      });
+      expect((await drain([result])).sent).toEqual([
+        '[14:06 · session: Child session (child-1) · final result]\n/compact output',
+      ]);
+    });
+
     // A slash command only works as the first thing in a turn, so it keeps its own.
     it('keeps a slash command as its own turn on both sides', async () => {
       const before = await drain([

@@ -63,6 +63,26 @@ export interface    SessionInfo {
  */
 export const sessionRegistryAtom = atom<Map<string, SessionMeta>>(new Map());
 
+export const sessionCoordinatorIdAtom = atomFamily((sessionId: string) =>
+  atom(get => get(sessionRegistryAtom).get(sessionId)?.coordinatorSessionId ?? null)
+);
+
+const coordinatedSessionIdsByCoordinatorAtom = atom(get => {
+  const byCoordinator = new Map<string, string[]>();
+  for (const session of get(sessionRegistryAtom).values()) {
+    if (!session.coordinatorSessionId || session.isArchived) continue;
+    const sessions = byCoordinator.get(session.coordinatorSessionId);
+    if (sessions) sessions.push(session.id);
+    else byCoordinator.set(session.coordinatorSessionId, [session.id]);
+  }
+  return byCoordinator;
+});
+
+const NO_COORDINATED_SESSIONS: readonly string[] = [];
+export const coordinatedSessionIdsAtom = atomFamily((coordinatorId: string) =>
+  atom(get => get(coordinatedSessionIdsByCoordinatorAtom).get(coordinatorId) ?? NO_COORDINATED_SESSIONS)
+);
+
 /**
  * Derived: Sorted array of all sessions from registry.
  * For use by components that need the full session list.
@@ -716,7 +736,7 @@ const EMPTY_SESSION_TODOS: unknown[] = [];
 /** Update fields mirrored into sessionRegistryAtom by updateSessionStoreAtom. */
 const REGISTRY_UPDATE_FIELDS = [
   'title', 'updatedAt', 'isArchived', 'isPinned', 'parentSessionId', 'worktreeId',
-  'provider', 'model', 'sessionType', 'uncommittedCount', 'createdBySessionId', 'childCount', 'descendantCount',
+  'provider', 'model', 'sessionType', 'uncommittedCount', 'createdBySessionId', 'coordinatorSessionId', 'childCount', 'descendantCount',
 ] as const satisfies ReadonlyArray<keyof SessionUpdateFields>;
 
 /**
@@ -758,6 +778,7 @@ export const updateSessionStoreAtom = atom(
         ...(updates.isArchived !== undefined && { isArchived: updates.isArchived }),
         ...(updates.isPinned !== undefined && { isPinned: updates.isPinned }),
         ...(updates.parentSessionId !== undefined && { parentSessionId: updates.parentSessionId }),
+        ...(updates.coordinatorSessionId !== undefined && { coordinatorSessionId: updates.coordinatorSessionId }),
         ...(updates.createdBySessionId !== undefined && { createdBySessionId: updates.createdBySessionId }),
         ...(updates.childCount !== undefined && { childCount: updates.childCount }),
         ...(updates.descendantCount !== undefined && { descendantCount: updates.descendantCount }),
@@ -2266,6 +2287,7 @@ export const updateSessionFullAtom = atom(
         ...(update.worktreeId !== undefined && { worktreeId: update.worktreeId }),
         ...(update.childCount !== undefined && { childCount: update.childCount }),
         ...(update.descendantCount !== undefined && { descendantCount: update.descendantCount }),
+        ...(update.coordinatorSessionId !== undefined && { coordinatorSessionId: update.coordinatorSessionId }),
         ...(update.createdBySessionId !== undefined && { createdBySessionId: update.createdBySessionId }),
         ...(update.uncommittedCount !== undefined && { uncommittedCount: update.uncommittedCount }),
         ...(update.messageCount !== undefined && { messageCount: update.messageCount }),

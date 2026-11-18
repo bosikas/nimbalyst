@@ -141,7 +141,8 @@ interface MetaAgentToolFns {
     targetSessionId: string,
     prompt: string,
     interrupt?: boolean,
-    messageKind?: OrchestrationMessageKind
+    messageKind?: OrchestrationMessageKind,
+    asCoordinator?: boolean
   ) => Promise<string>;
   notifyUser: (
     metaSessionId: string,
@@ -394,13 +395,13 @@ export const META_AGENT_TOOL_DEFS: Array<{
   {
     name: "send_prompt",
     description:
-      "Queue a follow-up prompt for a session. An instruction to an idle session starts processing immediately; a report or status never wakes it and is read on its next turn. Do not message the session that started you unless it asked for reports.",
+      "Queue a follow-up prompt for a session. Instructions and final results wake an idle session. Reports and status updates are read on its next turn.",
     inputSchema: {
       type: "object",
       properties: {
         sessionId: {
           type: "string",
-          description: "The target child session ID.",
+          description: "The target session ID.",
         },
         prompt: {
           type: "string",
@@ -408,8 +409,12 @@ export const META_AGENT_TOOL_DEFS: Array<{
         },
         messageKind: {
           type: "string",
-          enum: ["instruction", "report", "status", "question", "error"],
-          description: "Defaults to instruction. report/status are informational and never wake an idle recipient; never label a request to change work as a report.",
+          enum: ["instruction", "report", "final", "status", "question", "error"],
+          description: "Defaults to instruction. Use final for a completed result that should wake the recipient. Use report or status for updates that can wait.",
+        },
+        asCoordinator: {
+          type: "boolean",
+          description: "True assigns or transfers coordination of the target to the calling session. False clears the assignment. Omit to keep it.",
         },
         interrupt: {
           type: "boolean",
@@ -604,14 +609,16 @@ export async function dispatchMetaAgentTool(
         }
       );
     case "send_prompt":
-      if (args?.messageKind !== undefined && !['instruction', 'report', 'status', 'question', 'error'].includes(String(args.messageKind))) throw new Error('Invalid orchestration messageKind');
+      if (args?.messageKind !== undefined && !['instruction', 'report', 'final', 'status', 'question', 'error'].includes(String(args.messageKind))) throw new Error('Invalid orchestration messageKind');
+      if (args?.asCoordinator !== undefined && typeof args.asCoordinator !== 'boolean') throw new Error('asCoordinator must be a boolean');
       return toolFns.sendPrompt(
         aiSessionId,
         effectiveWorkspaceId,
         (args?.sessionId as string) ?? "",
         (args?.prompt as string) ?? "",
         args?.interrupt === true,
-        (args?.messageKind as OrchestrationMessageKind | undefined) ?? 'instruction'
+        (args?.messageKind as OrchestrationMessageKind | undefined) ?? 'instruction',
+        args?.asCoordinator as boolean | undefined
       );
     case "notify_user":
       return toolFns.notifyUser(aiSessionId, effectiveWorkspaceId, (args ?? {}) as NotifyUserArgs);

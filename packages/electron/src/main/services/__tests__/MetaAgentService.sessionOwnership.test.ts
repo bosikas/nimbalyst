@@ -43,7 +43,7 @@ vi.mock('@nimbalyst/runtime/ai/server/types', () => ({
 }));
 
 vi.mock('@nimbalyst/runtime/ai/server/SessionStateManager', () => ({
-  getSessionStateManager: () => ({ subscribe: vi.fn() }),
+  getSessionStateManager: () => ({ subscribe: vi.fn(), getSessionState: () => activeTurn }),
 }));
 
 vi.mock('../ai/providerResolution', () => ({
@@ -89,6 +89,8 @@ import { MetaAgentService } from '../MetaAgentService';
 import { buildClaudeCodeSystemPrompt } from '@nimbalyst/runtime/ai/prompt';
 
 const ROUTED_OWNER = { extensionId: 'com.example.owner', key: 'ada', routeChildUpdatesToOwner: true };
+let activeTurn: object = {};
+
 const OWNED_CALLER = {
   id: 'caller',
   provider: 'claude-code',
@@ -114,6 +116,9 @@ describe('MetaAgentService session ownership', () => {
     vi.mocked(AISessionsRepository.updateMetadata).mockReset();
     vi.mocked(AgentMessagesRepository.create).mockReset();
     vi.mocked(database.query).mockClear();
+    activeTurn = {};
+    (MetaAgentService.getInstance() as any).notificationSignatures.clear();
+    (MetaAgentService.getInstance() as any).finalMessagesByTurn.clear();
   });
 
   it('spawn_session from an owned session writes the owner and notifyParent on the child row itself', async () => {
@@ -126,6 +131,7 @@ describe('MetaAgentService session ownership', () => {
     // Owner (with its routing opt-in) is inherited; the directive and the
     // owner's per-session bag are not.
     expect(row.metadata).toEqual({
+      coordinatorSessionId: 'caller',
       sessionOwner: ROUTED_OWNER,
       notifyParent: false,
       generateSummary: true,
@@ -164,6 +170,7 @@ describe('MetaAgentService session ownership', () => {
 
     const metadata = (vi.mocked(AISessionsRepository.create).mock.calls[0][0] as any).metadata;
     expect(metadata).toEqual({
+      coordinatorSessionId: 'caller',
       sessionDirective: expect.any(String),
       generateSummary: true,
       autoArchiveAfterMinutes: 0,
@@ -188,6 +195,7 @@ describe('MetaAgentService session ownership', () => {
         vi.mocked(AISessionsRepository.create).mockReset();
         const { metadata, prompt } = await childPrompt({}, via);
         expect(metadata).toEqual({
+          ...(via === 'spawnSession' && { coordinatorSessionId: 'caller' }),
           notifyParent: false,
           generateSummary: true,
           autoArchiveAfterMinutes: 0,
@@ -242,6 +250,82 @@ describe('MetaAgentService session ownership', () => {
 
     await (svc as any).sendPromptToSession('child', 'parent', '/workspace/path', 'do this next', false, 'instruction');
     expect(aiService.triggerQueuedPromptProcessingForSession).toHaveBeenCalledTimes(1);
+  });
+
+  function settleHarness(coordinatorSessionId: string | null, metadata?: Record<string, unknown>) {
+    const { svc, aiService } = service();
+    const child = {
+      id: 'child',
+      createdBySessionId: 'spawner',
+      coordinatorSessionId,
+      metadata,
+      workspacePath: '/workspace/path',
+    };
+    vi.mocked(AISessionsRepository.get).mockImplementation(async id => (
+      id === child.id ? child : { id, workspacePath: child.workspacePath }
+    ) as any);
+    vi.spyOn(svc as any, 'shouldBypassChildAgentExecutionForTests').mockReturnValue(false);
+    vi.spyOn(svc as any, 'getSessionStatusRow').mockResolvedValue({ status: 'idle' });
+    vi.spyOn(svc as any, 'buildSessionResultData').mockResolvedValue({
+      sessionId: 'child', title: 'Worker', status: 'idle', recentMessages: [], editedFiles: [],
+    });
+    aiService.queuePromptForSession.mockResolvedValue({ id: 'q1', prompt: 'p' });
+    return { svc: svc as any, aiService, workspace: child.workspacePath };
+  }
+
+  it.each([[null, 'spawner'], ['coordinator', 'coordinator']])(
+    'routes the completion with coordinator %s only to %s',
+    async (coordinatorId, recipient) => {
+      const { svc, aiService, workspace } = settleHarness(coordinatorId);
+      await svc.handleChildSessionEvent('child', 'session:completed');
+      expect(aiService.queuePromptForSession).toHaveBeenCalledExactlyOnceWith(
+        recipient, expect.stringMatching(/^\[Child Session Update\]/), undefined,
+        { promptProvenance: { actor: 'agent', origin: 'child-session-update', messageKind: 'report', originSessionId: 'child' } },
+      );
+      expect(aiService.triggerQueuedPromptProcessingForSession).toHaveBeenCalledWith(recipient, workspace, 'meta-agent');
+    },
+  );
+
+  it('routes a quiet worker to an explicitly assigned coordinator', async () => {
+    const { svc, aiService } = settleHarness('coordinator', { notifyParent: false, notifyCoordinator: true });
+    await svc.handleChildSessionEvent('child', 'session:completed');
+    expect(aiService.queuePromptForSession).toHaveBeenCalledExactlyOnceWith(
+      'coordinator', expect.stringMatching(/^\[Child Session Update\]/), undefined, expect.any(Object),
+    );
+  });
+
+  it('wakes an idle coordinator for a final result and skips its automatic update', async () => {
+    const { svc, aiService, workspace } = settleHarness('coordinator');
+    await svc.sendPromptToSession('child', 'coordinator', workspace, 'Done', false, 'final');
+    await svc.handleChildSessionEvent('child', 'session:completed');
+    expect(aiService.queuePromptForSession).toHaveBeenCalledExactlyOnceWith(
+      'coordinator', 'Done', undefined,
+      { promptProvenance: { actor: 'agent', origin: 'session-orchestration', messageKind: 'final', originSessionId: 'child' } },
+    );
+    expect(aiService.triggerQueuedPromptProcessingForSession).toHaveBeenCalledExactlyOnceWith('coordinator', workspace, 'meta-agent');
+  });
+
+  it('still sends the automatic update when a final went to a different session', async () => {
+    const { svc, aiService, workspace } = settleHarness('coordinator');
+    await svc.sendPromptToSession('child', 'spawner', workspace, 'Done', false, 'final');
+    await svc.handleChildSessionEvent('child', 'session:completed');
+    expect(aiService.queuePromptForSession).toHaveBeenCalledTimes(2);
+    expect(aiService.queuePromptForSession).toHaveBeenLastCalledWith(
+      'coordinator', expect.stringMatching(/^\[Child Session Update\]/), undefined, expect.any(Object),
+    );
+  });
+
+  it('assigns, transfers, and clears the coordinator before queueing the instruction', async () => {
+    const { svc, aiService, workspace } = settleHarness('spawner');
+    await svc.sendPromptToSession('coordinator', 'child', workspace, 'Continue', false, 'instruction', true);
+    await svc.sendPromptToSession('other', 'child', workspace, 'Continue', false, 'instruction', true);
+    await svc.sendPromptToSession('other', 'child', workspace, 'Continue', false, 'instruction', false);
+    expect(AISessionsRepository.updateMetadata).toHaveBeenNthCalledWith(1, 'child', { metadata: { coordinatorSessionId: 'coordinator', notifyCoordinator: true } });
+    expect(AISessionsRepository.updateMetadata).toHaveBeenNthCalledWith(2, 'child', { metadata: { coordinatorSessionId: 'other', notifyCoordinator: true } });
+    expect(AISessionsRepository.updateMetadata).toHaveBeenNthCalledWith(3, 'child', { metadata: { coordinatorSessionId: null, notifyCoordinator: false } });
+    expect(vi.mocked(AISessionsRepository.updateMetadata).mock.invocationCallOrder[0]).toBeLessThan(
+      aiService.queuePromptForSession.mock.invocationCallOrder[0],
+    );
   });
 
   it('an owner-routed child settle queues no [Child Session Update] on the parent', async () => {

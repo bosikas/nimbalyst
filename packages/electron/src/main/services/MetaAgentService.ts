@@ -18,6 +18,7 @@ import { AISessionsRepository } from '@nimbalyst/runtime/storage/repositories/AI
 import { AgentMessagesRepository } from '@nimbalyst/runtime/storage/repositories/AgentMessagesRepository';
 import { SessionFilesRepository } from '@nimbalyst/runtime/storage/repositories/SessionFilesRepository';
 import { getSessionStateManager } from '@nimbalyst/runtime/ai/server/SessionStateManager';
+import type { SessionState } from '@nimbalyst/runtime/ai/server/types/SessionState';
 import { getDefaultAIModel } from '../utils/store';
 import { resolveStoredWorkspaceId, sameWorkspaceIdentity } from '../utils/workspaceIdentity';
 import {
@@ -219,6 +220,7 @@ export class MetaAgentService {
   private sessionManager: SessionManager | null = null;
   private unsubscribeStateListener: (() => void) | null = null;
   private notificationSignatures = new Map<string, string>();
+  private finalMessagesByTurn = new Map<string, { state: SessionState; recipients: Set<string> }>();
   private ipcHandlersRegistered = false;
   private showNotificationWithResult: ShowNotificationWithResult | null = null;
   private requestMobilePush: RequestMobilePush | null = null;
@@ -297,8 +299,8 @@ export class MetaAgentService {
           this.getSessionResultJson(targetSessionId, workspaceId, options),
         listQueuedPrompts: (_metaSessionId, workspaceId, targetSessionId, options) =>
           this.listQueuedPromptsJson(targetSessionId, workspaceId, options),
-        sendPrompt: (metaSessionId, workspaceId, targetSessionId, prompt, interrupt, messageKind) =>
-          this.sendPromptToSession(metaSessionId, targetSessionId, workspaceId, prompt, interrupt, messageKind),
+        sendPrompt: (metaSessionId, workspaceId, targetSessionId, prompt, interrupt, messageKind, asCoordinator) =>
+          this.sendPromptToSession(metaSessionId, targetSessionId, workspaceId, prompt, interrupt, messageKind, asCoordinator),
         notifyUser: (callerSessionId, workspaceId, args) =>
           this.notifyUserJson(callerSessionId, workspaceId, args),
         respondToPrompt: (_metaSessionId, workspaceId, args) =>
@@ -312,13 +314,20 @@ export class MetaAgentService {
       // toolFns injected above. This service no longer starts a standalone HTTP
       // server.
 
-      this.unsubscribeStateListener = getSessionStateManager().subscribe((event) => {
+      const stateManager = getSessionStateManager();
+      this.unsubscribeStateListener = stateManager.subscribe((event) => {
         // NIM-6 follow-up: dedup signatures only describe one turn; clear them
         // when a child becomes active again so two distinct turns whose final
         // text happens to match (e.g. "done", "ok") still each notify the
         // parent.
         if (event.type === 'session:started' || event.type === 'session:streaming') {
           this.notificationSignatures.delete(event.sessionId);
+          // Streaming and resumed permissions can emit another start event
+          // during the same turn; the state object changes on a new turn.
+          const finals = this.finalMessagesByTurn.get(event.sessionId);
+          if (finals && finals.state !== stateManager.getSessionState(event.sessionId)) {
+            this.finalMessagesByTurn.delete(event.sessionId);
+          }
           return;
         }
         if (event.type === 'session:completed' || event.type === 'session:error' || event.type === 'session:waiting' || event.type === 'session:interrupted') {
@@ -345,6 +354,7 @@ export class MetaAgentService {
     this.unsubscribeStateListener?.();
     this.unsubscribeStateListener = null;
     this.notificationSignatures.clear();
+    this.finalMessagesByTurn.clear();
     this.showNotificationWithResult = null;
     // No standalone HTTP server to tear down (Phase 7); the injected toolFns are
     // process-lifetime singletons.
@@ -479,6 +489,7 @@ export class MetaAgentService {
       parentSessionIdOverride?: string | null;
       /** Written on the row before the first prompt is queued; see childReporting.ts. */
       childReporting: ChildReporting;
+      coordinatorSessionId?: string;
       /** Show `title` until the session names itself, instead of locking it in. */
       provisionalTitle?: boolean;
       /** Place the new session beside the caller rather than under it; the caller still manages it. */
@@ -695,6 +706,7 @@ export class MetaAgentService {
         ...(childToolScope ? { toolScope: childToolScope } : {}),
         ...(childEffortLevel ? { effortLevel: childEffortLevel } : {}),
         ...childReportingMetadata(args.childReporting, metaSessionId),
+        ...(args.coordinatorSessionId && { coordinatorSessionId: args.coordinatorSessionId }),
         ...(args.parentSessionIdOverride === null ? { isolated: true } : {}),
       };
 
@@ -836,6 +848,7 @@ export class MetaAgentService {
       // Default is fire-and-forget: kicking off work in a fresh session is the
       // common /launch-new-session use case (escape a long parent context).
       childReporting: reporting,
+      coordinatorSessionId: parentSessionId,
     });
 
     return JSON.stringify({
@@ -896,6 +909,7 @@ export class MetaAgentService {
       provider: row.provider,
       model: row.model || null,
       createdBySessionId: row.created_by_session_id || null,
+      coordinatorSessionId: row.coordinator_session_id || null,
       agentRole: row.agent_role || 'standard',
       waitingForInput: status === 'waiting_for_input',
     };
@@ -973,6 +987,7 @@ export class MetaAgentService {
     prompt: string,
     interrupt = false,
     messageKind: OrchestrationMessageKind = 'instruction',
+    asCoordinator?: boolean,
   ): Promise<string> {
     if (!this.aiService) {
       throw new Error('AI service not initialized');
@@ -986,9 +1001,27 @@ export class MetaAgentService {
       throw new Error(`Session ${sessionId} not found`);
     }
 
+    if (asCoordinator !== undefined) {
+      if (asCoordinator) {
+        if (sessionId === originSessionId) throw new Error('A session cannot coordinate itself');
+        const caller = await AISessionsRepository.get(originSessionId);
+        if (!caller || !sameWorkspaceIdentity(caller.workspacePath, workspaceId)) {
+          throw new Error(`Coordinator session ${originSessionId} not found in this workspace`);
+        }
+      }
+      const coordinatorSessionId = asCoordinator ? originSessionId : null;
+      await AISessionsRepository.updateMetadata(sessionId, {
+        metadata: { coordinatorSessionId, notifyCoordinator: asCoordinator },
+      });
+      for (const window of BrowserWindow.getAllWindows()) {
+        if (!window.isDestroyed()) window.webContents.send('sessions:session-updated', sessionId, { coordinatorSessionId });
+      }
+    }
+
     // Validated by the guard above; this hands the same stored key back verbatim.
     const sessionWorkspaceKey = resolveStoredWorkspaceId(session.workspacePath, workspaceId);
     const normalizedPrompt = prompt.trim();
+    const senderTurn = messageKind === 'final' ? getSessionStateManager().getSessionState(originSessionId) : null;
     const shouldBypassExecution = this.shouldBypassChildAgentExecutionForTests();
     const statusRow = await this.getSessionStatusRow(sessionId, sessionWorkspaceKey);
     const statusBeforeQueue = (statusRow?.status || 'idle') as SessionStatusValue;
@@ -1021,6 +1054,14 @@ export class MetaAgentService {
       undefined,
       { promptProvenance },
     );
+    if (senderTurn) {
+      const finals = this.finalMessagesByTurn.get(originSessionId);
+      if (finals?.state === senderTurn) {
+        finals.recipients.add(sessionId);
+      } else {
+        this.finalMessagesByTurn.set(originSessionId, { state: senderTurn, recipients: new Set([sessionId]) });
+      }
+    }
     const status = (statusRow?.status || 'idle') as SessionStatusValue;
     const workspaceForDrive = session.worktreePath || session.workspacePath || workspaceId;
     // A report never wakes an idle recipient: it waits for that session's next
@@ -1246,25 +1287,31 @@ export class MetaAgentService {
   }
 
   private async handleChildSessionEvent(sessionId: string, eventType: 'session:completed' | 'session:error' | 'session:waiting' | 'session:interrupted'): Promise<void> {
+    const finalRecipients = this.finalMessagesByTurn.get(sessionId)?.recipients;
     try {
       if (!this.aiService) {
         return;
       }
 
       const session = await AISessionsRepository.get(sessionId);
-      if (!session || !session.createdBySessionId || !session.workspacePath) {
+      const recipientId = session?.coordinatorSessionId ?? session?.createdBySessionId;
+      if (!session?.workspacePath || !recipientId) {
         return;
       }
 
-      // Honor fire-and-forget (spawn_session writes notifyParent=false on the
-      // child for /launch-new-session-style hand-offs), and owners that route
-      // child settles to themselves (extensionSessionsService delivers those).
-      if (isParentNotificationSuppressed(session.metadata)) {
+      // Explicit coordination opts in to updates even for a quiet spawn.
+      // Extension owners retain their independent settle routing.
+      const notifyCoordinator = !!session.coordinatorSessionId && session.metadata?.notifyCoordinator === true;
+      if (isParentNotificationSuppressed(session.metadata, notifyCoordinator)) {
         return;
       }
 
-      const metaSession = await AISessionsRepository.get(session.createdBySessionId);
-      if (!metaSession?.workspacePath) {
+      if (eventType === 'session:completed' && session.coordinatorSessionId && finalRecipients?.has(recipientId)) {
+        return;
+      }
+
+      const metaSession = await AISessionsRepository.get(recipientId);
+      if (!metaSession?.workspacePath || !sameWorkspaceIdentity(metaSession.workspacePath, session.workspacePath)) {
         return;
       }
 
@@ -1305,7 +1352,7 @@ export class MetaAgentService {
       // unique and the dedup useless. The signature is reset on
       // session:started/session:streaming (see start()), so it only collapses
       // duplicates within a single child turn -- not across turns.
-      const signature = computeNotificationSignature(eventType, result);
+      const signature = JSON.stringify([recipientId, computeNotificationSignature(eventType, result)]);
       if (this.notificationSignatures.get(sessionId) === signature) {
         return;
       }
@@ -1327,10 +1374,10 @@ export class MetaAgentService {
       // stale pending row keeps the parent's queue proportional to the number of
       // children rather than to the number of turns they take.
       //
-      await deletePendingChildUpdates(session.createdBySessionId, session.id);
+      await deletePendingChildUpdates(recipientId, session.id);
 
       await this.aiService.queuePromptForSession(
-        session.createdBySessionId,
+        recipientId,
         notification,
         undefined,
         {
@@ -1368,13 +1415,8 @@ export class MetaAgentService {
       `Event: ${eventType}`,
     ];
 
-    // The original task is deliberately not repeated here. This notification is
-    // only ever queued to the child's `createdBySessionId`, which is the session
-    // that wrote that prompt in the first place -- it is already in the parent's
-    // own transcript. Re-embedding up to 2,000 characters of it in every update
-    // was the largest part of each row, repeated once per child turn. The title
-    // and session id above are enough to identify the child; `get_session_result`
-    // returns the full prompt when a parent genuinely needs it.
+    // Keep routine updates compact. The recipient can use get_session_result
+    // to retrieve the full prompt when needed.
     if (result.recentMessages.length > 0) {
       lines.push('Recent messages:');
       for (const message of result.recentMessages) {

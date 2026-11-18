@@ -24,6 +24,7 @@ export interface SessionMeta {
   mode?: SessionMode;
   agentRole?: AgentRole;
   createdBySessionId?: string | null;
+  coordinatorSessionId?: string | null;
   workspaceId: string;
   worktreeId: string | null;
   parentSessionId: string | null;

@@ -114,6 +114,8 @@ Twelve built-in provider lanes, plus any agent an extension contributes. Every l
 
 ## Session Kanban Board
 
+- Session coordination — linked coordinators appear in session headers and board cards, and workstreams list their workers. Agents can claim, transfer, or clear coordination through `send_prompt`. Completion updates route to the coordinator when set, and a same-turn `final` result wakes the recipient and replaces the automatic update. Extension-owned session status and settle events expose the coordinator ID.
+
 - Sessions organized into phase columns (backlog / planning / implementing / validating / complete)
 - Configurable columns
 - Agent-assisted cleanup (`/session-cleanup` slash command in the Planning extension) — audits sessions, proposes phase corrections and "mark complete" candidates for approval, and flags old sessions to archive
