@@ -17,7 +17,16 @@ ROOT = Path(__file__).resolve().parents[1]
 ELECTRON = ROOT / 'packages/electron'
 CACHE = ELECTRON / 'node_modules/.cache/nimbalyst-local-build'
 APP = ELECTRON / 'release/marilyst-light/mac-arm64/Marilyst.app'
-BUNDLE_ID = 'com.nimbalyst.electron'
+BUNDLE_ID = 'com.nimbalyst.marilyst'
+# Builds before the bundle id split; accepted only for the bundle being replaced.
+LEGACY_BUNDLE_ID = 'com.nimbalyst.electron'
+# Install work bundles live outside /Applications: every extra copy there shares
+# the bundle id and LaunchServices/TCC may attribute permission checks to it.
+BACKUP_DIR = Path.home() / 'Library/Caches/Marilyst-backups'
+# A stable self-signed identity keeps the designated requirement constant across
+# rebuilds, so macOS privacy approvals survive. Ad-hoc signatures change each build.
+SIGNING_IDENTITY = 'Marilyst Local Signing'
+LOGIN_KEYCHAIN = Path.home() / 'Library/Keychains/login.keychain-db'
 
 
 def digest(file):
@@ -28,10 +37,10 @@ def digest(file):
     return result.hexdigest()
 
 
-def bundle_info(app):
+def bundle_info(app, allowed_ids=(BUNDLE_ID,)):
     with (app / 'Contents/Info.plist').open('rb') as stream:
         info = plistlib.load(stream)
-    if info.get('CFBundleIdentifier') != BUNDLE_ID or info.get('CFBundleName') != 'Marilyst':
+    if info.get('CFBundleIdentifier') not in allowed_ids or info.get('CFBundleName') != 'Marilyst':
         raise RuntimeError(f'Unexpected app identity: {app}')
     return info
 
@@ -39,6 +48,43 @@ def bundle_info(app):
 def run(command, **kwargs):
     print('+ ' + ' '.join(map(str, command)), flush=True)
     return subprocess.run(list(map(str, command)), check=True, **kwargs)
+
+
+def signing_identity_exists(check_output=subprocess.check_output):
+    # No -v: a self-signed certificate is untrusted but still signs.
+    listing = check_output(['/usr/bin/security', 'find-identity', '-p', 'codesigning', LOGIN_KEYCHAIN], text=True)
+    return f'"{SIGNING_IDENTITY}"' in listing
+
+
+def ensure_signing_identity(exists=signing_identity_exists, quiet_run=None):
+    """Create the local self-signed code-signing identity once. Returns True when created."""
+    if exists():
+        return False
+    import secrets
+    # Not printed: the p12 password is on these command lines.
+    quiet_run = quiet_run or (lambda command: subprocess.run(list(map(str, command)), check=True, capture_output=True))
+    with tempfile.TemporaryDirectory(prefix='marilyst-signing-') as directory:
+        directory = Path(directory)
+        config, key, cert, bundle = (directory / n for n in ['openssl.cnf', 'key.pem', 'cert.pem', 'identity.p12'])
+        config.write_text('[req]\ndistinguished_name=dn\nprompt=no\n[dn]\nCN=' + SIGNING_IDENTITY + '\n'
+                          '[codesign]\nbasicConstraints=critical,CA:false\nkeyUsage=critical,digitalSignature\n'
+                          'extendedKeyUsage=critical,codeSigning\n')
+        quiet_run(['/usr/bin/openssl', 'req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '3650', '-config', config,
+                   '-extensions', 'codesign', '-keyout', key, '-out', cert])
+        password = secrets.token_hex(24)
+        quiet_run(['/usr/bin/openssl', 'pkcs12', '-export', '-inkey', key, '-in', cert, '-name', SIGNING_IDENTITY,
+                   '-out', bundle, '-passout', f'pass:{password}'])
+        quiet_run(['/usr/bin/security', 'import', bundle, '-k', LOGIN_KEYCHAIN, '-f', 'pkcs12', '-P', password,
+                   '-T', '/usr/bin/codesign'])
+    if not exists():
+        raise RuntimeError(f'Created "{SIGNING_IDENTITY}" but it is not listed as a code-signing identity')
+    print(f'Created code-signing identity "{SIGNING_IDENTITY}" in the login keychain', flush=True)
+    return True
+
+
+def sign_bundle(app):
+    run(['/usr/bin/codesign', '--force', '--deep', '--sign', SIGNING_IDENTITY,
+         '--entitlements', ELECTRON / 'build/entitlements.mac.plist', app])
 
 
 def verify_bundle(app):
@@ -64,7 +110,7 @@ def retry(operation):
             time.sleep(0.2 * (attempt + 1))
 
 
-def install_app(source, target, verify=verify_bundle, copy=None, rename=os.rename, stamp=None):
+def install_app(source, target, verify=verify_bundle, copy=None, rename=os.rename, stamp=None, work_dir=None):
     """Stage and verify first. Never delete an installed, failed or backup bundle."""
     source, target = Path(source).absolute(), Path(target).absolute()
     if target.suffix != '.app' or target.is_symlink() or source.resolve() == target.resolve():
@@ -73,11 +119,16 @@ def install_app(source, target, verify=verify_bundle, copy=None, rename=os.renam
         raise RuntimeError('Source and destination must not contain each other')
     expected = verify(source)
     if target.exists():
-        bundle_info(target)
+        bundle_info(target, allowed_ids=(BUNDLE_ID, LEGACY_BUNDLE_ID))
+    work_dir = Path(work_dir or BACKUP_DIR).absolute()
+    work_dir.mkdir(parents=True, exist_ok=True)
+    if os.stat(work_dir).st_dev != os.stat(target.parent).st_dev:
+        # rename() across volumes fails with EXDEV; never fall back to a copy.
+        raise RuntimeError(f'{work_dir} and {target.parent} are on different volumes; no files were replaced')
     stamp = stamp or f'{time.strftime("%Y%m%d-%H%M%S")}-{time.time_ns()}-{os.getpid()}'
-    stage = target.parent / f'.Marilyst-install-{stamp}.app'
-    backup = target.parent / f'.Marilyst-backup-{stamp}.app'
-    failed = target.parent / f'.Marilyst-failed-{stamp}.app'
+    stage = work_dir / f'Marilyst-install-{stamp}.app'
+    backup = work_dir / f'Marilyst-backup-{stamp}.app'
+    failed = work_dir / f'Marilyst-failed-{stamp}.app'
     lock = target.parent / '.Marilyst-install.lock'
     if any(p.exists() for p in [stage, backup, failed]):
         raise RuntimeError('Install paths already exist; no files were replaced')
@@ -207,6 +258,7 @@ def prepare_toolchain():
 
 def build(heap_mb):
     node, launcher, env = prepare_toolchain()  # Fail before expensive compilation.
+    ensure_signing_identity()
     with tempfile.TemporaryDirectory(prefix='marilyst-build-bin-') as directory:
         # A tiny shell wrapper selects the existing .mjs launcher instead of a
         # dangling Corepack .cjs path. No global configuration is changed.
@@ -218,7 +270,7 @@ def build(heap_mb):
         run([node, 'build/build-local.js', '--package', f'--heap-mb={heap_mb}'], cwd=ELECTRON, env=env)
     # Local distribution only: the build wrapper still runs all native/SDK
     # and packaging hooks. Sign after its final mutation of the bundle.
-    run(['/usr/bin/codesign', '--force', '--deep', '--sign', '-', '--entitlements', ELECTRON / 'build/entitlements.mac.plist', APP])
+    sign_bundle(APP)
     verify_bundle(APP)
 
 

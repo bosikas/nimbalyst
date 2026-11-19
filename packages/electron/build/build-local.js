@@ -171,7 +171,10 @@ function main() {
     // packaged SDK validation and signing hooks remain authoritative.
     run('package', process.execPath, [
       'build/build-with-env.js', '--mac', '--dir', `--${process.arch}`, '--publish', 'never',
+      // Own bundle id: sharing com.nimbalyst.electron with Nimbalyst.app mixes their macOS privacy approvals.
+      '--config.appId=com.nimbalyst.marilyst',
       '--config.productName=Marilyst', '--config.mac.extendInfo.CFBundleDisplayName=Marilyst',
+      '--config.mac.icon=resources/marilyst-icon.icns',
       `--config.electronDist=${path.join(path.dirname(require.resolve('electron/package.json')), 'dist')}`,
       '--config.directories.output=release/marilyst-light',
     ], { SKIP_NOTARIZE: 'true' });

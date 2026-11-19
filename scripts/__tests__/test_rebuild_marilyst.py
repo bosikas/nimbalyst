@@ -18,6 +18,10 @@ class SafeInstallTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.source = self.app('build/Marilyst.app', b'new archive')
         self.target = self.app('installed/Marilyst.app', b'previous archive')
+        self.work = self.root / 'caches/Marilyst-backups'
+        backup_dir = patch.object(m, 'BACKUP_DIR', self.work)
+        backup_dir.start()
+        self.addCleanup(backup_dir.stop)
 
     def app(self, name, content):
         app = self.root / name
@@ -51,7 +55,7 @@ class SafeInstallTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'invalid signature'):
             self.install(verify=verify, stamp='bad')
         self.assertEqual((self.target / 'Contents/Resources/app.asar').read_bytes(), b'previous archive')
-        self.assertTrue((self.target.parent / '.Marilyst-install-bad.app').exists())
+        self.assertTrue((self.work / 'Marilyst-install-bad.app').exists())
 
     def test_post_swap_failure_restores_previous_app_and_retains_failed_bundle(self):
         def verify(app):
@@ -61,12 +65,12 @@ class SafeInstallTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'post-swap failure'):
             self.install(verify=verify, stamp='rollback')
         self.assertEqual((self.target / 'Contents/Resources/app.asar').read_bytes(), b'previous archive')
-        self.assertTrue((self.target.parent / '.Marilyst-failed-rollback.app').exists())
+        self.assertTrue((self.work / 'Marilyst-failed-rollback.app').exists())
 
     def test_rename_failure_retries_then_restores_previous_app(self):
         attempts = []
         def rename(a, b):
-            if a.name.startswith('.Marilyst-install-'):
+            if a.name.startswith('Marilyst-install-'):
                 attempts.append(a)
                 raise OSError('destination unavailable')
             a.rename(b)
@@ -104,6 +108,51 @@ class SafeInstallTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'failure after backup'):
             self.install(rename=rename, stamp='backup-failure')
         self.assertEqual((self.target / 'Contents/Resources/app.asar').read_bytes(), b'previous archive')
+
+    def test_no_extra_app_bundles_are_left_next_to_the_installed_app(self):
+        # Hidden copies in /Applications share the bundle id and made macOS
+        # re-ask for Documents access every few minutes.
+        first = self.install(stamp='one')
+        self.install(stamp='two')
+        self.assertEqual(sorted(p.name for p in self.target.parent.glob('*.app')), ['Marilyst.app'])
+        self.assertEqual(Path(first['backup']).parent, self.work)
+        self.assertEqual(first['bundleId'], 'com.nimbalyst.marilyst')
+
+    def test_replaces_an_install_that_still_has_the_legacy_bundle_id(self):
+        with (self.target / 'Contents/Info.plist').open('wb') as f:
+            plistlib.dump({'CFBundleIdentifier': 'com.nimbalyst.electron', 'CFBundleName': 'Marilyst'}, f)
+        self.install(stamp='legacy')
+        self.assertEqual((self.target / 'Contents/Resources/app.asar').read_bytes(), b'new archive')
+        with self.assertRaisesRegex(RuntimeError, 'identity'):
+            self.verify(self.work / 'Marilyst-backup-legacy.app')  # the legacy id is accepted only for the replaced bundle
+
+    def test_work_dir_on_another_volume_fails_before_touching_anything(self):
+        real_stat = m.os.stat
+        def stat(path, *args, **kwargs):
+            result = real_stat(path, *args, **kwargs)
+            if Path(path) == self.work:
+                return m.os.stat_result((*result[:2], result.st_dev + 1, *result[3:]))
+            return result
+        with patch.object(m.os, 'stat', stat), self.assertRaisesRegex(RuntimeError, 'different volumes'):
+            self.install(stamp='exdev')
+        self.assertEqual((self.target / 'Contents/Resources/app.asar').read_bytes(), b'previous archive')
+        self.assertEqual(list(self.work.iterdir()), [])
+
+    def test_signing_uses_the_stable_identity_not_ad_hoc(self):
+        with patch.object(m, 'run') as run:
+            m.sign_bundle(self.source)
+        command = list(map(str, run.call_args[0][0]))
+        self.assertEqual(command[command.index('--sign') + 1], 'Marilyst Local Signing')
+
+    def test_signing_identity_is_created_once(self):
+        commands = []
+        present = iter([False, True])
+        self.assertTrue(m.ensure_signing_identity(exists=lambda: next(present), quiet_run=lambda c: commands.append(list(map(str, c)))))
+        self.assertEqual([c[:2] for c in commands], [['/usr/bin/openssl', 'req'], ['/usr/bin/openssl', 'pkcs12'], ['/usr/bin/security', 'import']])
+        self.assertIn('/usr/bin/codesign', commands[2])
+        commands.clear()
+        self.assertFalse(m.ensure_signing_identity(exists=lambda: True, quiet_run=lambda c: commands.append(c)))
+        self.assertEqual(commands, [])
 
     def test_refuses_a_symlink_destination(self):
         alias = self.target.parent / 'Alias.app'

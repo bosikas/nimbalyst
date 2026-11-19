@@ -16,6 +16,9 @@ import { logger } from './logger';
  */
 export function applyDockIcon(): void {
   if (process.platform !== 'darwin' || !app.dock) return;
+  // A packaged app already has its bundle icon in the Dock. Overriding it with
+  // the generic icon.png would hide per-build icons such as Marilyst's.
+  if (app.isPackaged) return;
 
   // icon.png is at the package root in both dev and packaged builds (included
   // in electron-builder's `files` array, so it's inside the ASAR at the root).
