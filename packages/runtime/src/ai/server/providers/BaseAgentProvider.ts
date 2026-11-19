@@ -315,7 +315,7 @@ export abstract class BaseAgentProvider extends BaseAIProvider {
     }
   }
 
-  private readonly sessionDirectives = new FrozenSessionDirectives();
+  protected readonly sessionDirectives = new FrozenSessionDirectives();
 
   /** `metadata.sessionDirective`, read on the session's first turn and frozen. */
   protected getSessionDirective(sessionId?: string): Promise<string | undefined> {

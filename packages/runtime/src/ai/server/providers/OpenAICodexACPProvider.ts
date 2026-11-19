@@ -19,7 +19,12 @@ import path from 'path';
 import { BaseAgentProvider } from './BaseAgentProvider';
 import { buildUserMessageAddition } from './documentContextUtils';
 import { describeUnusableWorkspacePath } from './workspacePreconditions';
-import { buildClaudeCodeSystemPrompt, buildMetaAgentSystemPrompt, type MetaAgentWorkflowPreset } from '../../prompt';
+import type { MetaAgentWorkflowPreset } from '../../prompt';
+import { buildCodexSystemPrompt } from './codex/codexSystemPrompt';
+import { nativeCodexDelegation, isolatedCodexHome } from './codex/codexSessionHome';
+import { isolatedHookTrust } from './codex/isolatedHookTrust';
+import { AISessionsRepository } from '../../../storage/repositories/AISessionsRepository';
+import { readSessionPolicy } from '../../sessionPolicy';
 import { DEFAULT_MODELS } from '../../modelConstants';
 import { AIToolCall, AIToolResult } from '../../types';
 import {
@@ -37,7 +42,7 @@ import { ProtocolEvent, ProtocolSession } from '../protocols/ProtocolInterface';
 import { ToolPermissionService } from '../permissions/ToolPermissionService';
 import { PermissionMode, TrustChecker, PermissionPatternSaver, PermissionPatternChecker, SecurityLogger } from './ProviderPermissionMixin';
 import { McpConfigService } from '../services/McpConfigService';
-import { getMcpConfigService, isInternalMcpServerEnabled, areTrackerToolsEnabled, resolveTrackersWorkspacePath } from '../services/mcpServerConfig';
+import { getMcpConfigService } from '../services/mcpServerConfig';
 import { MCPServerConfig } from '../../../types/MCPServerConfig';
 import { safeJSONSerialize } from '../../../utils/serialization';
 import { AgentProtocolTranscriptAdapter } from './agentProtocol/AgentProtocolTranscriptAdapter';
@@ -67,6 +72,7 @@ export class OpenAICodexACPProvider extends BaseAgentProvider {
   ];
 
   private readonly protocol: CodexACPProtocol;
+  private readonly configuredProtocols = new Map<string, CodexACPProtocol>();
   private readonly permissionService: ToolPermissionService;
   private readonly mcpConfigService: McpConfigService;
 
@@ -217,6 +223,7 @@ export class OpenAICodexACPProvider extends BaseAgentProvider {
     const apiKey = config.apiKey || '';
     if (typeof (this.protocol as Partial<CodexACPProtocol>).setApiKey === 'function') {
       this.protocol.setApiKey(apiKey);
+      for (const protocol of this.configuredProtocols.values()) protocol.setApiKey(apiKey);
     }
   }
 
@@ -275,12 +282,14 @@ export class OpenAICodexACPProvider extends BaseAgentProvider {
       return;
     }
 
-    const agentRole = await this.getAgentRole(sessionId);
-    const isMetaAgent = agentRole === 'meta-agent';
+    const sessionRecord = sessionId ? await AISessionsRepository.get(sessionId) : undefined;
+    const isMetaAgent = sessionRecord?.agentRole === 'meta-agent';
     const workflowPreset = isMetaAgent ? await this.getWorkflowPreset(sessionId) : 'default';
-    const sessionDirective = await this.getSessionDirective(sessionId);
+    const selection = await this.sessionDirectives.selection(sessionId);
+    const sessionDirective = selection.directive;
     const systemPrompt = this.buildSystemPrompt(
       documentContext, isMetaAgent, workflowPreset, sessionDirective, this.isNamedOutOfBand(sessionId, documentContext),
+      readSessionPolicy(sessionRecord?.metadata).generateSummary,
     );
     const { userMessageAddition, messageWithContext } = buildUserMessageAddition(message, documentContext);
     const unsupportedAttachmentHints = attachments?.filter(
@@ -352,6 +361,21 @@ export class OpenAICodexACPProvider extends BaseAgentProvider {
       });
 
       const resolvedModel = await this.getConfiguredModel();
+      const nativeDelegation = await nativeCodexDelegation(mcpConfigWorkspacePath, selection.nativeMultiAgent);
+      let protocol = this.protocol;
+      if (nativeDelegation !== undefined || selection.skipDefaultInstructions) {
+        const home = selection.skipDefaultInstructions && selection.codexSourceHome
+          ? await isolatedCodexHome(selection.codexSourceHome) : undefined;
+        const config = {
+          ...(nativeDelegation !== undefined ? { 'features.multi_agent': nativeDelegation } : {}),
+          ...(selection.skipDefaultInstructions ? { project_doc_max_bytes: 0 } : {}),
+        };
+        const hookTrust = home && selection.codexSourceHome
+          ? await isolatedHookTrust(selection.codexSourceHome, home) : undefined;
+        const key = JSON.stringify([home, config, hookTrust]);
+        protocol = this.configuredProtocols.get(key) ?? this.protocol.withLaunchSettings(config, home, hookTrust);
+        this.configuredProtocols.set(key, protocol);
+      }
 
       const sessionOptions = {
         workspacePath,
@@ -369,8 +393,8 @@ export class OpenAICodexACPProvider extends BaseAgentProvider {
 
       const isResumedSession = !!existingSessionId;
       const session = isResumedSession
-        ? await this.protocol.resumeSession(existingSessionId, sessionOptions)
-        : await this.protocol.createSession(sessionOptions);
+        ? await protocol.resumeSession(existingSessionId, sessionOptions)
+        : await protocol.createSession(sessionOptions);
 
       this._initData = {
         model: resolvedModel,
@@ -387,7 +411,7 @@ export class OpenAICodexACPProvider extends BaseAgentProvider {
         attachments as any,
       );
 
-      for await (const event of this.protocol.sendMessage(session, {
+      for await (const event of protocol.sendMessage(session, {
         content: messageWithAttachmentHints,
         attachments,
         sessionId,
@@ -496,6 +520,8 @@ export class OpenAICodexACPProvider extends BaseAgentProvider {
   destroy(): void {
     this.permissionService.clearSessionCache();
     this.protocol.destroy();
+    for (const protocol of this.configuredProtocols.values()) protocol.destroy();
+    this.configuredProtocols.clear();
     super.destroy();
   }
 
@@ -505,30 +531,11 @@ export class OpenAICodexACPProvider extends BaseAgentProvider {
     workflowPreset: MetaAgentWorkflowPreset = 'default',
     sessionDirective?: string,
     hasOutOfBandNaming: boolean = false,
+    generateSummary: boolean = true,
   ): string {
-    if (isMetaAgent) {
-      return buildMetaAgentSystemPrompt('codex', workflowPreset, {
-        provider: 'openai-codex-acp',
-        model: this.config?.model ?? undefined,
-        sessionDirective,
-      });
-    }
-
-    const hasSessionNaming = isInternalMcpServerEnabled();
-    const worktreePath = documentContext?.worktreePath;
-    const isVoiceMode = (documentContext as any)?.isVoiceMode;
-    const voiceModeCodingAgentPrompt = (documentContext as any)?.voiceModeCodingAgentPrompt;
-
-    return buildClaudeCodeSystemPrompt({
-      hasSessionNaming,
-      hasOutOfBandNaming,
-      toolReferenceStyle: 'codex',
-      worktreePath,
-      sessionDirective,
-      isVoiceMode,
-      voiceModeCodingAgentPrompt,
-      enableAgentTeams: false,
-      trackersEnabled: areTrackerToolsEnabled(resolveTrackersWorkspacePath(documentContext)),
+    return buildCodexSystemPrompt({
+      documentContext, isMetaAgent, workflowPreset, sessionDirective, hasOutOfBandNaming, generateSummary,
+      provider: 'openai-codex-acp', model: this.config?.model ?? undefined,
     });
   }
 

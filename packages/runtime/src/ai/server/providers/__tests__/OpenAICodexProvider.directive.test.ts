@@ -8,6 +8,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { OpenAICodexProvider } from '../OpenAICodexProvider';
 import { configureMcpServers } from '../../services/mcpServerConfig';
 import { AISessionsRepository } from '../../../../storage/repositories/AISessionsRepository';
+import { execFileSync, spawnSync } from 'node:child_process';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+import { nativeCodexDelegation } from '../codex/codexSessionHome';
 
 // getModels() cross-checks the OpenAI model catalogue when given an API key;
 // keep it off the network (see OpenAICodexProvider.test.ts).
@@ -28,6 +33,53 @@ function createAsyncEventStream(events: any[]): AsyncIterable<any> {
 }
 
 describe('OpenAICodexProvider session-stable system prompt', () => {
+  it.skipIf(spawnSync('codex', ['--version']).status !== 0)('renders isolated native instructions from persisted creation settings', async () => {
+    const root = await mkdtemp(path.join(tmpdir(), 'native-codex-startup-'));
+    const home = path.join(root, 'home');
+    const workspace = path.join(root, 'aifredas');
+    try {
+      await Promise.all([mkdir(home), mkdir(workspace)]);
+      execFileSync('git', ['init', '-q', workspace]);
+      await mkdir(path.join(workspace, '.nimbalyst'));
+      await writeFile(path.join(workspace, '.nimbalyst/codex.json'), '{"nativeMultiAgent":false}');
+      const linked = path.join(root, 'linked-review');
+      const gitDir = path.join(workspace, '.git/worktrees/review');
+      await mkdir(linked);
+      await mkdir(gitDir, { recursive: true });
+      await writeFile(path.join(linked, '.git'), 'gitdir: ' + gitDir);
+      await writeFile(path.join(gitDir, 'commondir'), '../..');
+      expect(await nativeCodexDelegation(linked)).toBe(false);
+      expect(await nativeCodexDelegation(linked, true)).toBe(true);
+      expect(await nativeCodexDelegation(root)).toBeUndefined();
+      await writeFile(path.join(home, 'AGENTS.md'), 'GLOBAL-4e1b');
+      await writeFile(path.join(workspace, 'AGENTS.md'), 'REPO-38cf');
+      let review = false;
+      vi.spyOn(AISessionsRepository, 'get').mockImplementation(async () => ({ metadata: review ? {
+        skipDefaultInstructions: true, codexSourceHome: home, generateSummary: false,
+        instructionSnapshot: { content: 'PROFILE-5f02' }, startupSkills: ['pr-review'],
+      } : {} }) as any);
+      for (const mode of ['ordinary', 'review', 'reopened']) {
+        review = mode !== 'ordinary';
+        const provider = new OpenAICodexProvider({ apiKey: 'test-key' });
+        await provider.initialize({ model: 'openai-codex:gpt-6.2-sol', apiKey: 'test-key' });
+        const create = vi.spyOn((provider as any).protocol, 'createSession').mockRejectedValue(new Error('captured options'));
+        for await (const _event of provider.sendMessage('inspect', undefined, review ? 'review' : 'ordinary', [], workspace)) { /* drain */ }
+        const { raw } = create.mock.calls[0][0] as { raw: { systemPrompt: string; codexConfigOverrides: Record<string, unknown>; codexEnv?: NodeJS.ProcessEnv } };
+        const args = ['debug', 'prompt-input', '-c', 'model="gpt-5.6-sol"', '-c', 'developer_instructions=' + JSON.stringify(raw.systemPrompt)];
+        for (const key of ['project_doc_max_bytes', 'features.multi_agent', 'features.multi_agent_v2.disable_native_tools', 'features.multi_agent_v2.root_agent_usage_hint_text', 'skills.include_instructions']) {
+          if (key in raw.codexConfigOverrides) args.push('-c', key + '=' + JSON.stringify(raw.codexConfigOverrides[key]));
+        }
+        expect(raw.codexConfigOverrides['features.multi_agent']).toBe(false);
+        const request = execFileSync('codex', args, { cwd: workspace, env: { ...process.env, CODEX_HOME: raw.codexEnv?.CODEX_HOME || home }, timeout: 15000, maxBuffer: 4_000_000 }).toString();
+        expect(request.includes('GLOBAL-4e1b')).toBe(!review);
+        expect(request.includes('REPO-38cf')).toBe(!review);
+        expect(request.includes('PROFILE-5f02')).toBe(review);
+        const tools = JSON.parse(request).flatMap((item: { tools?: unknown[] }) => item.tools ?? []);
+        expect(JSON.stringify(tools)).not.toContain('spawn_agent');
+        expect(request).not.toContain('from inside `functions.exec`. Call `spawn_agent`');
+      }
+    } finally { await rm(root, { recursive: true, force: true }); }
+  });
   beforeEach(() => {
     vi.restoreAllMocks();
     configureMcpServers({ mcpServerPort: null, extensionDevServerPort: null });
@@ -129,7 +181,7 @@ describe('OpenAICodexProvider session-stable system prompt', () => {
     expect(systemPrompts[0]).not.toContain('Also set name:');
     expect(systemPrompts[1]).toBe(systemPrompts[0]);
     expect(systemPrompts[2]).toContain('call update_session_meta');
-    expect(systemPrompts[2]).toContain('Also set name:');
+    expect(systemPrompts[2]).toContain('Set name once.');
     expect(systemPrompts[2]).not.toContain('The name is assigned out-of-band');
     expect(systemPrompts[3]).toBe(systemPrompts[2]);
   });

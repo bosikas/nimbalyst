@@ -143,8 +143,8 @@ export async function buildSessionMetaToolSchemas(_aiSessionId: string): Promise
         properties: {
           scope: { type: 'string', maxLength: 220, description: instructionTemplate('metadata-tool.scope') },
           remaining: { type: 'string', maxLength: 280, description: instructionTemplate('metadata-tool.remaining') },
-          attention: { type: 'string', enum: ['next', 'blocked', 'review', 'none', 'unknown'] },
-          areas: { type: 'array', maxItems: 6, items: { type: 'string', maxLength: 40 } },
+          attention: { type: 'string', description: 'Whether work needs a next action, is blocked, awaits review, needs no attention, or is unknown.', enum: ['next', 'blocked', 'review', 'none', 'unknown'] },
+          areas: { type: 'array', description: 'Up to six topics covered by this session, e.g. runtime and authentication.', maxItems: 6, items: { type: 'string', maxLength: 40 } },
         },
       },
     },

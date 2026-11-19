@@ -15,6 +15,7 @@ import { AISessionsRepository } from '@nimbalyst/runtime/storage/repositories/AI
 import { SessionFilesRepository } from '@nimbalyst/runtime/storage/repositories/SessionFilesRepository';
 import type { SessionMeta } from '@nimbalyst/runtime/ai/adapters/sessionStore';
 import { boundSessionOutput } from './sessionOutput';
+import { codexAuthService } from '../services/CodexAuthService';
 import { handleGetSessionSummary, stripWorkspacePath } from "./sessionSummary";
 export { fetchLastAssistantResponse, type MessageRowDb } from "./sessionSummary";
 import {
@@ -491,6 +492,11 @@ async function handleScheduleWakeup(args: {
 /** Tool schemas exposed by the session-context surface. */
 export const SESSION_CONTEXT_TOOL_SCHEMAS = [
   {
+    name: 'search_codex_skills',
+    description: 'Find enabled Codex skills for this workspace by name or description. Returns native skill names, descriptions and source paths.',
+    inputSchema: { type: 'object', properties: { query: { type: 'string', minLength: 1 } }, required: ['query'] },
+  },
+  {
     name: 'prepare_session_handoff',
     description: 'Prepare a fresh-session continuation: measured, bounded human-request review manifest and durable full evidence file. No session is created. Review every human request, retain active decisions, ownership, instructions and evidence, then use spawn_session with besideCaller and handoff. Original transcript stays intact; pending approvals must be resolved at source.',
     inputSchema: { type: 'object', properties: {}, required: [] },
@@ -689,6 +695,14 @@ export async function dispatchSessionContextTool(
 
   try {
     switch (toolName) {
+      case 'search_codex_skills': {
+        const query = typeof args?.query === 'string' ? args.query.trim().toLowerCase() : '';
+        if (!query) throw new Error('Provide a skill name or search term.');
+        const catalog = await codexAuthService.listSkills(workspaceId);
+        const skills = catalog.skills.filter(skill => skill.enabled && `${skill.name} ${skill.description}`.toLowerCase().includes(query));
+        const result = await boundSessionOutput(JSON.stringify({ skills, errors: catalog.errors }, null, 2));
+        return { content: [{ type: 'text', text: result }], isError: false };
+      }
       case 'prepare_session_handoff': {
         const { prepareSessionHandoff } = await import('../services/sessionHandoffService');
         return { content: [{ type: 'text', text: await prepareSessionHandoff(aiSessionId, workspaceId) }], isError: false };

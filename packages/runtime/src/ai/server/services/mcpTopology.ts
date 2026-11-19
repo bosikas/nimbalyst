@@ -92,13 +92,6 @@ export const CORE_TOOLS: readonly string[] = [
   'display_to_user',
   'capture_editor_screenshot',
   'get_session_edited_files',
-  'developer_git_commit_proposal',
-  // NOTE: `developer_git_log` is NOT here — it is contributed by the built-in
-  // "Developer Tools" extension (com.nimbalyst.developer, enabledByDefault) and
-  // served on its own deferred `nimbalyst-developer` server
-  // (`mcp__nimbalyst-developer__developer_git_log`), never on core. Only
-  // `developer_git_commit_proposal` has a first-party core handler (the
-  // interactive commit widget in interactiveToolHandlers).
   'update_session_meta',
   'update_session_summary',
 ];
@@ -127,6 +120,8 @@ export const CORE_ALWAYS_LOAD_TOOLS: readonly string[] = [
  * orchestration + file/content. Host, but rarely needed → never eager.
  */
 export const HOST_TOOLS: readonly string[] = [
+  'search_codex_skills',
+  'developer_git_commit_proposal',
   'prepare_session_handoff',
   'get_session_context_inspection',
   // App config (was nimbalyst-settings)

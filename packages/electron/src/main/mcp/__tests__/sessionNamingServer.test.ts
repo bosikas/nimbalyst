@@ -12,9 +12,8 @@ describe("buildSessionMetaToolSchemas", () => {
     expect(JSON.stringify(after)).toBe(JSON.stringify(before));
 
     const addDescription = before[0].inputSchema.properties.add.description;
-    expect(addDescription).toBe(
-      "Tags to add: lowercase hyphen-separated type of work (bug-fix, feature, refactor) and area/module (electron, runtime, ios). Reuse existing workspace tags when known."
-    );
+    expect(addDescription).toContain("2–4 lowercase hyphen-separated work and area tags");
+    expect(addDescription).toContain("uncommitted after edits");
     expect(addDescription).not.toMatch(/\(\d+\)/);
   });
 

@@ -1,21 +1,30 @@
 import { open, realpath } from 'node:fs/promises';
 import path from 'node:path';
+import { homedir } from 'node:os';
 import { createHash } from 'node:crypto';
 import type { SessionInstructionOptions, SessionInstructionSnapshot } from '@nimbalyst/runtime/ai/sessionInstructions';
 
 /** Resolve before inserting a session or creating a worktree. Never truncate instructions. */
 export async function snapshotSessionInstructions(options: SessionInstructionOptions | undefined, workspacePath: string | undefined, provider: string, sessionType?: string): Promise<{
   skipDefaultInstructions: boolean;
+  codexSourceHome?: string;
+  nativeMultiAgent?: boolean;
   instructionSnapshot: SessionInstructionSnapshot | null;
 }> {
   const { instructionFile, skipDefaultInstructions = false } = options ?? {};
   if (typeof skipDefaultInstructions !== 'boolean') throw new Error('skipDefaultInstructions must be a boolean.');
   if (instructionFile !== undefined && typeof instructionFile !== 'string') throw new Error('instructionFile must be a string.');
   const file = instructionFile?.trim();
-  if ((file || skipDefaultInstructions) && (!['openai-codex', 'claude-code'].includes(provider) || sessionType === 'claude-code-cli')) {
+  if ((file || skipDefaultInstructions) && (!['openai-codex', 'openai-codex-acp', 'claude-code'].includes(provider) || sessionType === 'claude-code-cli')) {
     throw new Error('Custom session instructions are supported by Codex and Claude Agent sessions on this Mac only.');
   }
-  if (!file) return { skipDefaultInstructions, instructionSnapshot: null };
+  const selection = {
+    skipDefaultInstructions,
+    ...((provider === 'openai-codex' || provider === 'openai-codex-acp') && skipDefaultInstructions
+      ? { codexSourceHome: path.resolve(process.env.CODEX_HOME?.trim() || path.join(homedir(), '.codex')) } : {}),
+    ...(options?.nativeMultiAgent === true ? { nativeMultiAgent: true } : {}),
+  };
+  if (!file) return { ...selection, instructionSnapshot: null };
   if (!path.isAbsolute(file) && !workspacePath) throw new Error('A project folder is required for a relative instructionFile.');
   const canonicalPath = await realpath(path.resolve(workspacePath ?? '.', file));
   if (!/\.(md|markdown)$/i.test(canonicalPath)) throw new Error('Choose a Markdown instruction file (.md or .markdown).');
@@ -36,7 +45,7 @@ export async function snapshotSessionInstructions(options: SessionInstructionOpt
     const bytes = buffer.subarray(0, length);
     const content = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
     if (!content.trim()) throw new Error('The instruction file is empty.');
-    return { skipDefaultInstructions, instructionSnapshot: { path: canonicalPath, content, sha256: createHash('sha256').update(bytes).digest('hex') } };
+    return { ...selection, instructionSnapshot: { path: canonicalPath, content, sha256: createHash('sha256').update(bytes).digest('hex') } };
   } finally {
     await handle.close();
   }

@@ -125,6 +125,7 @@ export interface CreateOwnedSessionOptions {
   instructionFile?: string;
   /** Skip automatic repository instructions on Codex or Claude Agent. */
   skipDefaultInstructions?: boolean;
+  nativeMultiAgent?: boolean;
   /** Run in this existing, active worktree of the workspace. Path may be absolute or workspace-relative. */
   cwd?: string;
   /** Idle minutes after a finished turn before automatic archival. Defaults to 0 (off). */

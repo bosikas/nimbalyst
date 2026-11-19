@@ -525,7 +525,8 @@ export class CodexAppServerProtocol implements AgentProtocol {
     //   cwd,
     //   helperPathEntries: getCodexVendorPathEntries(binary),
     // });
-    const child = spawn(binary, [...(tracking?.args ?? []), 'app-server', '--listen', 'stdio://'], {
+    const hookArgs = typeof options.raw?.hookTrust === 'string' ? ['-c', options.raw.hookTrust] : [];
+    const child = spawn(binary, [...hookArgs, ...(tracking?.args ?? []), 'app-server', '--listen', 'stdio://'], {
       env,
       cwd,
       stdio: ['pipe', 'pipe', 'pipe'],

@@ -222,7 +222,7 @@ export class CodexACPProtocol implements AgentProtocol {
   private readonly knownSessionIds = new Set<string>();
   private processExitError: Error | null = null;
 
-  constructor(apiKey: string, deps?: CodexACPProtocolDeps) {
+  constructor(apiKey: string, private readonly deps?: CodexACPProtocolDeps) {
     this.apiKey = apiKey;
     this.spawnProcess = deps?.spawnProcess ?? spawn;
     this.command = deps?.command || process.env.NIMBALYST_CODEX_ACP_COMMAND || CodexACPProtocol.resolveCodexAcpBinary() || 'codex-acp';
@@ -235,6 +235,17 @@ export class CodexACPProtocol implements AgentProtocol {
 
   setApiKey(apiKey: string): void {
     this.apiKey = apiKey;
+  }
+
+  /** ACP reads CLI configuration at process start. Keep its connection and
+   * in-flight turns separate from sessions using other launch settings. */
+  withLaunchSettings(config: Record<string, boolean | number>, home?: string, hookTrust?: string): CodexACPProtocol {
+    const flags = Object.entries(config).flatMap(([key, value]) => ['-c', `${key}=${value}`]);
+    if (hookTrust) flags.push('-c', hookTrust);
+    return new CodexACPProtocol(this.apiKey, {
+      ...this.deps, args: [...this.args, ...flags],
+      env: { ...this.extraEnv, ...(home ? { CODEX_HOME: home } : {}) },
+    });
   }
 
   /** Useful for diagnostics: returns the binary path the protocol will spawn. */

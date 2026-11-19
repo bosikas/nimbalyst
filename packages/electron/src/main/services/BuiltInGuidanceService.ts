@@ -24,6 +24,7 @@ export function buildBuiltInGuidanceCatalog(
       guidanceSettings: {},
       guidanceText: {},
       onGuidance(id, text) {
+        if (!text.trim()) return;
         const entries = previews.get(id) ?? [];
         entries.push({ provider, text });
         previews.set(id, entries);
@@ -36,7 +37,7 @@ export function buildBuiltInGuidanceCatalog(
     worktreePath: '/path/to/assigned-worktree', gitContext: 'Branch: [session-start branch]', isVoiceMode: true,
   });
   buildCodexSystemPrompt({
-    ...capture('Codex'), isMetaAgent: false, workflowPreset: 'default', hasOutOfBandNaming: false,
+    ...capture('Codex'), isMetaAgent: false, workflowPreset: 'default', hasOutOfBandNaming: false, hasSessionNaming: true,
     documentContext: { worktreePath: '/path/to/assigned-worktree', isVoiceMode: true } as DocumentContext,
   });
   previews.set('session-naming-reminder', [{ provider: 'Codex: optional first-turn reminder', text: CODEX_SESSION_NAMING_REMINDER_PROMPT }]);

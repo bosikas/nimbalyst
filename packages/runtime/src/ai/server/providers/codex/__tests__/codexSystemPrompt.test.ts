@@ -25,13 +25,25 @@ afterEach(() => {
 });
 
 describe('buildCodexSystemPrompt', () => {
+  it('omits built-in identity and disabled summary while preserving Markdown replacements', () => {
+    const markdown = '  My update_session_summary convention.\n\nKeep this paragraph.  ';
+    const prompt = buildCodexSystemPrompt({
+      ...options, generateSummary: false, guidanceText: { 'session-metadata': markdown },
+    });
+    expect(prompt).toContain(markdown);
+    expect(prompt).not.toContain('Identify your actual AI model');
+    expect(prompt.match(/update_session_summary/g)).toHaveLength(1);
+    expect(buildCodexSystemPrompt({ ...options, generateSummary: false })).toContain('update_session_meta');
+    expect(buildCodexSystemPrompt({ ...options, generateSummary: false })).not.toContain('update_session_summary');
+    expect(buildCodexSystemPrompt(options)).toContain('update_session_summary');
+  });
   it('distinguishes recommendations from questions and honors repository delivery/delegation rules', () => {
     const prompt = buildCodexSystemPrompt(options);
     expect(prompt).toContain('Findings and recommendations do not require a widget');
     expect(prompt).toContain('opening a widget does not end the task or grant approval');
     expect(prompt).toContain('Available delegation tools do not authorize delegation');
     expect(prompt).toContain('repository commit/review/release procedures');
-    expect(prompt).toContain('without another explicit procedure');
+    expect(prompt).not.toContain('developer_git_commit_proposal');
     expect(prompt).toContain('implementation alone does not authorize merge or deployment');
   });
   it('honors disabled commit and interactive guidance instead of unconditionally injecting it', () => {
@@ -57,7 +69,7 @@ describe('buildCodexSystemPrompt', () => {
     expect(compact).toContain('active constraints, decisions and ownership');
     expect(compact).toContain('not standing user requests');
     for (const tool of ['AskUserQuestion', 'PromptForUserInput', 'functions.wait',
-      'display_to_user', 'capture_editor_screenshot', 'developer_git_commit_proposal',
+      'display_to_user', 'capture_editor_screenshot',
       'update_session_meta']) {
       expect(compact).toContain(tool);
     }

@@ -1,7 +1,7 @@
 ---
 description: Report and ship every server, npm package, plugin and marketplace artifact that changed since its last release
 argument-hint: "[collab|npm|plugins|wiki|marketplace ...] [--check]"
-allowed-tools: Bash, Read, Edit, mcp__nimbalyst__AskUserQuestion, mcp__nimbalyst__PromptForUserInput, mcp__nimbalyst__developer_git_commit_proposal
+allowed-tools: Bash, Read, Edit, mcp__nimbalyst__AskUserQuestion, mcp__nimbalyst__PromptForUserInput, mcp__nimbalyst-host__developer_git_commit_proposal
 ---
 
 Find everything Nimbalyst ships outside the desktop app that has changed since its last release, then ship it in dependency order. Each target keeps its own procedure; this command decides what is due, orders it, and runs those procedures.
@@ -42,7 +42,7 @@ Ask with PromptForUserInput: a multiSelect of the due targets, pre-checked, minu
 - The wiki plugin version bump when its status is `bump+stage`. Keep the CLI, wiki-web and all four plugin manifests at the same version: `.claude-plugin/plugin.json` and `.codex-plugin/plugin.json` under both `plugins/nimbalyst-wiki` and `plugins/nimbalyst-wiki-team`. If the new pinned CLI version is not published, include the npm CLI group as a dependency of this release.
 - Then, after every bump above, run `node scripts/build-wiki-plugin.mjs --check`. If it reports stale, run `pnpm build:wiki-plugin` and include the result. Generated MCP configs and hooks pin the CLI version from `packages/cli/package.json`, so regeneration before the CLI bump leaves the old version pinned and the pre-push gate refuses the push.
 
-Commit these together with `mcp__nimbalyst__developer_git_commit_proposal` (`chore: release @nimbalyst/cli and @nimbalyst/wiki-web X.Y.Z`, or `chore: release Nimbalyst Wiki X.Y.Z` when only the plugin moved).
+Commit these together with `mcp__nimbalyst-host__developer_git_commit_proposal` (`chore: release @nimbalyst/cli and @nimbalyst/wiki-web X.Y.Z`, or `chore: release Nimbalyst Wiki X.Y.Z` when only the plugin moved).
 
 If `main` has unpushed commits, ask before `git push origin main`. The pre-push hook runs the test gate. Never force-push.
 
@@ -65,7 +65,7 @@ Stop the chain at a failed step, unless the remaining targets do not depend on i
 1. The clone must be on `main`, clean, and current: `git -C ../nimbalyst-wiki status -sb`, then `git -C ../nimbalyst-wiki pull --ff-only`. If it has local changes, stop and ask.
 2. Run `node scripts/stage-wiki-repo.mjs ../nimbalyst-wiki`. This stages both wiki plugins and both providers' manifests. The plugin runs `@nimbalyst/cli` at its own version, so publish the cli group first ([/publish-npm](./publish-npm.md)). Staging refuses a stale plugin, a changed plugin without a version bump, a plugin whose pinned CLI is not installable yet, and anything the Anthropic plugin directory would block or hold for a reviewer. A successful npm workflow is not sufficient: from outside the monorepo, `npx -y --prefer-online @nimbalyst/cli@X.Y.Z --version` must print the version. If npm is still processing the package, keep plugin publication pending and retry availability before staging; do not bump again or bypass the npm check. On resuming an interrupted ship, finish these pending plugin steps instead of republishing npm. For other staging failures, return to preparation.
 3. Read `../nimbalyst-wiki/SOURCE`. If it says `(with uncommitted changes)`, stop: the staging is not reproducible from a commit.
-4. Review `git -C ../nimbalyst-wiki status --short` and the diff stat. Commit the generated mirror changes with `mcp__nimbalyst__developer_git_commit_proposal`, using absolute paths in the attached mirror repository and one repository per proposal. Include every generated change only after confirming the clone was clean in step 1. Describe the version and user-visible change in the commit message.
+4. Review `git -C ../nimbalyst-wiki status --short` and the diff stat. Commit the generated mirror changes with `mcp__nimbalyst-host__developer_git_commit_proposal`, using absolute paths in the attached mirror repository and one repository per proposal. Include every generated change only after confirming the clone was clean in step 1. Describe the version and user-visible change in the commit message.
 5. Ask, then `git -C ../nimbalyst-wiki push origin main`.
 6. Verify the remote mirror commit equals the local commit, then verify both update-check channels (`packages/cli/src/mcp/updateCheck.ts`) and every install target:
    - `curl -s https://raw.githubusercontent.com/nimbalyst/nimbalyst/main/plugins/nimbalyst-wiki/.claude-plugin/plugin.json` reports the new version.
@@ -79,7 +79,7 @@ Do not change marketplace `source` entries as part of a ship. Verify the configu
 1. `pnpm --dir packages/marketplace exec tsc --noEmit -p .` and `pnpm exec vitest run packages/marketplace/__tests__`. Stop on failure.
 2. Ask, then `pnpm --dir packages/marketplace run deploy:production`. It refuses uncommitted Worker sources and injects the version and commit.
 3. `curl -s https://extensions.nimbalyst.com/health` must report the new version and a `commit` equal to `git rev-parse HEAD`. A null commit means the deploy predates `--var GIT_COMMIT`, or the var did not reach the Worker.
-4. Commit `packages/marketplace/package.json` with `mcp__nimbalyst__developer_git_commit_proposal`, message `chore: deploy marketplace Worker vX.Y.Z`. Never tag it: tags in this repository reach the releases feed that the desktop app's update check reads.
+4. Commit `packages/marketplace/package.json` with `mcp__nimbalyst-host__developer_git_commit_proposal`, message `chore: deploy marketplace Worker vX.Y.Z`. Never tag it: tags in this repository reach the releases feed that the desktop app's update check reads.
 
 ## Report
 

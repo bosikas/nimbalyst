@@ -1,5 +1,14 @@
 import { AISessionsRepository } from '../../../storage/repositories/AISessionsRepository';
 
+interface Selection {
+  directive?: string;
+  skipDefaultInstructions: boolean;
+  codexSourceHome?: string;
+  nativeMultiAgent?: boolean;
+  readOnly?: boolean;
+  startupSkills?: string[];
+}
+
 /**
  * Reads `metadata.sessionDirective` once per session and freezes it.
  *
@@ -10,9 +19,9 @@ import { AISessionsRepository } from '../../../storage/repositories/AISessionsRe
  * silently falling back would load instructions the caller explicitly excluded.
  */
 export class FrozenSessionDirectives {
-  private readonly frozen = new Map<string, Promise<{ directive?: string; skipDefaultInstructions: boolean }>>();
+  private readonly frozen = new Map<string, Promise<Selection>>();
 
-  private selection(sessionId?: string): Promise<{ directive?: string; skipDefaultInstructions: boolean }> {
+  selection(sessionId?: string): Promise<Selection> {
     if (!sessionId) return Promise.resolve({ skipDefaultInstructions: false });
     let directive = this.frozen.get(sessionId);
     if (!directive) {
@@ -26,7 +35,14 @@ export class FrozenSessionDirectives {
           if (typeof snapshot?.content === 'string' && snapshot.content.trim()) {
             parts.push(`Session instruction file: ${snapshot.path ?? 'selected profile'}\n${snapshot.content}`);
           }
-          return { directive: parts.filter(Boolean).join('\n\n') || undefined, skipDefaultInstructions: metadata?.skipDefaultInstructions === true };
+          return {
+            directive: parts.filter(Boolean).join('\n\n') || undefined,
+            skipDefaultInstructions: metadata?.skipDefaultInstructions === true,
+            codexSourceHome: typeof metadata?.codexSourceHome === 'string' ? metadata.codexSourceHome : undefined,
+            nativeMultiAgent: metadata?.nativeMultiAgent === true,
+            readOnly: metadata?.codexPermissions === 'read-only',
+            startupSkills: Array.isArray(metadata?.startupSkills) ? metadata.startupSkills.filter((s): s is string => typeof s === 'string') : undefined,
+          };
         })
         .catch((error) => { this.frozen.delete(sessionId); throw error; });
       this.frozen.set(sessionId, directive);

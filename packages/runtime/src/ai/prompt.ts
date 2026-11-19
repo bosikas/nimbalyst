@@ -141,7 +141,7 @@ export function buildClaudeCodeSystemPrompt(options: ClaudeCodePromptOptions): s
   const captureEditorScreenshotTool = formatMcpToolReference(MCP_CORE, 'capture_editor_screenshot', effectiveToolReferenceStyle);
   const askUserQuestionTool = formatMcpToolReference(MCP_CORE, 'AskUserQuestion', effectiveToolReferenceStyle);
   const promptForUserInputTool = formatMcpToolReference(MCP_CORE, 'PromptForUserInput', effectiveToolReferenceStyle);
-  const gitCommitProposalTool = formatMcpToolReference(MCP_CORE, 'developer_git_commit_proposal', effectiveToolReferenceStyle);
+  const gitCommitProposalTool = formatMcpToolReference('nimbalyst-host', 'developer_git_commit_proposal', effectiveToolReferenceStyle);
 
   let prompt = instructionTemplate('claude.addendum-open');
   prompt += guidance('identity', instructionTemplate('claude.identity'));
@@ -210,6 +210,17 @@ export function buildClaudeCodeSystemPrompt(options: ClaudeCodePromptOptions): s
 
 export type MetaAgentWorkflowPreset = 'default' | 'implement-review-test' | 'research';
 
+export function buildCodexMetadataSections(
+  guidance: ReturnType<typeof createGuidanceRenderer>, hasOutOfBandNaming = false, generateSummary = true,
+): string[] {
+  const language = getPreferredAgentLanguage();
+  const naming = hasOutOfBandNaming ? instructionTemplate('codex.session-name-assigned')
+    : instructionTemplate('codex.session-name', [language ? instructionTemplate('codex.language', [language]) : '']);
+  const sections = [guidance('session-metadata', instructionTemplate('codex.session-metadata', [naming]))];
+  if (generateSummary) sections.push(guidance('session-summary', instructionTemplate('codex.session-summary')));
+  return sections;
+}
+
 export function buildMetaAgentSystemPrompt(
   style: ToolReferenceStyle = 'claude',
   workflowPreset: MetaAgentWorkflowPreset = 'default',
@@ -217,6 +228,8 @@ export function buildMetaAgentSystemPrompt(
     provider?: string;
     model?: string;
     modelDisplayName?: string;
+    generateSummary?: boolean;
+    hasOutOfBandNaming?: boolean;
     /** See `ClaudeCodePromptOptions.sessionDirective`; an orchestrator can carry standing instructions too. */
     sessionDirective?: string;
   }
@@ -243,7 +256,9 @@ export function buildMetaAgentSystemPrompt(
   // Base orchestration prompt — always included
   const askUserQuestionTool = formatMcpToolReference(MCP_CORE, 'AskUserQuestion', style);
   const promptForUserInputTool = formatMcpToolReference(MCP_CORE, 'PromptForUserInput', style);
-  let prompt = instructionTemplate('coordinator.instructions', [SESSION_WORK_SUMMARY_GUIDANCE, listWorktreesTool, createSessionTool, listSpawnedSessionsTool, getSessionStatusTool, getSessionResultTool, consumeInboxTool, sendPromptTool, respondToPromptTool, updateSessionMetaTool, createSessionTool, getSessionStatusTool, createSessionTool, updateSessionMetaTool, respondToPromptTool, identityLine, updateSessionMetaTool, askUserQuestionTool, promptForUserInputTool]);
+  const guidance = createGuidanceRenderer(options);
+  const metadataCall = style === 'codex' ? '' : instructionTemplate('coordinator.metadata-call', [updateSessionMetaTool]);
+  let prompt = instructionTemplate('coordinator.instructions', [style === 'codex' ? '' : SESSION_WORK_SUMMARY_GUIDANCE, listWorktreesTool, createSessionTool, listSpawnedSessionsTool, getSessionStatusTool, getSessionResultTool, consumeInboxTool, sendPromptTool, respondToPromptTool, updateSessionMetaTool, createSessionTool, getSessionStatusTool, createSessionTool, updateSessionMetaTool, respondToPromptTool, identityLine, metadataCall, askUserQuestionTool, promptForUserInputTool]);
 
   // Workflow preset section
   if (workflowPreset === 'implement-review-test') {
@@ -255,7 +270,9 @@ export function buildMetaAgentSystemPrompt(
     prompt += instructionTemplate('coordinator.workflow-default', [getSessionResultTool]);
   }
 
-  return appendSessionDirective(createGuidanceRenderer(options)('coordination', prompt), options?.sessionDirective);
+  const sections = [guidance('coordination', prompt)];
+  if (style === 'codex') sections.push(...buildCodexMetadataSections(guidance, options?.hasOutOfBandNaming, options?.generateSummary));
+  return appendSessionDirective(sections.filter(Boolean).join('\n\n'), options?.sessionDirective);
 }
 
 /**

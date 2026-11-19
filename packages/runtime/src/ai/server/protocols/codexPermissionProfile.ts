@@ -24,8 +24,9 @@ export interface CodexPermissionProfile {
 export function resolveCodexPermissionProfile(
   permissionMode: string | undefined,
   agentVerified: boolean,
-  options: { userApprovals: boolean },
+  options: { userApprovals: boolean; readOnly?: boolean },
 ): CodexPermissionProfile {
+  if (options.readOnly) return { sandboxMode: 'read-only', approvalPolicy: 'never' };
   if (permissionMode === 'bypass-all' && agentVerified) {
     return {
       sandboxMode: 'workspace-write',

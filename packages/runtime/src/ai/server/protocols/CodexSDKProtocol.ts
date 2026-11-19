@@ -358,6 +358,7 @@ export class CodexSDKProtocol implements AgentProtocol {
       ...(this.apiKey ? { apiKey: this.apiKey } : {}),
       ...(codexPathOverride ? { codexPathOverride } : {}),
       ...(codexConfigOverrides ? { config: codexConfigOverrides } : {}),
+      ...(typeof options.raw?.hookTrust === 'string' ? { configOverrides: [options.raw.hookTrust] } : {}),
       ...(codexEnv ? { env: codexEnv } : {}),
     };
     const optionsKey = JSON.stringify(codexClientOptions);
@@ -392,7 +393,7 @@ export class CodexSDKProtocol implements AgentProtocol {
     const permissionProfile = resolveCodexPermissionProfile(
       options.permissionMode,
       options.raw?.agentVerified === true,
-      { userApprovals: false },
+      { userApprovals: false, readOnly: options.raw?.readOnly === true },
     );
 
     // Our EffortLevel names match the SDK's ModelReasoningEffort, so the only
@@ -418,6 +419,8 @@ export class CodexSDKProtocol implements AgentProtocol {
     const {
       systemPrompt,
       codexConfigOverrides: _codexConfigOverrides,
+      readOnly: _readOnly,
+      hookTrust: _hookTrust,
       effortLevel: _effortLevel,
       additionalDirectories: rawAdditionalDirectories,
       agentVerified: _agentVerified,
@@ -453,7 +456,7 @@ export class CodexSDKProtocol implements AgentProtocol {
     const permissionProfile = resolveCodexPermissionProfile(
       options.permissionMode,
       options.raw?.agentVerified === true,
-      { userApprovals: false },
+      { userApprovals: false, readOnly: options.raw?.readOnly === true },
     );
     if (permissionProfile.approvalsReviewer) {
       overrides.approvals_reviewer = permissionProfile.approvalsReviewer;

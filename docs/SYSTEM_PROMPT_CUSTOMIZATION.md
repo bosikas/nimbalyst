@@ -126,7 +126,7 @@ IMPORTANT: You are working in a git worktree at {worktreePath}. This is an isola
 ```
 ## Git Commits
 
-When asked to commit your work, use the `mcp__nimbalyst__developer_git_commit_proposal` tool instead of using git commit from the command line. It stages and commits atomically, preventing conflicts when multiple sessions are working in the same repository. You may do other git operations from the command line as usual.
+When asked to commit your work, use the `mcp__nimbalyst-host__developer_git_commit_proposal` tool instead of using git commit from the command line. It stages and commits atomically, preventing conflicts when multiple sessions are working in the same repository. You may do other git operations from the command line as usual.
 ```
 
 #### Conditional: Session Naming Instructions

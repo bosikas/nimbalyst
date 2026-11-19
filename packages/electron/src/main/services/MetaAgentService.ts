@@ -45,6 +45,7 @@ import type { NotificationOptions, NotificationResult } from './NotificationServ
 import type { MobilePushResult } from '@nimbalyst/runtime/sync/types';
 import { composeNotificationTitle } from '../../shared/notificationTitle';
 import { sessionCreationPolicy } from '@nimbalyst/runtime/ai/sessionPolicy';
+import { loadPrReviewPreset } from './prReviewPreset';
 import { snapshotSessionInstructions } from './sessionInstructions';
 
 type SessionStatusValue = 'idle' | 'running' | 'waiting_for_input' | 'error' | 'interrupted';
@@ -84,6 +85,9 @@ interface SessionResultData {
 }
 
 interface CreateChildSessionArgs {
+  nativeMultiAgent?: boolean;
+  codexPermissions?: 'read-only' | 'workspace';
+  startupSkills?: string[];
   instructionFile?: string;
   skipDefaultInstructions?: boolean;
   generateSummary?: boolean;
@@ -144,6 +148,7 @@ function normalizeStoredChildModelIdentifier(
 }
 
 interface SpawnSessionArgs {
+  nativeMultiAgent?: boolean;
   instructionFile?: string;
   skipDefaultInstructions?: boolean;
   generateSummary?: boolean;
@@ -700,6 +705,7 @@ export class MetaAgentService {
       const childMetadata: Record<string, unknown> = {
         ...requestedPolicy,
         ...instructionSelection,
+        ...(args.codexPermissions ? { codexPermissions: args.codexPermissions, startupSkills: args.startupSkills } : {}),
         ...(args.continuationHandoff ? { continuationHandoff: args.continuationHandoff } : {}),
         ...inheritedOwnership(callerMetadata),
         ...(childToolScope ? { toolScope: childToolScope } : {}),
@@ -777,12 +783,8 @@ export class MetaAgentService {
   private async spawnSession(
     parentSessionId: string,
     workspaceId: string,
-    args: SpawnSessionArgs
+    input: SpawnSessionArgs | { prReview: string }
   ): Promise<string> {
-    if (!args?.prompt?.trim()) {
-      throw new Error('prompt is required');
-    }
-
     const parent = await AISessionsRepository.get(parentSessionId);
     if (!parent || !sameWorkspaceIdentity(parent.workspacePath, workspaceId)) {
       throw new Error(`Parent session ${parentSessionId} not found in this workspace`);
@@ -791,6 +793,14 @@ export class MetaAgentService {
     // The parent's stored spelling is the one the window and every sibling are
     // registered under; keep writing that (#1551).
     const workspaceKey = resolveStoredWorkspaceId(parent.workspacePath, workspaceId);
+
+    const review = input && 'prReview' in input;
+    if (review && (typeof input.prReview !== 'string' || !input.prReview.trim() || Object.keys(input).length !== 1)) {
+      throw new Error('Supply only prReview with the diff and review brief.');
+    }
+    const preset = review ? await loadPrReviewPreset(parent.worktreeProjectPath || workspaceKey) : undefined;
+    const args: SpawnSessionArgs = review ? { ...preset, title: 'PR review', prompt: input.prReview } : input;
+    if (!args?.prompt?.trim()) throw new Error('prompt is required');
 
     const isolated = args.isolated === true;
     const reporting = resolveChildReporting(args.reporting, args.notifyOnComplete === true);
@@ -835,6 +845,9 @@ export class MetaAgentService {
       ...sessionCreationPolicy(args),
       instructionFile: args.instructionFile,
       skipDefaultInstructions: args.skipDefaultInstructions,
+      nativeMultiAgent: args.nativeMultiAgent,
+      codexPermissions: preset?.codexPermissions,
+      startupSkills: preset?.startupSkills,
       title: args.title,
       prompt: continuation?.prompt ?? args.prompt,
       continuationHandoff: continuation?.state,

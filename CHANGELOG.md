@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 <!-- New features go here -->
+- Workspaces can define a PR reviewer preset that starts a Codex review from just a diff and brief, with its own model, instructions, permissions and starting skills, kept separate from global and repository instructions.
 - Extensions can set an auto-archive interval for sessions they own at creation or once the work is finished.
 - Extensions can start their own sessions with a saved instruction profile, skip repository defaults, and start work in an existing workspace worktree.
 - Session headers and board cards link to the session coordinating their work, and final results can wake an idle coordinator.

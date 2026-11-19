@@ -37,6 +37,7 @@ it('previews every built-in section from its real builder, including the optiona
     expect(entry.previews.every(({ text }) => text.trim().length > 0), entry.id).toBe(true);
   }
   expect(catalog.find(({ id }) => id === 'git-commits')).toMatchObject({ enabled: false });
+  expect(catalog.find(({ id }) => id === 'identity')?.previews.map(p => p.provider)).not.toContain('Codex');
   expect(catalog.find(({ id }) => id === 'session-naming-reminder')?.previews.some(({ text }) => text.includes('<SYSTEM_REMINDER>'))).toBe(true);
 });
 
@@ -59,7 +60,7 @@ it('persists custom sections, preserves them across toggles, and restores provid
   service.update({ 'git-commits': true });
   expect(buildCodexSystemPrompt(options)).toContain('Use my review process');
   service.updateText('git-commits', null);
-  expect(buildCodexSystemPrompt(options)).toContain('developer_git_commit_proposal');
+  expect(buildCodexSystemPrompt(options)).toContain('## Commits');
   expect(service.getCatalog().find(entry => entry.id === 'git-commits')?.customText).toBeUndefined();
 });
 
@@ -98,11 +99,12 @@ it('persists controls across service recreation and changes future prompts witho
   setBuiltInGuidanceSettingsLoader(service.getSettings);
   const options = { isMetaAgent: false, workflowPreset: 'default' as const, hasOutOfBandNaming: false, sessionDirective: 'Keep the human request.' };
   const before = buildCodexSystemPrompt(options);
-  expect(before).toContain('developer_git_commit_proposal');
+  expect(before).toContain('## Commits');
+  expect(before).not.toContain('developer_git_commit_proposal');
   service.update(Object.fromEntries(BUILT_IN_GUIDANCE.map(({ id }) => [id, false])));
   const after = buildCodexSystemPrompt(options);
   expect(after).toContain(options.sessionDirective);
-  expect(after).not.toContain('developer_git_commit_proposal');
+  expect(after).not.toContain('## Commits');
   expect(after).not.toContain('PromptForUserInput');
   expect(buildClaudeCodeSystemPrompt({ hasSessionNaming: true, sessionDirective: options.sessionDirective })).toContain(options.sessionDirective);
   expect(createBuiltInGuidanceService(storage).getCatalog().every(({ enabled }) => !enabled)).toBe(true);

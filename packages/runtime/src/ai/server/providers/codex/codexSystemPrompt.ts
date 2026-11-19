@@ -1,9 +1,7 @@
 import { instructionTemplate } from '../../../instructionTemplates';
-import { buildMetaAgentSystemPrompt, type MetaAgentWorkflowPreset } from '../../../prompt';
+import { buildCodexMetadataSections, buildMetaAgentSystemPrompt, type MetaAgentWorkflowPreset } from '../../../prompt';
 import type { DocumentContext } from '../../types';
 import { createGuidanceRenderer, type GuidanceRenderOptions } from '../../../builtInGuidance';
-import { getPreferredAgentLanguage } from '../../preferredAgentLanguageConfig';
-import { SESSION_WORK_SUMMARY_GUIDANCE } from '../../../sessionWorkSummary';
 import {
   areTrackerToolsEnabled,
   isInternalMcpServerEnabled,
@@ -11,6 +9,7 @@ import {
 } from '../../services/mcpServerConfig';
 
 export interface CodexSystemPromptOptions extends GuidanceRenderOptions {
+  provider?: 'openai-codex' | 'openai-codex-acp';
   documentContext?: DocumentContext;
   isMetaAgent: boolean;
   workflowPreset: MetaAgentWorkflowPreset;
@@ -19,6 +18,9 @@ export interface CodexSystemPromptOptions extends GuidanceRenderOptions {
   sessionDirective?: string;
   /** The session was titled by its caller, so the agent must not name it (frozen at the first turn). */
   hasOutOfBandNaming: boolean;
+  generateSummary?: boolean;
+  hasSessionNaming?: boolean;
+  startupSkills?: string[];
 }
 
 export const CODEX_SESSION_NAMING_REMINDER_PROMPT =
@@ -34,9 +36,11 @@ export function buildCodexSystemPrompt(options: CodexSystemPromptOptions): strin
   const { documentContext, sessionDirective } = options;
   if (options.isMetaAgent) {
     return buildMetaAgentSystemPrompt('codex', options.workflowPreset, {
-      provider: 'openai-codex',
+      provider: options.provider ?? 'openai-codex',
       model: options.model,
       sessionDirective,
+      generateSummary: options.generateSummary,
+      hasOutOfBandNaming: options.hasOutOfBandNaming,
       guidanceSettings: options.guidanceSettings,
       guidanceText: options.guidanceText,
       onGuidance: options.onGuidance,
@@ -52,18 +56,18 @@ export function buildCodexSystemPrompt(options: CodexSystemPromptOptions): strin
     guidance('git-commits', instructionTemplate('codex.git-commits')),
   ];
 
+  if (options.startupSkills) {
+    const skills = options.startupSkills.length ? 'Review skills: ' + options.startupSkills.join(', ') + '. ' : '';
+    sections.push(skills + 'Use search_codex_skills on nimbalyst-host to find other skills when needed.');
+  }
   if (areTrackerToolsEnabled(resolveTrackersWorkspacePath(documentContext))) {
     sections.push(guidance('trackers', instructionTemplate('codex.trackers')));
   }
   if (documentContext?.worktreePath) {
     sections.push(guidance('worktree', instructionTemplate('codex.worktree', [documentContext.worktreePath])));
   }
-  if (isInternalMcpServerEnabled()) {
-    const language = getPreferredAgentLanguage();
-    const naming = options.hasOutOfBandNaming
-      ? instructionTemplate('codex.session-name-assigned')
-      : instructionTemplate('codex.session-name', [language ? instructionTemplate('codex.language', [language]) : '']);
-    sections.push(guidance('session-metadata', instructionTemplate('codex.session-metadata', [naming, SESSION_WORK_SUMMARY_GUIDANCE])));
+  if (options.hasSessionNaming ?? isInternalMcpServerEnabled()) {
+    sections.push(...buildCodexMetadataSections(guidance, options.hasOutOfBandNaming, options.generateSummary));
   }
   const voiceContext = documentContext as DocumentContext & {
     isVoiceMode?: boolean;

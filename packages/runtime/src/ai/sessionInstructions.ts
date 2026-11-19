@@ -1,6 +1,7 @@
 /** Creation-only choices. Omission preserves native repository instructions. */
 export interface SessionInstructionOptions {
   instructionFile?: string;
+  nativeMultiAgent?: boolean;
   skipDefaultInstructions?: boolean;
 }
 

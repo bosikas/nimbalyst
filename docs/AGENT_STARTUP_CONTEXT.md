@@ -22,7 +22,9 @@ The Effective setup tab previews the selected custom Codex base separately from 
 
 ## Inspect recorded Codex startup
 
-In the token meter, open **Inspect prepared context → Recorded native startup: messages and audit snapshots**. This reads the local Codex startup log for the session's native thread and keeps recorded evidence separate from the prepared request and provider-reported usage. Missing files, unsupported older thread identifiers and read errors remain explicit. The lookup checks the UUIDv7 creation-day directory and its adjacent days; archived or moved rollouts may be unavailable.
+In the token meter, choose **Inspect context** to open the dialog. **Recorded native startup: messages and audit snapshots** reads the local Codex startup log for the session's native thread and keeps recorded evidence separate from the prepared request and provider-reported usage. Missing files, unsupported older thread identifiers and read errors remain explicit. The lookup checks the UUIDv7 creation-day directory and its adjacent days. Archived or moved rollouts may be unavailable.
+
+For **Claude Agent** and **Claude Code CLI**, the same dialog shows the first user message in the available transcript and provider-reported context categories when present. Claude Agent also shows the last turn's Nimbalyst prompt additions captured in the current app window. Claude’s built-in system prompt and native instruction text are unavailable in the inspector.
 
 For an offline HTML report, run `node scripts/manual-tests/agent-startup-context/inspect.mjs /absolute/path/to/rollout.jsonl /absolute/path/to/new-report.html` with Node 22.18+ (native TypeScript stripping). The destination must not exist. The local HTML report contains prompt text; keep it private. No transcript or provider configuration is changed, and no model request is made. Both inspectors share the same pure parser.
 
@@ -39,6 +41,28 @@ Use the existing `instructionFile` creation option with an absolute path to one 
 These are opt-in file templates, not automatic role routing or a new role selector. They keep communication brief and procedures behind the repository's existing skill triggers.
 
 Leave `skipDefaultInstructions` false or omitted to preserve native repository instructions. These templates add task boundaries; they do not replace repository procedures, change tool permissions, promote `agentRole`, or authorize delegation. A read-only profile is not a sandbox: configure execution access separately. User decisions and caller-assigned reporting/naming policies still apply.
+
+### Workspace PR reviewer
+
+Define `.nimbalyst/pr-review.json` in the parent workspace. Then call `spawn_session` on the host server with `{"prReview":"Diff: <base>..<head>. Brief: <scope and checks>"}`. The review runs in the caller's checkout and reports its final result.
+
+```json
+{
+  "model": "openai-codex:gpt-6.2-sol",
+  "effortLevel": "medium",
+  "instructionFile": ".claude/agents/pr-reviewer.md",
+  "permissions": "read-only",
+  "generateSummary": false,
+  "autoArchiveAfterMinutes": 10,
+  "startupSkills": ["pr-review (tools/pr-review/SKILL.md)"]
+}
+```
+
+`read-only` selects the native read-only sandbox and denies escalation. `workspace` uses the project's permission policy. The preset supplies startup skill references and leaves the native catalog available for discovery. The selected Markdown file is snapshotted when Nimbalyst creates the session.
+
+New isolated Codex sessions remember their configured source home and launch from its private `nimbalyst-isolated` subdirectory. The home shares account files, hooks, configuration, skills and rollout directories. Global instruction files are excluded and Codex receives `project_doc_max_bytes=0`. Existing threads continue using their original home. A workspace can set `{"nativeMultiAgent":false}` in `.nimbalyst/codex.json`. Aifredas installs this default through AI-Setup. Linked worktrees inherit it from the main checkout, independently of the selected profile. Pass `nativeMultiAgent: true` on an explicit workflow spawn to enable native delegation.
+
+Codex identifies user hooks by absolute filename. For linked hook files, Nimbalyst passes the user's saved trust hashes and enabled flags to the isolated process. Codex checks each current command against its saved hash. Changing a command requires fresh approval.
 
 ## Ownership and deferred loading
 

@@ -1,7 +1,7 @@
 ---
 description: Republish the npm packages (nim CLI + wiki-web, or the extension SDK) whose source changed since their last publish
 argument-hint: "[cli|sdk] [patch|minor|major|X.Y.Z] [--check]"
-allowed-tools: Bash, Read, Edit, mcp__nimbalyst__AskUserQuestion, mcp__nimbalyst__developer_git_commit_proposal
+allowed-tools: Bash, Read, Edit, mcp__nimbalyst__AskUserQuestion, mcp__nimbalyst-host__developer_git_commit_proposal
 ---
 
 Publish the npm packages this repo ships, but only the ones whose source changed since their last publish. Publishing runs in GitHub Actions with npm Trusted Publishing; this command checks, bumps, commits and dispatches. It never publishes from this machine and never uses an npm token.
@@ -48,7 +48,7 @@ Show the current and new version and confirm with AskUserQuestion before editing
 
 No entry in the root `CHANGELOG.md`: these packages release independently of the app.
 
-Commit only those files (for cli, with the regenerated plugin configs) with `mcp__nimbalyst__developer_git_commit_proposal`, message `chore: release @nimbalyst/cli and @nimbalyst/wiki-web X.Y.Z` (or `chore: release @nimbalyst/extension-sdk X.Y.Z`). Then push, after asking, as in step 2.
+Commit only those files (for cli, with the regenerated plugin configs) with `mcp__nimbalyst-host__developer_git_commit_proposal`, message `chore: release @nimbalyst/cli and @nimbalyst/wiki-web X.Y.Z` (or `chore: release @nimbalyst/extension-sdk X.Y.Z`). Then push, after asking, as in step 2.
 
 Never create a `cli-v*` or `sdk-v*` git tag. The workflows are manual for that reason: a stray tag at the top of the repo's releases feed breaks the desktop app's update check.
 

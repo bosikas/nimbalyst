@@ -1,4 +1,6 @@
 import { codexSessionConfigurationKey } from '../protocols/codexAppServer/windowsSandbox';
+import { readSessionPolicy } from '../../sessionPolicy';
+import { AISessionsRepository } from '../../../storage/repositories/AISessionsRepository';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
@@ -34,6 +36,8 @@ import { resolvePackagedCodexBinaryPath } from './codex/codexBinaryPath';
 import { buildCodexContextDelivery } from './codex/codexContextDelivery';
 import { measureCodexContext, recordCodexContext } from './codex/codexContextInspection';
 import { codexToolExposure } from './codex/codexToolExposure';
+import { isolatedCodexHome, nativeCodexDelegation } from './codex/codexSessionHome';
+import { isolatedHookTrust } from './codex/isolatedHookTrust';
 import { buildCodexSystemPrompt, CODEX_SESSION_NAMING_REMINDER_PROMPT } from './codex/codexSystemPrompt';
 import { createGuidanceRenderer, isBuiltInGuidanceEnabled } from '../../builtInGuidance';
 import { resolveCodexBaseInstructions } from '../../codexBaseInstructions';
@@ -1054,12 +1058,15 @@ export class OpenAICodexProvider extends BaseAgentProvider {
       return;
     }
 
-    const agentRole = await this.getAgentRole(sessionId);
-    const isMetaAgent = agentRole === 'meta-agent';
+    const sessionRecord = sessionId ? await AISessionsRepository.get(sessionId) : undefined;
+    const isMetaAgent = sessionRecord?.agentRole === 'meta-agent';
+    const { generateSummary } = readSessionPolicy(sessionRecord?.metadata);
     const workflowPreset = isMetaAgent ? await this.getWorkflowPreset(sessionId) : 'default';
+    const selection = await this.sessionDirectives.selection(sessionId);
     const systemPrompt = buildCodexSystemPrompt({
+      generateSummary, startupSkills: selection.startupSkills,
       documentContext, isMetaAgent, workflowPreset, model: this.config?.model ?? undefined,
-      sessionDirective: await this.getSessionDirective(sessionId),
+      sessionDirective: selection.directive,
       hasOutOfBandNaming: this.isNamedOutOfBand(sessionId, documentContext),
     });
     const { userMessageAddition, messageWithContext } = buildUserMessageAddition(message, documentContext);
@@ -1173,7 +1180,12 @@ export class OpenAICodexProvider extends BaseAgentProvider {
         ? OpenAICodexProvider.additionalDirectoriesLoader(workspacePath)
         : [];
 
-      const permissionKey = codexSessionConfigurationKey(permissionDecision.permissionMode, permissionDecision.agentVerified === true, workspacePath, additionalDirectories);
+      const nativeMultiAgent = await nativeCodexDelegation(mcpConfigWorkspacePath, selection.nativeMultiAgent);
+      const home = selection.codexSourceHome && selection.skipDefaultInstructions
+        ? await isolatedCodexHome(selection.codexSourceHome) : undefined;
+      const hookTrust = home && selection.codexSourceHome
+        ? await isolatedHookTrust(selection.codexSourceHome, home) : undefined;
+      const permissionKey = JSON.stringify([codexSessionConfigurationKey(permissionDecision.permissionMode, permissionDecision.agentVerified === true, workspacePath, additionalDirectories), generateSummary, nativeMultiAgent, hookTrust]);
       let cachedLiveSession = sessionId ? this.liveProtocolSessions.get(sessionId) : undefined;
       if (
         sessionId &&
@@ -1215,28 +1227,12 @@ export class OpenAICodexProvider extends BaseAgentProvider {
       // Build environment for the Codex CLI binary.
       // Electron GUI apps have a minimal process.env (missing docker, homebrew, nvm, etc.).
       // Merge in shell env vars and the enhanced PATH so the Codex agent can see system tools.
-      let codexEnv = OpenAICodexProvider.buildCodexEnvironment();
-
-      // The SDK pre-edit hook uses Electron as Node and writes snapshots to
-      // this session's sidecar directory. App-server observation is host-owned.
       const sidecarDir = this.transport === 'sdk' && sessionId
-        ? OpenAICodexProvider.preEditSidecarDirResolver?.(sessionId)
-        : undefined;
-      if (sidecarDir) {
-        const baseEnv: Record<string, string> = codexEnv ? { ...codexEnv } : {};
-        if (!codexEnv) {
-          // No prior env override -- start from process.env minus undefineds.
-          for (const [key, value] of Object.entries(process.env)) {
-            if (value !== undefined) {
-              baseEnv[key] = value;
-            }
-          }
-        }
-        baseEnv.NIMBALYST_PRE_EDIT_DIR = sidecarDir;
-        baseEnv.ELECTRON_RUN_AS_NODE = '1';
-        codexEnv = baseEnv;
-        // console.log('[CODEX] Pre-edit hook env configured:', { sessionId, sidecarDir });
-      }
+        ? OpenAICodexProvider.preEditSidecarDirResolver?.(sessionId) : undefined;
+      const codexEnv = OpenAICodexProvider.buildCodexEnvironment({
+        ...(home ? { CODEX_HOME: home } : {}),
+        ...(sidecarDir ? { NIMBALYST_PRE_EDIT_DIR: sidecarDir, ELECTRON_RUN_AS_NODE: '1' } : {}),
+      });
 
       const resolvedModel = await this.getConfiguredModel();
 
@@ -1252,12 +1248,21 @@ export class OpenAICodexProvider extends BaseAgentProvider {
         raw: {
           nimbalystSessionId: sessionId,
           systemPrompt,
+          readOnly: selection.readOnly,
+          ...(hookTrust ? { hookTrust } : {}),
           ...(baseInstructions === undefined ? {} : { baseInstructions }),
           abortSignal: abortController.signal,
           agentVerified: permissionDecision.agentVerified === true,
           codexConfigOverrides: {
             ...this.buildCodexConfigOverrides(mcpServers),
-            ...(await this.skipsDefaultInstructions(sessionId) ? { project_doc_max_bytes: 0 } : {}),
+            ...(selection.skipDefaultInstructions ? { project_doc_max_bytes: 0 } : {}),
+            ...(nativeMultiAgent !== undefined ? {
+              'features.multi_agent': nativeMultiAgent,
+              // Models with native V2 collaboration expose tools independently of the V1 feature.
+              'features.multi_agent_v2.disable_native_tools': !nativeMultiAgent,
+              ...(!nativeMultiAgent ? { 'features.multi_agent_v2.root_agent_usage_hint_text': '' } : {}),
+            } : {}),
+            ...(selection.startupSkills ? { 'skills.include_instructions': false } : {}),
           },
           ...(codexEnv ? { codexEnv } : {}),
           ...(this.config?.effortLevel ? { effortLevel: this.config.effortLevel } : {}),
@@ -2130,7 +2135,7 @@ export class OpenAICodexProvider extends BaseAgentProvider {
    *
    * Returns null if no enhancement is needed (no loaders configured).
    */
-  private static buildCodexEnvironment(): Record<string, string> | null {
+  private static buildCodexEnvironment(sessionEnv: Record<string, string> = {}): Record<string, string> | null {
     let shellEnv: Record<string, string> | null = null;
     let enhancedPath: string | null = null;
 
@@ -2151,7 +2156,7 @@ export class OpenAICodexProvider extends BaseAgentProvider {
     }
 
     // Only build custom env if we have something to enhance
-    if (!shellEnv && !enhancedPath) {
+    if (!shellEnv && !enhancedPath && !Object.keys(sessionEnv).length) {
       return null;
     }
 
@@ -2180,6 +2185,7 @@ export class OpenAICodexProvider extends BaseAgentProvider {
     // export, so we force-clear them here. Per-session keys from provider
     // config are injected at the call site, not here.
     // See CLAUDE.md "Never Use Environment Variables as Implicit API Key Sources".
+    Object.assign(env, sessionEnv);
     delete env.ANTHROPIC_API_KEY;
     delete env.OPENAI_API_KEY;
 
@@ -3210,7 +3216,6 @@ export class OpenAICodexProvider extends BaseAgentProvider {
    */
   private async emitTodoUpdate(sessionId: string, todos: Array<{ id: string; content: string; activeForm: string; status: string }>): Promise<void> {
     try {
-      const { AISessionsRepository } = await import('../../../storage/repositories/AISessionsRepository');
       const currentSession = await AISessionsRepository.get(sessionId);
       const currentMetadata = currentSession?.metadata || {};
 

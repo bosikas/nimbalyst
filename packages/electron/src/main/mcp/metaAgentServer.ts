@@ -33,6 +33,7 @@ type CreateSessionArgs = {
 };
 
 type SpawnSessionArgs = {
+  nativeMultiAgent?: boolean;
   instructionFile?: string;
   skipDefaultInstructions?: boolean;
   generateSummary?: boolean;
@@ -273,10 +274,12 @@ export const META_AGENT_TOOL_DEFS: Array<{
     inputSchema: {
       type: "object",
       properties: {
+        prReview: { type: 'string', description: 'One-argument PR reviewer launch. Supply the diff (or base/head) and brief. Uses .nimbalyst/pr-review.json in this workspace.' },
+        nativeMultiAgent: { type: 'boolean', description: 'Explicit workflow opt-in to native Codex delegation.' },
         prompt: {
           type: "string",
           description:
-            "REQUIRED. Self-contained handoff brief for the new session. Should describe the task, relevant file paths, decisions already made, and a pointer back to the current session id (the new session can call get_session_summary to read more).",
+            "For a normal spawn, supply this self-contained handoff brief for the new session. Should describe the task, relevant file paths, decisions already made, and a pointer back to the current session id (the new session can call get_session_summary to read more).",
         },
         title: {
           type: "string",
@@ -324,7 +327,7 @@ export const META_AGENT_TOOL_DEFS: Array<{
             "Optional reasoning effort for the new session (e.g. model 'openai-codex:gpt-6-astra' with effortLevel 'medium'). Omit to leave it on the app-wide default — unlike `model` there is no inherit-from-caller mode. Levels above the model's ceiling are clamped down (Claude models stop at max; only some Codex models reach ultra). Use a lower level for mechanical work and a higher one for hard reasoning.",
         },
       },
-      required: ["prompt"],
+      // The handler validates exactly one of prompt and prReview.
     },
   },
   {

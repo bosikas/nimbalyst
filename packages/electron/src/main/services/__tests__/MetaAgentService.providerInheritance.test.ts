@@ -1,5 +1,8 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import path from 'node:path';
+import { tmpdir } from 'node:os';
 
 // Mirrors the mock surface of MetaAgentService.workstreamSync.test.ts, with two
 // additions needed to exercise the child-spawn path:
@@ -14,7 +17,7 @@ vi.mock('@nimbalyst/runtime/storage/repositories/AISessionsRepository', () => ({
   },
 }));
 vi.mock('@nimbalyst/runtime/storage/repositories/AgentMessagesRepository', () => ({
-  AgentMessagesRepository: {},
+  AgentMessagesRepository: { create: vi.fn() },
 }));
 vi.mock('@nimbalyst/runtime/storage/repositories/SessionFilesRepository', () => ({
   SessionFilesRepository: {},
@@ -140,6 +143,27 @@ describe('MetaAgentService child-spawn provider inheritance', () => {
       await (service as any).spawnSession(CODEX_PARENT.id, '/workspace/path', { prompt: 'Review only', instructionFile: 'profiles/reviewer.md', skipDefaultInstructions: true });
       expect(create).toHaveBeenCalledWith(CODEX_PARENT.id, '/workspace/path', expect.objectContaining({ instructionFile: 'profiles/reviewer.md', skipDefaultInstructions: true }));
     } finally { create.mockRestore(); }
+  });
+
+  it('creates a reviewer with the workspace preset from a single brief', async () => {
+    const workspace = await mkdtemp(path.join(tmpdir(), 'review-preset-'));
+    const service = MetaAgentService.getInstance();
+    const preset = { model: 'openai-codex:gpt-6.2-sol', effortLevel: 'medium', instructionFile: 'review.md',
+      permissions: 'read-only', generateSummary: false, autoArchiveAfterMinutes: 10, startupSkills: ['pr-review'] };
+    try {
+      await mkdir(path.join(workspace, '.nimbalyst'));
+      await writeFile(path.join(workspace, '.nimbalyst/pr-review.json'), JSON.stringify(preset));
+      await writeFile(path.join(workspace, 'review.md'), 'Review this diff read-only.');
+      vi.mocked(AISessionsRepository.get).mockResolvedValue({ ...CODEX_PARENT, workspacePath: workspace } as any);
+      (service as any).aiService = { queuePromptForSession: vi.fn() };
+      await (service as any).spawnSession(CODEX_PARENT.id, workspace, { prReview: 'Review a..b' });
+      const created = vi.mocked(AISessionsRepository.create).mock.calls[0][0];
+      expect(created).toMatchObject({ model: preset.model, metadata: {
+        effortLevel: 'medium', generateSummary: false, autoArchiveAfterMinutes: 10, codexPermissions: 'read-only',
+        skipDefaultInstructions: true, startupSkills: ['pr-review'], instructionSnapshot: { content: 'Review this diff read-only.' },
+      } });
+      await expect((service as any).spawnSession(CODEX_PARENT.id, workspace, { prReview: 'Review', model: 'other' })).rejects.toThrow('Supply only prReview');
+    } finally { await rm(workspace, { recursive: true, force: true }); }
   });
 
   it('writes summary/archive policy in the child insert before any queued prompt and validates values', async () => {

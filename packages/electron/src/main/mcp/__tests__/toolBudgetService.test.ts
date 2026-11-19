@@ -103,17 +103,16 @@ describe('getToolBudgetSnapshot', () => {
     expect(snapshot.eagerEstTokens).toBe(core!.alwaysLoadEstTokens);
   });
 
-  it('counts the session-gated core tools (interactive prompts, commit proposal, edited files)', async () => {
+  it('counts session-gated input and editor tools on core', async () => {
     // getInteractiveToolSchemas / getEditorToolSchemas return their session-
     // gated tools only when given a sessionId. The budget service must pass a
     // measurement sessionId or the full core row omits AskUserQuestion,
-    // PromptForUserInput, developer_git_commit_proposal, and
+    // PromptForUserInput, and
     // get_session_edited_files.
     const snapshot = await getToolBudgetSnapshot('/some/workspace');
     const core = snapshot.groups.find((g) => g.configKey === MCP_CORE);
-    // 3 interactive + display_to_user + capture_editor_screenshot +
-    // get_session_edited_files + update_session_meta (mocked) = 7.
-    expect(core!.toolCount).toBeGreaterThanOrEqual(7);
+    // Two input widgets, display, screenshot, edited files and metadata.
+    expect(core!.toolCount).toBeGreaterThanOrEqual(6);
   });
 
   it('reflects the per-workspace trackers opt-out', async () => {
@@ -128,6 +127,8 @@ describe('getToolBudgetSnapshot', () => {
     const inspected = await getToolBudgetSnapshot('/some/workspace', true);
     const core = inspected.groups.find(group => group.configKey === MCP_CORE)!;
     expect(core.tools?.some(tool => tool.name === 'AskUserQuestion' && tool.inputSchema)).toBe(true);
+    expect(core.tools?.some(tool => tool.name === 'developer_git_commit_proposal')).toBe(false);
+    expect(inspected.groups.find(group => group.configKey === 'nimbalyst-host')?.tools?.some(tool => tool.name === 'developer_git_commit_proposal')).toBe(true);
     const extension = inspected.groups.find(group => group.configKey === 'nimbalyst-excalidraw')!;
     expect(extension.tools).toEqual([{ name: 'excalidraw_add_rectangle', description: 'Add a rectangle to the canvas', inputSchema: { type: 'object', properties: {} } }]);
     expect(inspected.groups.find(group => group.configKey === 'my-remote')?.tools).toBeUndefined();

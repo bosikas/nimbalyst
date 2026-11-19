@@ -8,7 +8,7 @@ export function buildCodexThreadStartParams(options: SessionOptions): ThreadStar
     options.permissionMode,
     options.raw?.agentVerified === true,
     // Approval requests reach the user through the host bindings (#1884).
-    { userApprovals: true },
+    { userApprovals: true, readOnly: options.raw?.readOnly === true },
   );
 
   const effortLevel = options.raw?.effortLevel as string | undefined;

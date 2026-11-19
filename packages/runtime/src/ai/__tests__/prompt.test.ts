@@ -123,7 +123,7 @@ describe('buildClaudeCodeSystemPrompt', () => {
     expect(prompt).toContain('pre-fill defaults');
     expect(prompt).toContain('[relativeName](/absolute/path/to/file.ext)');
     expect(prompt).toContain('%20');
-    expect(prompt).toContain('`mcp__nimbalyst__developer_git_commit_proposal`');
+    expect(prompt).toContain('`mcp__nimbalyst-host__developer_git_commit_proposal`');
     expect(prompt).toContain('Fixes #123');
     expect(prompt).toContain('never invent an issue key');
   });
