@@ -215,3 +215,27 @@ describe('ClaudeCodeProvider MCP session status', () => {
     expect(toggleMcpServer).not.toHaveBeenCalled();
   });
 });
+
+describe('ClaudeCodeProvider live context usage (context inspector)', () => {
+  it('asks the live subprocess for its context breakdown between turns', async () => {
+    const provider = new ClaudeCodeProvider();
+    const report = { categories: [], memoryFiles: [{ path: '/p/CLAUDE.md', type: 'Project', tokens: 900 }] };
+    const getContextUsage = vi.fn(async () => report);
+    (internals(provider) as any).mcpQuery = { getContextUsage };
+
+    await expect(provider.getLiveContextUsage()).resolves.toBe(report);
+    expect(getContextUsage).toHaveBeenCalledWith({ detail: 'summary' });
+  });
+
+  it('returns null with no subprocess, on SDK failure, or when the call hangs', async () => {
+    const provider = new ClaudeCodeProvider();
+    (internals(provider) as any).mcpQuery = null;
+    await expect(provider.getLiveContextUsage()).resolves.toBeNull();
+
+    (internals(provider) as any).mcpQuery = { getContextUsage: vi.fn(async () => { throw new Error('Stream closed'); }) };
+    await expect(provider.getLiveContextUsage()).resolves.toBeNull();
+
+    (internals(provider) as any).mcpQuery = { getContextUsage: () => new Promise(() => {}) };
+    await expect(provider.getLiveContextUsage(5)).resolves.toBeNull();
+  });
+});

@@ -5,7 +5,9 @@ import { MaterialSymbol } from '@nimbalyst/runtime/ui/icons/MaterialSymbol';
 import { agentCapabilitiesForProviderType } from '@nimbalyst/runtime/ai/server/agentCapabilities';
 import { getHelpContent } from '../../help';
 import { openSettingsCommandAtom } from '../../store';
-import { ContextInspectionDetails } from './ContextInspectionDetails';
+import { useDialog } from '../../contexts/DialogContext';
+import { DIALOG_IDS } from '../../dialogs/registry';
+import type { ContextInspectionDialogData } from './ContextInspectionDialog';
 
 const CATEGORY_COLORS = [
   'var(--nim-primary)',
@@ -63,6 +65,8 @@ export function ContextUsageDisplay({
   categories,
   currentContext
 }: ContextUsageDisplayProps) {
+  const { open: openDialog } = useDialog();
+  const canInspect = sessionId && (provider === 'openai-codex' || provider === 'claude-code' || provider === 'claude-code-cli');
   const contextReporting = agentCapabilitiesForProviderType(provider).contextReporting;
   // For context window display, prefer currentContext (from /context command)
   // Fall back to legacy fields for backward compatibility
@@ -145,7 +149,7 @@ export function ContextUsageDisplay({
     return usedCategories.reduce((sum, cat) => sum + cat.width, 0);
   }, [usedCategories]);
 
-  const enableTooltip = hasTokenData && (formattedCategories.length > 0 || inputTokens > 0 || outputTokens > 0);
+  const enableTooltip = Boolean(canInspect) || (hasTokenData && (formattedCategories.length > 0 || inputTokens > 0 || outputTokens > 0));
   const shouldShowTooltip = tooltipVisible && enableTooltip;
 
   // Click-to-open: the meter is shaped like a button (model/thinking/action
@@ -265,7 +269,7 @@ export function ContextUsageDisplay({
     <div
       ref={rootRef}
       className={`context-usage-display ${hasContextWindow ? 'usage-context-window' : 'usage-token-counts'} ${usageClass} relative inline-flex items-center py-0.5 px-2 rounded-md text-[11px] font-medium whitespace-nowrap bg-[var(--nim-bg-secondary)] border border-[var(--nim-border)] ml-auto ${enableTooltip ? 'cursor-pointer' : 'cursor-default'} gap-1 focus:outline-2 focus:outline-[var(--nim-primary)] focus:outline-offset-2 max-[400px]:hidden ${usageStyles[usageClass as keyof typeof usageStyles]}`}
-      tabIndex={hasTokenData ? 0 : -1}
+      tabIndex={enableTooltip || hasTokenData ? 0 : -1}
       aria-label={label}
       aria-describedby={shouldShowTooltip ? tooltipId : undefined}
       aria-expanded={enableTooltip ? shouldShowTooltip : undefined}
@@ -393,7 +397,16 @@ export function ContextUsageDisplay({
             </>
           )}
 
-          {provider === 'openai-codex' && sessionId && <ContextInspectionDetails sessionId={sessionId} />}
+          {canInspect && <button
+            type="button"
+            className="context-inspection-trigger mt-2 text-[var(--nim-primary)] hover:underline"
+            onClick={event => {
+              event.stopPropagation();
+              rootRef.current?.focus();
+              closeTooltip();
+              openDialog<ContextInspectionDialogData>(DIALOG_IDS.CONTEXT_INSPECTION, { sessionId, provider, currentContext });
+            }}
+          >Inspect context</button>}
 
           {/* Fixed tool floor + jump to the Tools & MCP panel */}
           <div className="tooltip-tools-footer flex justify-between items-center gap-2 pt-2 mt-2 border-t border-[var(--nim-border)] text-[11px]">

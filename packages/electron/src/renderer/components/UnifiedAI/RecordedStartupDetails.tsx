@@ -10,7 +10,7 @@ export interface RecordedStartup {
 export function RecordedStartupDetails({ recorded }: { recorded: RecordedStartup }) {
   const report = recorded.report;
   const definitions = report?.toolRecords.reduce((sum, block) => sum + block.definitions, 0) ?? 0;
-  return <details className="context-recorded-startup mt-3">
+  return <details open className="context-recorded-startup mt-3">
     <summary className="cursor-pointer">Recorded native startup: messages and audit snapshots</summary>
     <p className="mt-2">{recorded.status}</p>
     {report && <>

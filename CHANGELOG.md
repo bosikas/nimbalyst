@@ -19,7 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Installed Codex skills can be searched, previewed and enabled or disabled through their native configuration in Agent Features settings
 - Agent setup brings instructions, tools, execution permissions and effective setup together, with searchable guidance previews, individual or bulk toggles, and editable Markdown sources for guidance and new Codex threads
 - Reviewed fresh-session handoffs preserve pending human requests, decisions, ownership and evidence without replaying full history
-- The Codex context inspector shows recorded startup messages and audit snapshots alongside measured request bytes and native token usage
+- The token meter opens a context inspector for Codex and Claude sessions. Codex shows recorded startup messages and audit snapshots alongside measured request bytes and native token usage; Claude shows the last request as sent, what Claude loaded at startup, and a breakdown of memory files, prompt sections, tools and cache usage that survives restarts
 - MCP server settings let you choose when Codex loads each server’s tool details in new threads
 - New sessions can select an instruction profile and independently skip automatic repository instructions for Codex and Claude Agent
 - Chat appearance controls customize reading width, text size, spacing and tool visibility, with descriptive activity cards that preserve expandable tool output

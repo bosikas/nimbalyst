@@ -20,6 +20,7 @@ export const DIALOG_IDS = {
 
   // Help group
   KEYBOARD_SHORTCUTS: 'keyboard-shortcuts',
+  CONTEXT_INSPECTION: 'context-inspection',
 
   // Settings group
   API_KEY: 'api-key',

@@ -13,6 +13,7 @@ interface Query extends AsyncGenerator<SDKMessage, void> {
   streamInput(stream: AsyncIterable<any>): Promise<void>;
   mcpServerStatus(): Promise<McpServerStatusInfo[]>;
   reconnectMcpServer(serverName: string): Promise<void>;
+  getContextUsage?(opts?: { detail?: 'summary' | 'full' }): Promise<unknown>;
   /** Close the query and terminate the underlying CLI subprocess. */
   close(): void;
 }
@@ -2786,6 +2787,28 @@ export class ClaudeCodeProvider extends BaseAgentProvider {
    */
   getMcpServerStatuses(): McpServerStatusInfo[] {
     return Array.from(this.mcpServerStatuses.values());
+  }
+
+  /**
+   * Ask the live SDK subprocess for its context breakdown (memory files, tools,
+   * system prompt sections, cache usage). Null when no subprocess is alive or
+   * the call fails; the inspector then falls back to the last stored report.
+   */
+  async getLiveContextUsage(timeoutMs = 15_000): Promise<unknown | null> {
+    const q = this.leadQuery ?? this.mcpQuery;
+    if (!q || typeof q.getContextUsage !== 'function') return null;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        q.getContextUsage({ detail: 'summary' }),
+        new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), timeoutMs); }),
+      ]);
+    } catch (error) {
+      console.warn('[CLAUDE-CODE] getContextUsage failed:', error instanceof Error ? error.message : error);
+      return null;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
   }
 
   /**

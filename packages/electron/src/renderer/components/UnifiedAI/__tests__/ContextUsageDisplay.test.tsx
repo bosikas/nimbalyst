@@ -2,6 +2,12 @@
 import React from 'react';
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { fireEvent, render, screen, cleanup } from '@testing-library/react';
+import { createStore, Provider } from 'jotai';
+import type { SessionData } from '@nimbalyst/runtime/ai/server/types';
+import { DialogProvider, registerDialog } from '../../../contexts/DialogContext';
+import { DIALOG_IDS } from '../../../dialogs/registry';
+import { sessionPromptAdditionsAtom, sessionStoreAtom } from '../../../store/atoms/sessions';
+import { ContextInspectionDialog } from '../ContextInspectionDialog';
 import { ContextUsageDisplay } from '../ContextUsageDisplay';
 
 vi.mock('@nimbalyst/runtime/ui/icons/MaterialSymbol', () => ({
@@ -21,6 +27,17 @@ const props = {
 
 afterEach(() => cleanup());
 
+registerDialog({ id: DIALOG_IDS.CONTEXT_INSPECTION, group: 'help', component: ContextInspectionDialog });
+
+function renderMeter(element: React.ReactElement, store = createStore()) {
+  return render(<Provider store={store}><DialogProvider>{element}</DialogProvider></Provider>);
+}
+
+function openInspector() {
+  fireEvent.click(screen.getByTestId('context-indicator'));
+  fireEvent.click(screen.getByRole('button', { name: 'Inspect context' }));
+}
+
 describe('ContextUsageDisplay - context meter opens on click, not hover (#429)', () => {
   it('refreshes observed native evidence while keeping the inspector open and separating configured tools', async () => {
     let refreshed = false;
@@ -33,8 +50,8 @@ describe('ContextUsageDisplay - context meter opens on click, not hover (#429)',
       },
     }));
     Object.defineProperty(window, 'electronAPI', { configurable: true, value: { invoke } });
-    render(<ContextUsageDisplay {...props} provider="openai-codex" sessionId="evidence-session" />);
-    fireEvent.click(screen.getByTestId('context-indicator'));
+    renderMeter(<ContextUsageDisplay {...props} provider="openai-codex" sessionId="evidence-session" />);
+    openInspector();
     await screen.findByText(/Awaiting usage/);
     expect(screen.getByText(/Fixture tools: configured deferred/).textContent).toContain('2 definitions');
     expect(screen.getByText('fixture / lookup · 1 calls').textContent).toContain('lookup');
@@ -42,7 +59,7 @@ describe('ContextUsageDisplay - context meter opens on click, not hover (#429)',
     fireEvent.click(screen.getByRole('button', { name: 'Refresh evidence' }));
     await screen.findByText('(-6,000 tokens)');
     expect(invoke.mock.calls.filter(([channel]) => channel === 'mcp-config:get-context-inspection')).toHaveLength(2);
-    expect(screen.queryByRole('tooltip')).not.toBeNull();
+    expect(screen.getByRole('dialog', { name: /Context inspector · Codex/ })).toBeDefined();
   });
   it('lists recorded native messages apart from audit snapshots and shows transcript text inertly', async () => {
     const recordedStartup = { status: 'Recorded in the local Codex rollout log.', report: {
@@ -54,8 +71,8 @@ describe('ContextUsageDisplay - context meter opens on click, not hover (#429)',
     Object.defineProperty(window, 'electronAPI', { configurable: true, value: {
       invoke: vi.fn(async () => ({ preparedRequest: null, unavailable: 'No prepared request yet.', recordedStartup })),
     } });
-    const { container } = render(<ContextUsageDisplay {...props} provider="openai-codex" sessionId="recorded-session" />);
-    fireEvent.click(screen.getByTestId('context-indicator'));
+    const { container } = renderMeter(<ContextUsageDisplay {...props} provider="openai-codex" sessionId="recorded-session" />);
+    openInspector();
     await screen.findByText(/1 records · 30 UTF-8 text bytes · through the opening input at log line 3/);
     expect(screen.getByText('<img src=x onerror=alert(1)>').tagName).toBe('PRE');
     expect(container.ownerDocument.querySelector('.context-recorded-startup img')).toBeNull();
@@ -67,8 +84,8 @@ describe('ContextUsageDisplay - context meter opens on click, not hover (#429)',
     Object.defineProperty(window, 'electronAPI', { configurable: true, value: {
       invoke: vi.fn(async () => ({ preparedRequest: null, unavailable: 'No prepared request yet.', recordedStartup })),
     } });
-    const { container } = render(<ContextUsageDisplay {...props} provider="openai-codex" sessionId="recorded-states" />);
-    fireEvent.click(screen.getByTestId('context-indicator'));
+    const { container } = renderMeter(<ContextUsageDisplay {...props} provider="openai-codex" sessionId="recorded-states" />);
+    openInspector();
     await screen.findByText(/No local Codex rollout found/);
     expect(container.ownerDocument.querySelectorAll('.context-recorded-message')).toHaveLength(0);
     recordedStartup = { status: 'Recorded in the local Codex rollout log.', report: {
@@ -83,32 +100,67 @@ describe('ContextUsageDisplay - context meter opens on click, not hover (#429)',
     expect(screen.getByText(/Automatic approval reviewer/).textContent).toContain('model unavailable');
     expect(container.ownerDocument.querySelector('.context-recorded-startup')?.textContent).not.toMatch(/delivered/i);
   });
-  it('keeps the panel open when expanding prepared context or using its keyboard controls', async () => {
+  it('loads Codex evidence only when the dialog opens and closes it on Escape', async () => {
+    const invoke = vi.fn(async (channel: string) => channel === 'mcp-config:get-context-inspection'
+      ? { preparedRequest: null, unavailable: 'No prepared request yet.' } : null);
     Object.defineProperty(window, 'electronAPI', { configurable: true, value: {
-      invoke: vi.fn(async (channel: string) => channel === 'mcp-config:get-context-inspection'
-        ? { preparedRequest: null, unavailable: 'No prepared request yet.' } : null),
+      invoke,
     } });
-    render(<ContextUsageDisplay {...props} provider="openai-codex" sessionId="inspection-session" />);
+    renderMeter(<ContextUsageDisplay {...props} provider="openai-codex" sessionId="inspection-session" />);
     fireEvent.click(screen.getByTestId('context-indicator'));
+    expect(invoke).not.toHaveBeenCalledWith('mcp-config:get-context-inspection', 'inspection-session');
+    fireEvent.click(screen.getByRole('button', { name: 'Inspect context' }));
     await screen.findByText('No prepared request yet.');
-    const summary = screen.getByText('Inspect prepared context');
-    fireEvent.click(summary);
-    expect(screen.queryByRole('tooltip')).not.toBeNull();
-    expect(summary.closest('details')?.open).toBe(true);
-    fireEvent.keyDown(summary, { key: 'Enter' });
-    expect(screen.queryByRole('tooltip')).not.toBeNull();
-    fireEvent.keyDown(summary, { key: 'Escape' });
+    expect(invoke).toHaveBeenCalledWith('mcp-config:get-context-inspection', 'inspection-session');
     expect(screen.queryByRole('tooltip')).toBeNull();
+    fireEvent.keyDown(screen.getByRole('button', { name: 'Close' }), { key: 'Escape' });
+    expect(screen.queryByRole('dialog')).toBeNull();
+  });
+
+  it('shows Claude prompt additions, opening input and the recorded context breakdown even before token usage arrives', async () => {
+    const invoke = vi.fn(async () => ({ claude: {
+      lastRequest: { recordedAt: null, model: 'claude-opus', permissionMode: 'default', thinking: null, settingSources: ['project'], mcpServers: [], allowedTools: [], disallowedTools: [], systemPromptPreset: 'claude_code', attachments: [], prompt: 'Opening question with additions' },
+      startup: null,
+      contextReport: { source: 'stored', recordedAt: null, model: null, totalTokens: 1, maxTokens: 2, autoCompactThreshold: null, categories: [], memoryFiles: [{ path: '/p/CLAUDE.md', type: 'Project', tokens: 900 }], systemPromptSections: [], systemTools: [], mcpTools: [], mcpInstructions: [], deferredBuiltinTools: [], agents: [], skills: [], messageBreakdown: null, apiUsage: null },
+      liveError: null,
+    } }));
+    Object.defineProperty(window, 'electronAPI', { configurable: true, value: { invoke } });
+    const store = createStore();
+    const sessionId = 'claude-inspection';
+    store.set(sessionStoreAtom(sessionId), {
+      id: sessionId,
+      messages: [
+        { type: 'user_message', text: 'Opening question' },
+        { type: 'user_message', text: 'Follow-up' },
+      ],
+    } as SessionData);
+    store.set(sessionPromptAdditionsAtom(sessionId), {
+      systemPromptAddition: '<scope>Workspace guidance</scope>',
+      userMessageAddition: 'Active document',
+      messageIndex: 1,
+      timestamp: 1,
+    });
+    renderMeter(<ContextUsageDisplay {...props} sessionId={sessionId} inputTokens={0} outputTokens={0} totalTokens={0} contextWindow={0} currentContext={undefined} />, store);
+    openInspector();
+    expect(screen.getByRole('dialog', { name: /Context inspector · Claude Agent/ })).toBeDefined();
+    expect(screen.getByText('Opening question').tagName).toBe('PRE');
+    expect(screen.queryByText('Follow-up')).toBeNull();
+    expect(screen.getByText('<scope>Workspace guidance</scope>').tagName).toBe('PRE');
+    expect(screen.getByText('Active document').tagName).toBe('PRE');
+    expect(screen.getByText(/Claude’s built-in system prompt/).textContent).toMatch(/unavailable/);
+    expect((await screen.findByText('/p/CLAUDE.md')).tagName).toBe('CODE');
+    expect(screen.getByText('Opening question with additions').tagName).toBe('PRE');
+    expect(invoke).toHaveBeenCalledWith('mcp-config:get-context-inspection', sessionId);
   });
 
   it('does NOT open the breakdown panel on hover', () => {
-    render(<ContextUsageDisplay {...props} />);
+    renderMeter(<ContextUsageDisplay {...props} />);
     fireEvent.mouseEnter(screen.getByTestId('context-indicator'));
     expect(screen.queryByRole('tooltip')).toBeNull();
   });
 
   it('toggles the panel open and closed on click', () => {
-    render(<ContextUsageDisplay {...props} />);
+    renderMeter(<ContextUsageDisplay {...props} />);
     const meter = screen.getByTestId('context-indicator');
     fireEvent.click(meter);
     screen.getByRole('tooltip');
@@ -117,7 +169,7 @@ describe('ContextUsageDisplay - context meter opens on click, not hover (#429)',
   });
 
   it('closes the panel on an outside click', () => {
-    render(<ContextUsageDisplay {...props} />);
+    renderMeter(<ContextUsageDisplay {...props} />);
     fireEvent.click(screen.getByTestId('context-indicator'));
     screen.getByRole('tooltip');
     fireEvent.mouseDown(document.body);
@@ -125,7 +177,7 @@ describe('ContextUsageDisplay - context meter opens on click, not hover (#429)',
   });
 
   it('closes the panel on Escape', () => {
-    render(<ContextUsageDisplay {...props} />);
+    renderMeter(<ContextUsageDisplay {...props} />);
     fireEvent.click(screen.getByTestId('context-indicator'));
     screen.getByRole('tooltip');
     fireEvent.keyDown(document, { key: 'Escape' });
@@ -133,7 +185,7 @@ describe('ContextUsageDisplay - context meter opens on click, not hover (#429)',
   });
 
   it('exposes the meter as a button with aria-expanded when a breakdown exists', () => {
-    render(<ContextUsageDisplay {...props} />);
+    renderMeter(<ContextUsageDisplay {...props} />);
     const meter = screen.getByTestId('context-indicator');
     expect(meter.getAttribute('role')).toBe('button');
     expect(meter.getAttribute('aria-expanded')).toBe('false');
@@ -147,7 +199,7 @@ describe('ContextUsageDisplay - cumulative rows are labeled as session totals (#
     // Header-right shows current window fill (132k / 200k) while the io rows
     // show cumulative session usage (100k). Without a label the two read as
     // the same quantity and contradict each other (#824: 76k vs 12,073).
-    render(<ContextUsageDisplay {...props} />);
+    renderMeter(<ContextUsageDisplay {...props} />);
     fireEvent.click(screen.getByTestId('context-indicator'));
     screen.getByText('Session totals (cumulative)');
   });
@@ -156,7 +208,7 @@ describe('ContextUsageDisplay - cumulative rows are labeled as session totals (#
     // contextWindow: 0 is the no-window state (hasContextWindow derives from
     // displayContextWindow > 0); the header then reads "Token Usage" and no
     // window-fill total renders, so there is no second quantity to label.
-    render(
+    renderMeter(
       <ContextUsageDisplay
         provider="openai"
         inputTokens={80_000}
@@ -172,7 +224,7 @@ describe('ContextUsageDisplay - cumulative rows are labeled as session totals (#
 
 describe('ContextUsageDisplay - measured provider support (#914)', () => {
   it('does not render an indicator for a provider that reports no usage', () => {
-    render(
+    renderMeter(
       <ContextUsageDisplay
         provider="copilot-cli"
         inputTokens={0}
@@ -189,7 +241,7 @@ describe('ContextUsageDisplay - measured provider support (#914)', () => {
   it('shows cumulative counts without inventing a percentage for count-only providers', () => {
     // contextWindow is deliberately non-zero: a catalog window must not turn
     // cumulative spend into a fill, whatever else is passed in.
-    render(
+    renderMeter(
       <ContextUsageDisplay
         provider="grok-build"
         inputTokens={80_000}

@@ -19,19 +19,18 @@ export function ContextInspectionDetails({ sessionId }: { sessionId: string }) {
     let cancelled = false;
     setInspection(null);
     setError(null);
-    (window as any).electronAPI.invoke('mcp-config:get-context-inspection', sessionId)
+    window.electronAPI.invoke('mcp-config:get-context-inspection', sessionId)
       .then((value: Inspection) => { if (!cancelled) setInspection(value); })
-      .catch(() => { if (!cancelled) setError('Context inspection is unavailable. Provider-reported usage above is independent.'); });
+      .catch(() => { if (!cancelled) setError('Could not load Codex context evidence.'); });
     return () => { cancelled = true; };
   }, [sessionId, revision]);
-  return <details className="context-inspection mt-2 text-[11px] whitespace-normal">
-    <summary className="cursor-pointer text-[var(--nim-primary)]">Inspect prepared context</summary>
-    <button type="button" onClick={() => setRevision(value => value + 1)} className="mt-2 text-[var(--nim-link)]">Refresh evidence</button>
-    <p className="mt-2">Token counts above are provider-reported. The measurements below are local UTF-8 text bytes; they are not token categories or a full native context breakdown.</p>
+  return <div className="context-inspection whitespace-normal">
+    <button type="button" onClick={() => setRevision(value => value + 1)} className="text-[var(--nim-link)] hover:underline">Refresh evidence</button>
     {error && <p role="status">{error}</p>}
     {!inspection && !error && <p role="status">Loading measurements…</p>}
     {inspection?.preparedRequest && <>
       <p className="mt-2">Last prepared request: {new Date(inspection.preparedRequest.measuredAt).toLocaleString()}</p>
+      <p className="text-[var(--nim-text-muted)]">{inspection.preparedRequest.scope}</p>
       <dl>{inspection.preparedRequest.categories.map(category => <div key={category.name} className="mt-2">
         <dt className="font-medium">{category.name}: {category.bytes.toLocaleString()} bytes</dt>
         <dd className="text-[var(--nim-text-muted)]">{category.reason}</dd>
@@ -59,5 +58,5 @@ export function ContextInspectionDetails({ sessionId }: { sessionId: string }) {
         {entry.beforeTokens !== null && entry.afterTokens !== null && <span> ({(entry.afterTokens - entry.beforeTokens).toLocaleString()} tokens)</span>}
       </li>)}</ul> : <p className="mt-2">No native compaction observed in this app process. Historical compaction contents cannot be reconstructed from prepared-request bytes.</p>}
     </details>}
-  </details>;
+  </div>;
 }

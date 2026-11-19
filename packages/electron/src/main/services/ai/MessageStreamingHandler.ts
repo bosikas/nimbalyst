@@ -86,6 +86,7 @@ import { SoundNotificationService } from '../SoundNotificationService';
 import { notificationService } from '../NotificationService';
 import { composeNotificationTitle } from '../../../shared/notificationTitle';
 import { logger } from '../../utils/logger';
+import { captureClaudeContextReport } from '../../mcp/claudeContextReport';
 import { windowStates, findWindowByWorkspace } from '../../window/WindowManager';
 import { sessionFileTracker } from '../SessionFileTracker';
 import { codexEditWindowRegistry, shouldOpenCodexEditWindow } from '../CodexEditWindowRegistry';
@@ -2732,6 +2733,13 @@ export class MessageStreamingHandler {
               // if (session.provider === 'claude-code' && !hadError) {
               //   autoContextPromise = this.svc.runAutoContextCommand(session, effectiveWorkspacePath, event);
               // }
+              //
+              // The context inspector's breakdown is recorded instead through the
+              // SDK's getContextUsage control call: no turn, no transcript rows,
+              // and it runs after the turn has already completed for the user.
+              if (session.provider === 'claude-code' && !hadError) {
+                void captureClaudeContextReport(session.id, provider);
+              }
             }
 
             // Match file edits to tool calls now that all messages are flushed.

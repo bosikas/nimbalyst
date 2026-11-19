@@ -5,6 +5,9 @@ import { join } from 'path';
 import { readCodexRecordedStartup } from './codexRolloutStartup';
 import { sameWorkspaceIdentity } from '../utils/workspaceIdentity';
 import { getToolBudgetSnapshot } from './toolBudgetService';
+import { readClaudeContextInspection } from './claudeContextInspection';
+
+const CLAUDE_PROVIDERS = new Set(['claude-code', 'claude-code-cli']);
 
 export async function getSessionContextInspection(
   sessionId: string,
@@ -14,6 +17,15 @@ export async function getSessionContextInspection(
   const session = await AISessionsRepository.get(sessionId);
   if (!session?.workspacePath || !sameWorkspaceIdentity(session.workspacePath, workspacePath)) throw new Error('Session is not in this workspace.');
   const metadata = typeof session.metadata === 'string' ? JSON.parse(session.metadata) : session.metadata;
+  if (session.provider && CLAUDE_PROVIDERS.has(session.provider)) {
+    return {
+      sessionId,
+      nativeUsage: { source: 'Stored provider-reported usage; not a local byte estimate. Current context and cumulative spend are different quantities.', value: session.tokenUsage ?? metadata?.tokenUsage ?? null },
+      // Prompt and appended system prompt text are raw user content; only the local inspector opts in.
+      claude: await readClaudeContextInspection({ id: sessionId, provider: session.provider }, { includeText: includeRecordedStartup }),
+      unavailable: "Claude's built-in system prompt text is never exposed; only its section names and token counts are.",
+    };
+  }
   return {
     sessionId,
     nativeUsage: { source: 'Stored provider-reported usage; not a local byte estimate. Current context and cumulative spend are different quantities.', value: session.tokenUsage ?? metadata?.tokenUsage ?? null },
