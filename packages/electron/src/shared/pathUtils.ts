@@ -61,7 +61,7 @@ export function isPathInWorkspace(filePath: string, workspacePath: string): bool
  * @returns The relative path, or null if the file is not in the workspace
  */
 export function getRelativeWorkspacePath(filePath: string, workspacePath: string): string | null {
-  if (!isPathInWorkspace(filePath, workspacePath)) {
+  if (!filePath || !workspacePath) {
     return null;
   }
 
@@ -72,8 +72,10 @@ export function getRelativeWorkspacePath(filePath: string, workspacePath: string
     return '';
   }
 
-  // +1 for the path separator
-  return normalizedFile.substring(normalizedWorkspace.length + 1);
+  const workspacePrefix = normalizedWorkspace + '/';
+  return normalizedFile.startsWith(workspacePrefix)
+    ? normalizedFile.substring(workspacePrefix.length)
+    : null;
 }
 
 /**

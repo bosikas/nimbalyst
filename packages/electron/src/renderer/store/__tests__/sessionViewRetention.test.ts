@@ -15,6 +15,33 @@ const data = (id: string) => ({
 afterEach(() => vi.unstubAllGlobals());
 
 describe('session view retention', () => {
+  it('budgets recent transcript payloads across idle sessions, including nested tool results', () => {
+    const store = createStore();
+    const retention = createSessionViewRetention(store);
+    store.set(sessionStoreAtom('light'), data('light'));
+    retention.acquire('light')();
+
+    const openHeavy = (id: string) => {
+      const release = retention.acquire(id);
+      store.set(sessionStoreAtom(id), {
+        ...data(id),
+        messages: [{ id: 1, toolCall: { arguments: { image: 'a'.repeat(3 * 1024 * 1024) } } }],
+      });
+      return release;
+    };
+
+    openHeavy('first-heavy')();
+    const release = openHeavy('second-heavy');
+    expect(store.get(sessionLoadedAtom('light'))).toBe(true);
+    expect(store.get(sessionLoadedAtom('first-heavy'))).toBe(true);
+    expect(store.get(sessionLoadedAtom('second-heavy'))).toBe(true);
+
+    release();
+    expect(store.get(sessionLoadedAtom('first-heavy'))).toBe(false);
+    expect(store.get(sessionLoadedAtom('second-heavy'))).toBe(true);
+    expect(store.get(sessionLoadedAtom('light'))).toBe(true);
+  });
+
   it('evicts messages beyond the recently viewed sessions, keeping metadata', () => {
     const store = createStore();
     const retention = createSessionViewRetention(store, 1);

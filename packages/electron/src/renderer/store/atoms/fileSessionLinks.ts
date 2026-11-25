@@ -11,15 +11,25 @@ export function fileSessionLinkKey(workspacePath: string, filePath: string): str
 
 export const fileSessionLinksRevisionAtom = atomFamily((_fileKey: string) => atom(0));
 
-/** Owned by the central listener; keep only per-file summaries, not edit history. */
-export function createFileSessionLinksInvalidator(invalidate: (key: string) => void) {
+/** Keep summaries only for files with revision atoms. Unopened files fetch fresh on mount. */
+export function createFileSessionLinksInvalidator(
+  invalidate: (key: string) => void,
+  listTrackedKeys: () => Iterable<string>,
+) {
   const previous = new Map<string, Map<string, string>>();
   return (sessionId: string, files: FileLink[]) => {
+    const trackedKeys = new Set(listTrackedKeys());
+    if (!trackedKeys.size) {
+      previous.delete(sessionId);
+      return;
+    }
+
     const summaries = new Map<string, { count: number; timestamp: number; source: unknown }>();
     for (const file of files) {
       const path = /^(?:\/|[A-Za-z]:[\\/])/.test(file.filePath)
         ? file.filePath : `${file.workspaceId}/${file.filePath}`;
       const key = fileSessionLinkKey(file.workspaceId, path);
+      if (!trackedKeys.has(key)) continue;
       const entry = summaries.get(key) ?? { count: 0, timestamp: -Infinity, source: undefined };
       entry.count++;
       if (file.timestamp >= entry.timestamp) {
@@ -28,11 +38,20 @@ export function createFileSessionLinksInvalidator(invalidate: (key: string) => v
       }
       summaries.set(key, entry);
     }
-    const next = new Map([...summaries].map(([key, value]) => [key, JSON.stringify(value)]));
-    const before = previous.get(sessionId) ?? new Map<string, string>();
-    previous.set(sessionId, next);
-    for (const key of new Set([...before.keys(), ...next.keys()])) {
-      if (before.get(key) !== next.get(key)) invalidate(key);
+    const next = new Map<string, string>();
+    for (const [key, summary] of summaries) next.set(key, JSON.stringify(summary));
+
+    const before = previous.get(sessionId);
+    if (next.size) previous.set(sessionId, next);
+    else previous.delete(sessionId);
+
+    if (before) {
+      for (const [key, summary] of before) {
+        if (trackedKeys.has(key) && summary !== next.get(key)) invalidate(key);
+      }
+    }
+    for (const key of next.keys()) {
+      if (!before?.has(key)) invalidate(key);
     }
   };
 }

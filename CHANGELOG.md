@@ -40,6 +40,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Codex context inspection retains supported native context notifications and makes available prepared-context fragments expandable while identifying unavailable native details
 - Moving a project across volumes now links copied worktrees to the copied repository while preserving the original repository and worktrees
 - Codex uses compact integration guidance and tool descriptions, and keeps coordinator messages as agent context instead of human requests
+- Open sessions use less memory while streaming replies, keeping recent transcripts, and tracking file links.
+- Local Marilyst builds use distinct executable identities so macOS can attribute Local Network access to Marilyst.
 
 ### Removed
 <!-- Removed features go here -->

@@ -30,13 +30,9 @@ export interface StreamingEdit {
 /**
  * Detects if an AI response contains streaming markers
  */
-// A STREAM_EDIT / @stream-to-editor directive is emitted at the start of a
-// streamed response. The caller invokes detectStreamingIntent on the full,
-// growing accumulated content on every stream chunk, so scanning the whole
-// string each time is O(n^2) over a response and froze the renderer on long
-// turns. Only the head can contain the directive, so scan that; the (rare)
-// clean-content slice below is still derived from the full content.
-const STREAM_MARKER_SCAN_LIMIT = 8192;
+// Scan only the start of the response for an editor directive. If a marker is
+// found, return all content after it, including content beyond this limit.
+export const STREAM_MARKER_SCAN_LIMIT = 8192;
 
 export function detectStreamingIntent(content: string): {
   isStreaming: boolean;

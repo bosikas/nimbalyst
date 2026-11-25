@@ -1,4 +1,4 @@
-import { detectStreamingIntent, parseStreamingChunk, StreamingEditRequest } from './aiStreamProtocol';
+import { detectStreamingIntent, parseStreamingChunk, STREAM_MARKER_SCAN_LIMIT, StreamingEditRequest } from './aiStreamProtocol';
 import { logger } from '../utils/logger';
 import type { DocumentContext, Message, SessionData } from '@nimbalyst/runtime/ai/server/types';
 import { editorRegistry } from '@nimbalyst/runtime/ai/EditorRegistry';
@@ -35,7 +35,7 @@ class AIApi {
   private isStreamingEdit: boolean = false;
   private streamingConfig: any = null;
   private accumulatedContent: string = '';
-  private streamStartDetected: boolean = false;
+  private streamMarkerScanComplete: boolean = false;
   private streamBuffer: string = ''; // Buffer for detecting split markers
   // Removed defaultProvider - should always be specified explicitly
 
@@ -88,25 +88,20 @@ class AIApi {
 
       // Stream response received - emit will handle logging
 
-      // Accumulate content to check for streaming markers
-      if (data.partial) {
+      if (data.partial && !this.streamMarkerScanComplete) {
         this.accumulatedContent += data.partial;
-      }
-
-      // Check if this is a streaming edit response
-      if (!this.isStreamingEdit && !this.streamStartDetected) {
-        // Check accumulated content for streaming marker
         const { isStreaming, streamConfig, cleanContent } = detectStreamingIntent(this.accumulatedContent);
-        // Stream detection handled
+        if (isStreaming || this.accumulatedContent.length >= STREAM_MARKER_SCAN_LIMIT) {
+          // Slicing a growing V8 string can allocate a flat copy of the whole
+          // string. Stop accumulating once the whole marker prefix was checked.
+          this.streamMarkerScanComplete = true;
+          this.accumulatedContent = '';
+        }
 
         if (isStreaming) {
           logger.streaming.info('🚀 STREAMING MODE ACTIVATED', streamConfig);
           this.isStreamingEdit = true;
-          this.streamStartDetected = true;
           this.streamingConfig = streamConfig;
-
-          // Clear accumulated content and keep only clean content
-          this.accumulatedContent = cleanContent;
 
           // Emit streaming edit start event
           logger.streaming.info('Emitting streamEditStart event with config:', streamConfig);
@@ -129,12 +124,10 @@ class AIApi {
                 this.emit('streamEditEnd', {});
                 this.isStreamingEdit = false;
                 this.streamingConfig = null;
-                this.accumulatedContent = '';
-                this.streamStartDetected = false;
+                this.streamMarkerScanComplete = false;
               } else {
                 logger.streaming.info('Emitting initial clean content after delay:', cleanContent.substring(0, 100));
                 this.emit('streamEditContent', cleanContent);
-                this.accumulatedContent = ''; // Clear for next chunks
               }
             }, 100); // 100ms delay to ensure React state updates
           }
@@ -163,8 +156,7 @@ class AIApi {
           this.emit('streamEditEnd', {});
           this.isStreamingEdit = false;
           this.streamingConfig = null;
-          this.accumulatedContent = '';
-          this.streamStartDetected = false;
+          this.streamMarkerScanComplete = false;
           this.streamBuffer = '';
         } else {
           // Check if buffer ends with partial marker that might continue
@@ -207,7 +199,7 @@ class AIApi {
         }
 
         this.accumulatedContent = '';
-        this.streamStartDetected = false;
+        this.streamMarkerScanComplete = false;
       }
 
       // Normal streaming response

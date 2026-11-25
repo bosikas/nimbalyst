@@ -234,12 +234,10 @@ export function initFileStateListeners(workspacePath: string): () => void {
   const pendingCountDebounceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const sessionFilesFetchTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const SESSION_FILES_FETCH_DEBOUNCE_MS = 250;
-  const invalidateFileLinks = createFileSessionLinksInvalidator(key => {
-    // Unopened files fetch fresh on mount; do not allocate an atom for every edit.
-    if (Array.from(fileSessionLinksRevisionAtom.getParams()).includes(key)) {
-      store.set(fileSessionLinksRevisionAtom(key), n => n + 1);
-    }
-  });
+  const invalidateFileLinks = createFileSessionLinksInvalidator(
+    key => store.set(fileSessionLinksRevisionAtom(key), n => n + 1),
+    () => fileSessionLinksRevisionAtom.getParams(),
+  );
   // session-files:updated fires once per file edit (hundreds/sec during active
   // AI tool execution); coalesce its per-session git-status refresh so bursts
   // collapse into a single trailing git:get-file-status call per session.
@@ -554,11 +552,13 @@ async function refreshSessionGitStatus(sessionId: string): Promise<void> {
   if (edits.length === 0) return;
 
   try {
-    // Get relative paths using proper path boundary checking
-    const filePaths = edits.map(f => {
-      const relativePath = getRelativeWorkspacePath(f.filePath, workspacePath);
-      return relativePath !== null ? relativePath : f.filePath;
-    });
+    // Edit history can contain many entries for the same file, but Git
+    // returns one status per path.
+    const editedPaths = new Set<string>();
+    for (const edit of edits) editedPaths.add(edit.filePath);
+    const filePaths = Array.from(editedPaths, filePath =>
+      getRelativeWorkspacePath(filePath, workspacePath) ?? filePath,
+    );
 
     const result = await window.electronAPI.invoke('git:get-file-status', workspacePath, filePaths);
     if (result.success && result.status) {

@@ -8,10 +8,12 @@ from pathlib import Path
 import plistlib
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
 import time
+import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 ELECTRON = ROOT / 'packages/electron'
@@ -80,6 +82,55 @@ def ensure_signing_identity(exists=signing_identity_exists, quiet_run=None):
         raise RuntimeError(f'Created "{SIGNING_IDENTITY}" but it is not listed as a code-signing identity')
     print(f'Created code-signing identity "{SIGNING_IDENTITY}" in the login keychain', flush=True)
     return True
+
+
+MH_MAGIC_64 = 0xfeedfacf
+LC_UUID = 0x1b
+# Fixed namespace so a given Electron binary always maps to the same new UUID:
+# rebuilds of one Electron version keep a stable identity for privacy approvals.
+UUID_NAMESPACE = uuid.UUID('6f1d1f6e-4d0b-5a43-9a51-6d6172696c79')
+
+
+def unique_macho_uuid(executable, salt=BUNDLE_ID):
+    """Rewrite LC_UUID of a thin 64-bit Mach-O so it no longer matches stock Electron.
+
+    Every Electron app built from one Electron version ships byte-identical
+    executables with the same LC_UUID. macOS Local Network privacy resolves a
+    process by that UUID as well as by PID, finds com.github.Electron (the dev
+    node_modules Electron.app), and blocks Marilyst without ever prompting.
+    Must run before signing: the change invalidates the existing signature.
+    """
+    data = bytearray(executable.read_bytes())
+    if len(data) < 32 or struct.unpack_from('<I', data, 0)[0] != MH_MAGIC_64:
+        raise RuntimeError(f'Expected a thin 64-bit Mach-O: {executable}')
+    ncmds, sizeofcmds = struct.unpack_from('<II', data, 16)
+    offset, end = 32, 32 + sizeofcmds
+    for _ in range(ncmds):
+        cmd, cmdsize = struct.unpack_from('<II', data, offset)
+        if cmdsize < 8 or offset + cmdsize > end:
+            raise RuntimeError(f'Malformed load command in {executable}')
+        if cmd == LC_UUID:
+            old = uuid.UUID(bytes=bytes(data[offset + 8:offset + 24]))
+            new = uuid.uuid5(UUID_NAMESPACE, f'{salt}:{executable.name}:{old}')
+            data[offset + 8:offset + 24] = new.bytes
+            executable.write_bytes(bytes(data))
+            return old, new
+        offset += cmdsize
+    raise RuntimeError(f'No LC_UUID in {executable}')
+
+
+def bundle_executables(app):
+    apps = [app] + sorted((app / 'Contents/Frameworks').glob('*Helper*.app'))
+    for bundle in apps:
+        with (bundle / 'Contents/Info.plist').open('rb') as stream:
+            name = plistlib.load(stream)['CFBundleExecutable']
+        yield bundle / 'Contents/MacOS' / name
+
+
+def unique_bundle_uuids(app):
+    for executable in bundle_executables(app):
+        old, new = unique_macho_uuid(executable)
+        print(f'+ LC_UUID {executable.name}: {old} -> {new}', flush=True)
 
 
 def sign_bundle(app):
@@ -270,6 +321,7 @@ def build(heap_mb):
         run([node, 'build/build-local.js', '--package', f'--heap-mb={heap_mb}'], cwd=ELECTRON, env=env)
     # Local distribution only: the build wrapper still runs all native/SDK
     # and packaging hooks. Sign after its final mutation of the bundle.
+    unique_bundle_uuids(APP)
     sign_bundle(APP)
     verify_bundle(APP)
 

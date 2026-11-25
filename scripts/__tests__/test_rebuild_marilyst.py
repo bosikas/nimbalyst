@@ -2,13 +2,19 @@ import importlib.util
 from pathlib import Path
 import plistlib
 import shutil
+import struct
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
+import uuid
 
 spec = importlib.util.spec_from_file_location('rebuild', Path(__file__).parents[1] / 'rebuild-marilyst.py')
 m = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(m)
+REAL_ELECTRON = next((base / 'node_modules/electron/dist/Electron.app/Contents/MacOS/Electron'
+                      for base in (m.ELECTRON, m.ROOT)
+                      if (base / 'node_modules/electron/dist/Electron.app').exists()), Path('/nonexistent'))
 
 
 class SafeInstallTests(unittest.TestCase):
@@ -199,6 +205,77 @@ class ToolchainTests(unittest.TestCase):
         self.assertEqual(file.stat().st_mtime_ns, timestamp)
         m.write_if_changed(file, '{"sdk":"15.0"}')
         self.assertEqual(file.read_text(), '{"sdk":"15.0"}')
+
+
+def thin_macho(uuid_bytes, extra_cmds=b''):
+    segment = struct.pack('<II', 0x19, 16) + bytes(8)  # LC_SEGMENT_64 stub
+    lc_uuid = struct.pack('<II', 0x1b, 24) + uuid_bytes
+    cmds = segment + extra_cmds + lc_uuid
+    ncmds = 2 + (1 if extra_cmds else 0)
+    header = struct.pack('<IiiIIIII', 0xfeedfacf, 0x0100000c, 0, 2, ncmds, len(cmds), 0, 0)
+    return header + cmds + b'body'
+
+
+class MachOUuidTests(unittest.TestCase):
+    STOCK = uuid.UUID('4c4c44c3-5555-3144-a15c-347b7fdcc1e9')
+
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+
+    def test_replaces_stock_uuid_deterministically_and_keeps_rest_of_file(self):
+        first, second = self.root / 'a/Marilyst', self.root / 'b/Marilyst'
+        for file in (first, second):
+            file.parent.mkdir()
+            file.write_bytes(thin_macho(self.STOCK.bytes))
+        old, new = m.unique_macho_uuid(first)
+        _, again = m.unique_macho_uuid(second)
+        self.assertEqual(old, self.STOCK)
+        self.assertNotEqual(new, self.STOCK)
+        self.assertEqual(new, again)
+        patched = first.read_bytes()
+        self.assertEqual(len(patched), len(thin_macho(self.STOCK.bytes)))
+        self.assertIn(new.bytes, patched)
+        self.assertNotIn(self.STOCK.bytes, patched)
+
+    def test_helpers_with_same_stock_uuid_get_distinct_uuids(self):
+        main, helper = self.root / 'Marilyst', self.root / 'Marilyst Helper'
+        main.write_bytes(thin_macho(self.STOCK.bytes))
+        helper.write_bytes(thin_macho(self.STOCK.bytes))
+        self.assertNotEqual(m.unique_macho_uuid(main)[1], m.unique_macho_uuid(helper)[1])
+
+    def test_rejects_fat_or_uuidless_binaries_without_writing(self):
+        fat = self.root / 'fat'
+        fat.write_bytes(struct.pack('>I', 0xcafebabe) + bytes(64))
+        with self.assertRaisesRegex(RuntimeError, 'thin 64-bit'):
+            m.unique_macho_uuid(fat)
+        bare = self.root / 'bare'
+        header = struct.pack('<IiiIIIII', 0xfeedfacf, 0x0100000c, 0, 2, 1, 16, 0, 0)
+        original = header + struct.pack('<II', 0x19, 16) + bytes(8)
+        bare.write_bytes(original)
+        with self.assertRaisesRegex(RuntimeError, 'No LC_UUID'):
+            m.unique_macho_uuid(bare)
+        self.assertEqual(bare.read_bytes(), original)
+
+    def test_bundle_executables_covers_main_app_and_helpers(self):
+        app = self.root / 'Marilyst.app'
+        for bundle, name in ((app, 'Marilyst'), (app / 'Contents/Frameworks/Marilyst Helper (GPU).app', 'Marilyst Helper (GPU)')):
+            (bundle / 'Contents').mkdir(parents=True)
+            (bundle / 'Contents/Info.plist').write_bytes(plistlib.dumps({'CFBundleExecutable': name}))
+        names = [p.name for p in m.bundle_executables(app)]
+        self.assertEqual(names, ['Marilyst', 'Marilyst Helper (GPU)'])
+
+    @unittest.skipUnless(REAL_ELECTRON.exists(), 'dev Electron.app not installed')
+    def test_real_electron_executable_reads_back_new_uuid_and_still_signs(self):
+        copy = self.root / 'Electron'
+        shutil.copy2(REAL_ELECTRON, copy)
+        old, new = m.unique_macho_uuid(copy)
+        dump = subprocess.check_output(['/usr/bin/dwarfdump', '--uuid', copy], text=True)
+        self.assertIn(str(new).upper(), dump)
+        self.assertNotIn(str(old).upper(), dump)
+        subprocess.run(['/usr/bin/codesign', '--force', '--sign', '-', copy], check=True, capture_output=True)
+        subprocess.run(['/usr/bin/codesign', '--verify', '--strict', copy], check=True, capture_output=True)
 
 
 if __name__ == '__main__':
