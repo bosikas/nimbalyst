@@ -17,6 +17,7 @@ vi.mock('../../database/initialize', () => ({ getDatabase: () => ({ query: fake.
 vi.mock('../../utils/workspaceIdentity', () => ({ sameWorkspaceIdentity: (a: string, b: string) => a === b }));
 vi.mock('../SessionNamingService', () => ({ SessionNamingService: { getInstance: () => ({ applySessionMetadata: async (_id: string, patch: object) => { fake.metadata = { ...fake.metadata, ...patch }; } }) } }));
 vi.mock('../codexWorkSummaryCompletion', () => ({ completeWorkSummaryWithCodex: fake.complete }));
+vi.mock('../sessionSummaryWork', () => ({ sendSummaryWork: vi.fn() }));
 import { configureSessionWorkSummaries, requestSessionWorkSummary, submitSessionWorkSummary } from '../sessionWorkSummaryProduction';
 
 beforeEach(async () => {
@@ -116,11 +117,15 @@ it('does not read transcripts or infer when summaries are disabled, including re
 const agentDraft = { scope: 'Improve session navigation and local build customization', remaining: 'Install and review the app.', attention: 'review', areas: ['Navigation'] };
 
 it('uses a valid same-turn agent summary without launching the background worker', async () => {
+  const narrative = { outcome: 'Updated the session navigation.', writeUp: [
+    { kind: 'decision', text: 'Keep the current session visible so navigation preserves context.', messageId: 12 },
+  ] };
+  await submitSessionWorkSummary(fake.id, { ...agentDraft, ...narrative });
   await submitSessionWorkSummary(fake.id, agentDraft);
   fake.state.emit('session:completed', { sessionId: fake.id, workspacePath: '/project' });
   await vi.runAllTimersAsync();
   expect(fake.complete).not.toHaveBeenCalled();
-  expect(fake.metadata.workSummary).toMatchObject({ ...agentDraft, source: 'agent', state: 'ready' });
+  expect(fake.metadata.workSummary).toMatchObject({ ...agentDraft, ...narrative, source: 'agent', state: 'ready' });
   expect(JSON.parse(await readFile(fake.metadata.workSummary.evidencePath, 'utf8')).kind).toBe('agent');
 });
 

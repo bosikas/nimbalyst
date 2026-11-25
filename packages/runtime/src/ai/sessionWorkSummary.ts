@@ -3,7 +3,39 @@ import { instructionTemplate } from './instructionTemplates';
 /** Small, derived sidebar state. The canonical transcript remains authoritative. */
 export const SESSION_WORK_SUMMARY_GUIDANCE = instructionTemplate('session-metadata.work-summary');
 
-export interface SessionWorkSummary {
+export const SESSION_OUTCOME_LIMIT = 170;
+export const SESSION_WRITE_UP_LIMIT = 8;
+export const SESSION_WRITE_UP_TEXT_LIMIT = 500;
+export const SESSION_WRITE_UP_KINDS = ['outcome', 'finding', 'decision'] as const;
+
+export interface SessionWriteUpPoint {
+  kind: typeof SESSION_WRITE_UP_KINDS[number];
+  text: string;
+  messageId?: number;
+}
+
+export interface SessionNarrative {
+  outcome?: string;
+  writeUp?: SessionWriteUpPoint[];
+}
+
+/** A malformed optional write-up must not discard a usable work summary. */
+export function readSessionNarrative(value: unknown): SessionNarrative {
+  if (!value || typeof value !== 'object') return {};
+  const summary = value as SessionNarrative;
+  const outcome = typeof summary.outcome === 'string' && summary.outcome.length <= SESSION_OUTCOME_LIMIT
+    ? summary.outcome.replace(/\s+/g, ' ').trim() : '';
+  const writeUp = Array.isArray(summary.writeUp) && summary.writeUp.length <= SESSION_WRITE_UP_LIMIT ? summary.writeUp.flatMap((point) => {
+    if (!point || !SESSION_WRITE_UP_KINDS.includes(point.kind) || typeof point.text !== 'string'
+      || !point.text.trim() || point.text.length > SESSION_WRITE_UP_TEXT_LIMIT) return [];
+    const messageId = Number.isSafeInteger(point.messageId) && Number(point.messageId) > 0 ? point.messageId : undefined;
+    return [{ kind: point.kind, text: point.text.trim(), ...(messageId ? { messageId } : {}) }];
+  }) : undefined;
+  const usableWriteUp = writeUp && (writeUp.length > 0 || summary.writeUp?.length === 0);
+  return { ...(outcome ? { outcome } : {}), ...(usableWriteUp ? { writeUp } : {}) };
+}
+
+export interface SessionWorkSummary extends SessionNarrative {
   scope: string;
   remaining: string;
   attention: 'next' | 'blocked' | 'review' | 'none' | 'unknown';
@@ -35,7 +67,8 @@ export function readSessionWorkSummary(value: unknown): SessionWorkSummary | und
     || (s.evidencePath !== undefined && (typeof s.evidencePath !== 'string' || s.evidencePath.length > 2000))
     || (s.error !== undefined && (typeof s.error !== 'string' || s.error.length > 240))
     || !Array.isArray(s.areas) || s.areas.length > 6 || s.areas.some(a => typeof a !== 'string' || a.length > 40)) return undefined;
-  return s;
+  const { outcome, writeUp, ...summary } = s;
+  return { ...summary, ...readSessionNarrative({ outcome, writeUp }) };
 }
 
 export type WorkSummaryFilter = 'all' | 'remaining' | 'blocked' | 'review' | `area:${string}`;

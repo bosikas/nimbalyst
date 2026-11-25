@@ -21,6 +21,7 @@ describe("buildSessionMetaToolSchemas", () => {
     const schemas = await buildSessionMetaToolSchemas('caller-session');
     const summary = schemas.find(tool => tool.name === 'update_session_summary');
     expect(summary.inputSchema.required).toEqual(['scope', 'remaining', 'attention', 'areas']);
+    expect(summary.inputSchema.properties.work).toMatchObject({ type: 'array', maxItems: 25 });
     expect(CORE_TOOLS).toContain(summary.name);
     expect(CORE_ALWAYS_LOAD_TOOLS).not.toContain(summary.name);
   });
@@ -28,7 +29,7 @@ describe("buildSessionMetaToolSchemas", () => {
   it('uses the authenticated calling session and reports invalid submissions as errors', async () => {
     const submit = vi.fn().mockResolvedValue('Updated');
     setUpdateSessionSummaryFn(submit);
-    const args = { scope: 'Navigation', sessionId: 'forged-peer' };
+    const args = { scope: 'Navigation', sessionId: 'forged-peer', work: [{ action: 'put', key: 'review', text: 'Review the navigation' }] };
     expect(await dispatchSessionMetaTool('mcp__nimbalyst__update_session_summary', args, 'caller-session')).toMatchObject({ isError: false });
     expect(submit).toHaveBeenCalledWith('caller-session', args);
     submit.mockRejectedValueOnce(new Error('Invalid summary'));

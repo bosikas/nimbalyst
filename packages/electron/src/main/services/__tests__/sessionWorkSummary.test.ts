@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { acceptWorkSummary, buildWorkSummaryInput, type WorkSummaryRecord, type WorkSummarySource } from '../sessionWorkSummary';
 import { SessionWorkSummaryQueue } from '../sessionWorkSummaryQueue';
 import { workSummaryCodexArgs, readWorkSummaryUsage } from '../codexWorkSummaryCompletion';
-import { SessionSummaryDelivery, readSessionSummaryDraft } from '../sessionSummaryDelivery';
+import { SessionSummaryDelivery, readSessionSummaryDraft, readSummaryWork } from '../sessionSummaryDelivery';
 import { matchesWorkSummaryFilter } from '@nimbalyst/runtime/ai/sessionWorkSummary';
 
 const source: WorkSummarySource = { title: 'Sidebar', throughMessageId: 12, requests: [{ id: '10', text: 'Improve sidebar navigation and preserve pending requests.', author: 'human' }], recent: [{ id: '12', role: 'assistant', text: 'Navigation implemented; installation still needs review.' }], partial: false, evidencePath: '/evidence/12.json' };
@@ -40,6 +40,28 @@ it('records exact native usage and distinguishes unavailable cache measurements 
   expect(readWorkSummaryUsage(JSON.stringify({ type: 'item.completed', usage: { input_tokens: 1, output_tokens: 1 } }))).toBeUndefined();
   expect(readWorkSummaryUsage(JSON.stringify({ type: 'turn.completed', usage: { input_tokens: -1, output_tokens: 1 } }))).toBeUndefined();
   expect(workSummaryCodexArgs('/tmp')).toContain('--json');
+});
+
+it('accepts bounded structured work changes as an optional part of the summary', () => {
+  const work = [{ action: 'put', key: 'sidebar-review', text: 'Review the sidebar', summaryLine: 'Review the sidebar' }];
+  expect(readSummaryWork({ ...output, work })).toEqual(work);
+  expect(readSummaryWork(output)).toBeUndefined();
+  expect(() => readSummaryWork({ work: [...Array(26)].map(() => work[0]) })).toThrow('Invalid structured work');
+  expect(() => readSummaryWork({ work: [{ action: 'resolve-all' }] })).toThrow('Invalid structured work');
+});
+
+it('accepts a short outcome and validates optional write-up sources without changing open work', () => {
+  const outcome = 'Updated how the sidebar handles open and completed work.';
+  const text = 'Keep pending requests in view so a handoff can pick up where the last turn stopped.';
+  const writeUp = [
+    { kind: 'decision', text, messageId: 12 },
+    { kind: 'finding', text: 'Earlier request evidence needs checking.', messageId: 999 },
+  ];
+  expect(readSessionSummaryDraft({ ...output, outcome, writeUp })).toMatchObject({ outcome, writeUp });
+  const record = accept({ outcome, writeUp });
+  expect(record.summary).toMatchObject({ outcome, remaining: output.remaining, attention: output.attention });
+  expect(record.summary.writeUp).toEqual([writeUp[0], { kind: 'finding', text: writeUp[1].text }]);
+  expect(accept({ outcome: { bad: true }, writeUp: [{ kind: 'unknown', text }] }).summary).not.toHaveProperty('writeUp');
 });
 
 describe('whole-session scope and pending work', () => {

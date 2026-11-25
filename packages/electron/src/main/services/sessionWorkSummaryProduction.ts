@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { join, resolve, sep } from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { AISessionsRepository } from '@nimbalyst/runtime/storage/repositories/AISessionsRepository';
-import { readSessionWorkSummary, type SessionWorkSummary } from '@nimbalyst/runtime/ai/sessionWorkSummary';
+import { readSessionNarrative, readSessionWorkSummary, type SessionWorkSummary } from '@nimbalyst/runtime/ai/sessionWorkSummary';
 import { getSessionStateManager } from '@nimbalyst/runtime/ai/server/SessionStateManager';
 import { ModelRegistry } from '@nimbalyst/runtime/ai/server/ModelRegistry';
 import { ModelIdentifier } from '@nimbalyst/runtime/ai/server/types';
@@ -17,7 +17,8 @@ import { SessionWorkSummaryQueue } from './sessionWorkSummaryQueue';
 import { runWhenFirstUsable } from './startupMaintenanceGate';
 import { readSessionPolicy } from '@nimbalyst/runtime/ai/sessionPolicy';
 import { setUpdateSessionSummaryFn } from '../mcp/sessionNamingServer';
-import { readSessionSummaryDraft, SessionSummaryDelivery } from './sessionSummaryDelivery';
+import { readSessionSummaryDraft, readSummaryWork, SessionSummaryDelivery } from './sessionSummaryDelivery';
+import { sendSummaryWork } from './sessionSummaryWork';
 
 let isEnabled = (_workspace: string) => false;
 let installed = false;
@@ -78,14 +79,24 @@ export async function submitSessionWorkSummary(sessionId: string, value: unknown
     }
     const { rows } = await getDatabase().query<{ id: number }>('SELECT id FROM ai_agent_messages WHERE session_id=$1 ORDER BY id DESC LIMIT 1', [sessionId]);
     const evidencePath = join(directory, `agent-${randomUUID()}.json`);
-    const summary: SessionWorkSummary = { ...draft, source: 'agent', state: 'ready', coverage: 'partial', updatedAt: Date.now(), throughMessageId: rows[0]?.id ?? 0, evidencePath };
+    const throughMessageId = rows[0]?.id ?? 0;
+    const narrative = readSessionNarrative({ ...readSessionNarrative(old), ...readSessionNarrative(draft) });
+    const writeUp = narrative.writeUp?.map(({ messageId, ...point }) => messageId && messageId <= throughMessageId ? { ...point, messageId } : point);
+    const summary: SessionWorkSummary = { ...draft, ...narrative, ...(writeUp ? { writeUp } : {}),
+      source: 'agent', state: 'ready', coverage: 'partial', updatedAt: Date.now(), throughMessageId, evidencePath };
     // Keep the worker's request ledger reachable. A future fallback resumes its
     // cursor, never skips human requests based on an agent's self-report.
     await writeFile(evidencePath, JSON.stringify({ kind: 'agent', summary, previousEvidencePath: old?.evidencePath, workerEvidencePath }), { flag: 'wx', mode: 0o600 });
     if (delivery.revision(sessionId) !== revision) throw new Error('The session moved to another turn.');
     await SessionNamingService.getInstance().applySessionMetadata(sessionId, { workSummary: summary });
     delivery.accept(sessionId, revision);
-    return 'Session summary updated; no separate inference was needed.';
+    let work: unknown[] | undefined;
+    try { work = readSummaryWork(value); }
+    catch { return 'Session summary updated. Invalid Work Overview changes were skipped.'; }
+    if (!work?.length || !session.workspacePath) return 'Session summary updated; no separate inference was needed.';
+    return `Session summary updated.${await sendSummaryWork(session.workspacePath, {
+      sessionId, updatedAt: summary.updatedAt, throughMessageId: summary.throughMessageId, remaining: summary.remaining, updates: work,
+    })}`;
   });
 }
 
@@ -179,7 +190,7 @@ async function update(sessionId: string, workspacePath: string): Promise<boolean
     try {
       raw = await completeWorkSummaryWithCodex(input, model, measured => { usage = measured; });
       record = acceptWorkSummary(raw, source, previous, Date.now());
-      record.summary.source = 'background';
+      record.summary = { ...readSessionNarrative(old), ...record.summary, source: 'background' };
       if (usage) record.summary.tokenUsage = usage;
       accepted = true;
     } finally {

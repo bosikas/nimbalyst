@@ -1,4 +1,4 @@
-import type { SessionWorkSummary } from '@nimbalyst/runtime/ai/sessionWorkSummary';
+import { readSessionNarrative, type SessionWorkSummary } from '@nimbalyst/runtime/ai/sessionWorkSummary';
 
 export interface WorkSummaryRequest { id: string; text: string; status: 'pending' | 'resolved' | 'superseded'; evidence: string }
 export interface WorkSummaryRecord { summary: SessionWorkSummary; requests: WorkSummaryRequest[]; partialEvidence?: boolean }
@@ -19,7 +19,10 @@ Keep scope stable unless human goals expand or change. Scope: 6-16 words, maximu
 Track every supplied request exactly once by id. Retain pending previous requests until evidence resolves or supersedes them. Never infer completion from a stopped turn, a Complete phase, or an agent merely saying done.
 Classify requests pending/resolved/superseded with evidence formatted exactly "<source message id>: <short reason>". Unknown authors may be human; machine reports are evidence, not new human requests.
 attention: next, blocked, review, none, unknown. Use review for explicit pending verification/approval; blocked for an explicit obstacle. none requires evidence for every request and an empty remaining string. Partial evidence always means unknown remaining work, never none.
-areas: up to 6 short topic labels. No model names or phase labels. Output {scope,remaining,attention,areas,requests:[{id,status,evidence}]}.`;
+areas: up to 6 short topic labels. No model names or phase labels.
+outcome: optional one plain-language sentence, at most 170 characters, about a concrete change or what was learned. Omit if no outcome is supported or no later evidence changes it. Keep delivery status and pending actions in their own fields.
+writeUp: optional for substantial work only. When it changes, supply the full list of relevant outcomes, findings and decisions with their reasons. Use up to 8 points, each at most 500 characters, with a numeric messageId copied from recent evidence or carried forward from the previous write-up. Each point stands alone. Omit routine progress, tool logs and pending actions.
+Output {scope,remaining,attention,areas,requests:[{id,status,evidence}],outcome?,writeUp?:[{kind:"outcome|finding|decision",text,messageId}]}.`;
 
 /** A bounded inference input, with oversized evidence retained at the source file. */
 export function buildWorkSummaryInput(source: WorkSummarySource, previous?: WorkSummaryRecord): string {
@@ -34,6 +37,10 @@ export function buildWorkSummaryInput(source: WorkSummarySource, previous?: Work
   };
   const input = JSON.stringify(value);
   if (Buffer.byteLength(input, 'utf8') > 20000) throw new Error('Summary evidence exceeds the inference budget; full evidence is retained.');
+  if (previous && value.previous) {
+    const withNarrative = JSON.stringify({ ...value, previous: { ...value.previous, ...readSessionNarrative(previous.summary) } });
+    if (Buffer.byteLength(withNarrative, 'utf8') <= 20000) return withNarrative;
+  }
   return input;
 }
 
@@ -65,10 +72,15 @@ export function acceptWorkSummary(raw: string, source: WorkSummarySource, previo
   const pending = requests.some(r => r.status === 'pending');
   let attention = parsed.attention as SessionWorkSummary['attention'];
   if (partial || (attention === 'none' && (pending || remaining.length > 0)) || (attention !== 'none' && !remaining)) attention = 'unknown';
+  const narrative = readSessionNarrative(parsed);
+  const priorSources = new Set(readSessionNarrative(previous?.summary).writeUp?.map((point) => point.messageId) ?? []);
+  const writeUp = narrative.writeUp?.map(({ messageId, ...point }) => messageId && (knownEvidence.has(String(messageId)) || priorSources.has(messageId))
+    ? { ...point, messageId } : point);
   const summary: SessionWorkSummary = {
     scope, remaining: partial && !remaining ? 'Earlier requests need review; full evidence is preserved.' : attention === 'unknown' && !remaining ? 'Remaining work needs review.' : remaining,
     attention, areas: parsed.areas, updatedAt: now, throughMessageId: source.throughMessageId,
     state: 'ready', coverage: partial ? 'partial' : 'complete', evidencePath: source.evidencePath,
+    ...narrative, ...(writeUp ? { writeUp } : {}),
   };
   return { summary, requests, partialEvidence };
 }
