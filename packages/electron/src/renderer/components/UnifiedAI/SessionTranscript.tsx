@@ -124,6 +124,7 @@ import {
   MAX_CLI_TERMINAL_HEIGHT,
 } from '../../store/atoms/terminals';
 import { scrollToTeammateAtom, scrollToMessageAtom, requestOpenSessionAtom } from '../../store/atoms/agentMode';
+import { findTranscriptMessage } from './transcriptMessageAnchor';
 import { usePostHog } from 'posthog-js/react';
 import { trackSendWallEvent } from '../../utils/sendWallAnalytics';
 import {
@@ -2341,18 +2342,13 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
     setScrollToTeammate(null);
   }, [scrollToTeammate, setScrollToTeammate, sessionId, messages]);
 
-  // Scroll-to-message: when PromptQuickOpen selects a prompt, scroll to the
-  // matching user message by timestamp.
+  // Quick Open links to prompts by time. Extension links can also identify
+  // an assistant message or a question widget.
   const scrollToMessage = useAtomValue(scrollToMessageAtom);
   const setScrollToMessage = useSetAtom(scrollToMessageAtom);
   useEffect(() => {
     if (!scrollToMessage || scrollToMessage.sessionId !== sessionId) return;
-    const { timestamp } = scrollToMessage;
-
-    // Find the user message whose timestamp matches the prompt's createdAt.
-    const targetIdx = messages.findIndex(msg =>
-      msg.type === 'user_message' && Math.abs((msg.createdAt?.getTime() || 0) - timestamp) < 1000
-    );
+    const targetIdx = findTranscriptMessage(messages, scrollToMessage.timestamp, scrollToMessage.anchor);
 
     if (targetIdx === -1) {
       // Messages may not be loaded yet; keep the request pending.

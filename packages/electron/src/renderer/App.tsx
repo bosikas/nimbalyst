@@ -80,6 +80,7 @@ import {
 } from './store/atoms/sessions';
 import { dispatchCreateNewSession, openWorktreeSessionActionAtom } from './store/actions/sessionHistoryActions';
 import { openSessionInOwningProject } from './store/actions/sessionNotificationNavigation';
+import type { SessionMessageAnchor } from '../shared/sessionNotificationNavigation';
 import { NavigationGutter } from './components/NavigationGutter';
 // NOTE: useTabs and useTabNavigation removed - EditorMode manages tabs now
 import type { ContentMode } from './types/WindowModeTypes';
@@ -2313,8 +2314,8 @@ export default function App() {
 
   // Listen for open-ai-session events from flows that create and focus AI sessions.
   useEffect(() => {
-    const handleOpenAiSession = async (event: CustomEvent<{ sessionId: string; workspacePath: string; draftInput?: string }>) => {
-      const { sessionId, workspacePath: eventWorkspacePath, draftInput } = event.detail;
+    const handleOpenAiSession = async (event: CustomEvent<{ sessionId: string; workspacePath: string; draftInput?: string; messageAnchor?: SessionMessageAnchor }>) => {
+      const { sessionId, workspacePath: eventWorkspacePath, draftInput, messageAnchor } = event.detail;
 
       // Set the draft input BEFORE navigating so it's ready when the session mounts
       // This is the canonical pattern for creating sessions with initial prompts
@@ -2331,10 +2332,11 @@ export default function App() {
       // whichever project is active: in another rail project, or with the
       // rail off, in that project's own window.
       if (eventWorkspacePath && eventWorkspacePath !== store.get(activeWorkspacePathAtom)) {
-        await openSessionInOwningProject({ sessionId, workspacePath: eventWorkspacePath, sourceLabel: '' });
+        await openSessionInOwningProject({ sessionId, workspacePath: eventWorkspacePath, sourceLabel: '', messageAnchor });
         return;
       }
 
+      if (messageAnchor) store.set(scrollToMessageAtom, { sessionId, timestamp: messageAnchor.timestamp, anchor: messageAnchor });
       setActiveMode('agent');
 
       // Open the session using the AgentMode ref

@@ -388,13 +388,13 @@ class NotificationService {
       sessionId: target.sessionId,
       workspacePath: target.workspacePath,
       sourceLabel: target.sourceLabel,
-    });
+    }, target.messageAnchor);
   }
 
   /**
    * Handle notification click - bring window to focus and switch to session
    */
-  private handleNotificationClick(options: NotificationOptions): void {
+  private handleNotificationClick(options: NotificationOptions, messageAnchor?: SessionNotificationNavigationTarget['messageAnchor']): void {
     // logger.main.info('[NotificationService] Notification clicked:', {
     //   sessionId: options.sessionId,
     //   workspacePath: options.workspacePath,
@@ -430,6 +430,7 @@ class NotificationService {
       sessionId: options.sessionId,
       workspacePath: options.workspacePath,
       sourceLabel: this.getSourceLabel(options),
+      ...(messageAnchor ? { messageAnchor } : {}),
     };
 
     if (this.takeLivePendingNavigation(options.workspacePath)) {

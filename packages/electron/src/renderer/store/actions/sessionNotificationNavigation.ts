@@ -14,6 +14,7 @@ import {
   workstreamStatesLoadedAtom,
 } from '../atoms/workstreamState';
 import { setWindowModeAtom } from '../atoms/windowMode';
+import { scrollToMessageAtom } from '../atoms/agentMode';
 import { selectSessionActionAtom } from './sessionHistoryActions';
 
 interface SessionLookup {
@@ -199,6 +200,9 @@ export async function navigateToNotificationSession(
     return showUnavailable(target, hydrated?.isArchived ? 'archived' : 'lookup-failed');
   }
 
+  if (target.messageAnchor) {
+    store.set(scrollToMessageAtom, { sessionId: target.sessionId, timestamp: target.messageAnchor.timestamp, anchor: target.messageAnchor });
+  }
   store.set(setWindowModeAtom, 'agent');
   await store.set(selectSessionActionAtom, target.sessionId);
   return true;

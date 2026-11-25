@@ -32,6 +32,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Session completion notices show the final response preview and a changed-file count, with individual paths available on demand.
 - Local macOS builds offer a repeatable build-and-install command with artifact reuse, timing reports, lower process priority and a smaller heap allowance while retaining native package checks and a recoverable previous app
 - The session sidebar uses a compact toolbar, activity sections and quieter details, with separate chat navigation and child expansion and fewer redundant worktree headings
+- Work Overview links can open a session at the exact question, reply or cited decision.
 
 ### Fixed
 <!-- Bug fixes go here -->

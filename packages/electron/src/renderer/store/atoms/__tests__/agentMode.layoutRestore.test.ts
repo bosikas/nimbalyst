@@ -4,7 +4,7 @@ import { useSessionSelectionFallback } from '../../../hooks/useSessionSelectionF
 import { store } from '@nimbalyst/runtime/store';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { initAgentModeLayout } from '../agentMode';
+import { initAgentModeLayout, scrollToMessageAtom } from '../agentMode';
 import { activeWorkspacePathAtom, multiProjectModeAtom, openProjectsAtom } from '../openProjects';
 import { selectedWorkstreamAtom } from '../sessions';
 import { initWorkstreamState, workstreamStatesLoadedAtom } from '../workstreamState';
@@ -71,6 +71,7 @@ describe('initAgentModeLayout selection restore', () => {
 
   beforeEach(() => {
     errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    store.set(scrollToMessageAtom, null);
     store.set(multiProjectModeAtom, true);
     store.set(openProjectsAtom, [openProject(PROJECT_A), openProject(PROJECT_B)]);
     store.set(activeWorkspacePathAtom, PROJECT_B);
@@ -103,8 +104,10 @@ describe('initAgentModeLayout selection restore', () => {
     });
 
     try {
+      const messageAnchor = { kind: 'assistant', timestamp: 25_000, quote: 'Should I keep the export?' } as const;
       const opened = await navigateToNotificationSession({
         sessionId: 'session-a', workspacePath: PROJECT_A, sourceLabel: 'Session A',
+        messageAnchor,
       });
       expect(opened).toBe(true);
       expect(store.get(activeWorkspacePathAtom)).toBe(PROJECT_A);
@@ -115,6 +118,7 @@ describe('initAgentModeLayout selection restore', () => {
 
       expect(restores.length).toBeGreaterThan(0);
       expect(store.get(selectedWorkstreamAtom(PROJECT_A))).toEqual({ type: 'session', id: 'session-a' });
+      expect(store.get(scrollToMessageAtom)).toEqual({ sessionId: 'session-a', timestamp: 25_000, anchor: messageAnchor });
     } finally {
       stopRailEffect();
     }
