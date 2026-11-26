@@ -44,6 +44,8 @@ export const INTERACTIVE_TOOL_TIMEOUT_SEC = 604800;
 export interface McpConfigServiceDeps {
   /** Port for the unified internal Nimbalyst MCP HTTP server (all endpoints). */
   mcpServerPort: number | null;
+  /** Transport for unified first-party endpoints. Some ACP clients only support Streamable HTTP. */
+  unifiedMcpTransport?: 'sse' | 'http';
 
   /** Port for the extension development MCP server (profile-gated, separate server). */
   extensionDevServerPort: number | null;
@@ -138,6 +140,7 @@ export class McpConfigService {
     // exposed via MCP — they're chat-provider IPC only.
     if (this.deps.mcpServerPort !== null && workspacePath) {
       const port = this.deps.mcpServerPort;
+      const transport = this.deps.unifiedMcpTransport ?? 'sse';
       const wsParam = `workspacePath=${encodeURIComponent(workspacePath)}`;
       const sessParam = sessionId ? `&sessionId=${encodeURIComponent(sessionId)}` : '';
       const query = `?${wsParam}${sessParam}`;
@@ -158,8 +161,8 @@ export class McpConfigService {
       // interactivePromptKeepalive.ts is the primary defence; this is the belt
       // for clients that don't honour progress notifications.
       config[MCP_CORE] = {
-        type: 'sse',
-        transport: 'sse',
+        type: transport,
+        transport,
         url: endpointUrl('/mcp/core'),
         tool_timeout_sec: INTERACTIVE_TOOL_TIMEOUT_SEC,
         timeout: INTERACTIVE_TOOL_TIMEOUT_SEC * 1000,
@@ -182,8 +185,8 @@ export class McpConfigService {
       })();
       if (!trackersKilled) {
         config[MCP_TRACKERS] = {
-          type: 'sse',
-          transport: 'sse',
+          type: transport,
+          transport,
           url: endpointUrl('/mcp/trackers'),
           ...(authHeaders ? { headers: { ...authHeaders } } : {}),
         };
@@ -206,8 +209,8 @@ export class McpConfigService {
       })();
       const excludeSettings = isMetaAgent || settingsKilled;
       config[MCP_HOST] = {
-        type: 'sse',
-        transport: 'sse',
+        type: transport,
+        transport,
         url:
           endpointUrl('/mcp/host') +
           (excludeSettings ? '&hostExcludeSettings=1' : ''),
@@ -221,8 +224,8 @@ export class McpConfigService {
       // ToolSearch surfaces them on intent. Replaces the situational slice of the
       // retired legacy monolith.
       config[MCP_SITUATIONAL] = {
-        type: 'sse',
-        transport: 'sse',
+        type: transport,
+        transport,
         url: endpointUrl('/mcp/situational'),
         ...(authHeaders ? { headers: { ...authHeaders } } : {}),
       };
@@ -238,8 +241,8 @@ export class McpConfigService {
         for (const shortName of extensionShortNames) {
           if (!shortName) continue;
           config[extensionServerConfigKey(shortName)] = {
-            type: 'sse',
-            transport: 'sse',
+            type: transport,
+            transport,
             url: endpointUrl(extensionServerEndpointPath(shortName)),
             ...(authHeaders ? { headers: { ...authHeaders } } : {}),
           };

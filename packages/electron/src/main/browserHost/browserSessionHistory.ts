@@ -4,6 +4,7 @@ import { database } from '../database/PGLiteDatabaseWorker';
 import { createWorktreeStore } from '../services/WorktreeStore';
 import { findWindowByWorkspace } from '../window/WindowManager';
 import { getQueuedPromptsStore } from '../services/RepositoryManager';
+import { getSessionContextInspection } from '../mcp/sessionContextInspection';
 import { invokeBrowserPanelCommand, type BrowserPanelCommand } from './browserPanelCommands';
 
 export async function invokeBrowserSessionHistory(
@@ -24,6 +25,8 @@ export async function invokeBrowserSessionHistory(
   }
 
   switch (channel) {
+    case 'mcp-config:get-context-inspection':
+      return getSessionContextInspection(await requireSession(first), workspacePath);
     case 'ai:getModels':
       return invoke(channel);
     case 'action-prompts:list':

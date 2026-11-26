@@ -6,6 +6,7 @@ import { BrowserWindow } from 'electron';
 import { logger } from '../utils/logger';
 import { clearGitStatusCache } from '../ipc/GitStatusHandlers';
 import { clearGitFactsCache } from '../utils/gitUncommittedFiles';
+import { notifyBrowserGitChange } from '../browserHost/browserWorkspaceEvents';
 
 type NativeFileWatchListener = (curr: fs.Stats, prev: fs.Stats) => void;
 
@@ -664,6 +665,10 @@ export class GitRefWatcher {
    * Emit an event to all browser windows
    */
   private emitToAllWindows(channel: string, data: unknown): void {
+    if (channel === 'git:status-changed') {
+      const { workspacePath } = data as { workspacePath: string };
+      notifyBrowserGitChange(workspacePath);
+    }
     const windows = BrowserWindow.getAllWindows();
     for (const window of windows) {
       if (!window.isDestroyed()) {

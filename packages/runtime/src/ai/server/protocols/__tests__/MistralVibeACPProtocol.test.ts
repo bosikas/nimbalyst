@@ -11,7 +11,13 @@ const options = {
   workspacePath: process.cwd(),
   model: 'mistral-vibe:default',
   mcpServers: {
-    nimbalyst: { command: 'nimbalyst-mcp' },
+    nimbalyst: {
+      command: '',
+      type: 'http' as const,
+      url: 'http://localhost:7000/mcp/core',
+      headers: { Authorization: 'Bearer test-token' },
+    },
+    external: { command: 'external-mcp' },
     legacy: { command: '', type: 'sse' as const, url: 'http://localhost:7000/sse' },
   },
   raw: { permissionsPath: '/trusted-workspace' },
@@ -63,7 +69,7 @@ describe('Mistral Vibe ACP', () => {
     let sessionId: string;
     try {
       const session = await first.createSession(options);
-      expect(session).toMatchObject({ appliedModel: 'mistral-vibe:mistral-medium', deliveredMcpServerCount: 1 });
+      expect(session).toMatchObject({ appliedModel: 'mistral-vibe:mistral-medium', deliveredMcpServerCount: 2 });
       sessionId = session.id;
     } finally {
       first.destroy();

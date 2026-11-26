@@ -41,6 +41,12 @@ export interface BrowserHostPanel {
   title: string;
   icon: string;
   order?: number;
+  sessionAccess?: boolean;
+}
+
+export interface BrowserWorkspaceEvents {
+  folders: string[];
+  gitRevision: number;
 }
 
 export type BrowserHostSchedule =

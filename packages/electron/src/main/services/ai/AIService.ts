@@ -54,6 +54,7 @@ import {
   getAIProviderOverrides,
   getDefaultEffortLevel,
   getDefaultThinkingMode,
+  getWorkspaceRoots,
 } from '../../utils/store';
 import { getAIProviderOverridesWithWorktreeFallback } from '../../utils/aiSettingsMerge';
 import { DocumentContextService } from '@nimbalyst/runtime';
@@ -520,6 +521,7 @@ export class AIService {
     };
     return {
       getAppearance: getBrowserAppearance,
+      getWorkspaceFolders: () => getWorkspaceRoots(workspacePath),
       listSessions: () => this.sessionManager.getSessionList(workspacePath),
       listSessionHistory: () => AISessionsRepository.list(workspacePath, { includeArchived: true }),
       invokeSessionHistory: (channel, args) =>

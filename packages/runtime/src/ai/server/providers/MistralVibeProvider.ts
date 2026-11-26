@@ -87,7 +87,7 @@ export class MistralVibeProvider extends HeadlessCliAgentProvider {
   });
 
   constructor() {
-    super(MistralVibeProvider.loaders);
+    super(MistralVibeProvider.loaders, 'http');
   }
 
   protected getLoaders(): HeadlessCliEnvironmentLoaders {

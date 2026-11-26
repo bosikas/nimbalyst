@@ -4,10 +4,9 @@ import { describe, it, expect, afterEach, vi } from 'vitest';
 import { fireEvent, render, screen, cleanup } from '@testing-library/react';
 import { createStore, Provider } from 'jotai';
 import type { SessionData } from '@nimbalyst/runtime/ai/server/types';
-import { DialogProvider, registerDialog } from '../../../contexts/DialogContext';
-import { DIALOG_IDS } from '../../../dialogs/registry';
+import { DialogProvider } from '../../../contexts/DialogContext';
 import { sessionPromptAdditionsAtom, sessionStoreAtom } from '../../../store/atoms/sessions';
-import { ContextInspectionDialog } from '../ContextInspectionDialog';
+import { registerContextInspectionDialog } from '../ContextInspectionDialog';
 import { ContextUsageDisplay } from '../ContextUsageDisplay';
 
 vi.mock('@nimbalyst/runtime/ui/icons/MaterialSymbol', () => ({
@@ -27,7 +26,7 @@ const props = {
 
 afterEach(() => cleanup());
 
-registerDialog({ id: DIALOG_IDS.CONTEXT_INSPECTION, group: 'help', component: ContextInspectionDialog });
+registerContextInspectionDialog();
 
 function renderMeter(element: React.ReactElement, store = createStore()) {
   return render(<Provider store={store}><DialogProvider>{element}</DialogProvider></Provider>);

@@ -3,7 +3,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
-import { callBrowserPanelTool, readBrowserPanelAssets } from '../browserPanels';
+import { callBrowserPanelTool, listBrowserExtensions, readBrowserPanelAssets } from '../browserPanels';
 
 const { listManifests, enabled, ownedTool, dispatch } = vi.hoisted(() => ({
   listManifests: vi.fn(),
@@ -35,6 +35,17 @@ beforeEach(async () => {
 
 afterEach(async () => {
   await rm(root, { recursive: true, force: true });
+});
+
+it('advertises embedded session components only to extensions with AI permission', async () => {
+  const manifest = { main: 'panel.js', contributions: { panels: [{ id: 'panel', title: 'Panel', icon: 'extension' }] } };
+  listManifests.mockReturnValue([
+    { id: 'read-only', manifest },
+    { id: 'with-ai', manifest: { ...manifest, permissions: { ai: true } } },
+  ]);
+  const [readOnly, withAi] = await listBrowserExtensions();
+  expect(readOnly.panels?.[0]?.sessionAccess).toBe(false);
+  expect(withAi.panels?.[0]?.sessionAccess).toBe(true);
 });
 
 it('serves only enabled extension bundles and blocks asset symlinks outside the bundle', async () => {

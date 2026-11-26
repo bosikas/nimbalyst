@@ -1,6 +1,7 @@
 import { BrowserWindow } from 'electron';
 import { realpathSync } from 'fs';
 import log from 'electron-log/main';
+import { notifyBrowserGitChange } from '../browserHost/browserWorkspaceEvents';
 
 /** The branch/ahead/behind snapshot the title bar and Git panel both render. */
 export interface GitBranchStatusSnapshot {
@@ -35,6 +36,7 @@ export interface GitStatusRefreshCoordinatorOptions {
 }
 
 function defaultBroadcast(payload: GitStatusChangedPayload): void {
+  notifyBrowserGitChange(payload.workspacePath);
   for (const window of BrowserWindow.getAllWindows()) {
     if (!window.isDestroyed()) {
       window.webContents.send('git:status-changed', payload);

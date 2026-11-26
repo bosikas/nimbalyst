@@ -6,6 +6,7 @@
  */
 
 import { registerBrowserPanelCommand } from '../browserHost/browserPanelCommands';
+import { notifyBrowserGitChange } from '../browserHost/browserWorkspaceEvents';
 import { ipcMain, BrowserWindow } from 'electron';
 import log from 'electron-log/main';
 import { createGit } from '../services/gitClient';
@@ -70,6 +71,7 @@ function createConcurrencyLimiter(limit: number) {
  * Emit git status changed event to all windows
  */
 function emitGitStatusChanged(workspacePath: string): void {
+  notifyBrowserGitChange(workspacePath);
   const windows = BrowserWindow.getAllWindows();
   for (const window of windows) {
     if (!window.isDestroyed()) {

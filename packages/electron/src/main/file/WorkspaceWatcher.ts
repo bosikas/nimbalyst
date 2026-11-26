@@ -7,6 +7,7 @@ import { optimizedWorkspaceWatcher } from './OptimizedWorkspaceWatcher';
 import { gitRefWatcher } from './GitRefWatcher';
 import { initGitWatcherLifecycle, pruneUnusedGitWatchers } from './GitWatcherLifecycle';
 import * as workspaceEventBus from './WorkspaceEventBus';
+import { notifyBrowserGitChange } from '../browserHost/browserWorkspaceEvents';
 import { AnalyticsService } from '../services/analytics/AnalyticsService';
 import { readdirSync } from 'fs';
 import path from "path";
@@ -36,6 +37,7 @@ function bucketFileCount(count: number): string {
 
 workspaceEventBus.setGitignoreChangeHandler((workspacePath: string) => {
     clearGitStatusCache(workspacePath);
+    notifyBrowserGitChange(workspacePath);
 
     for (const window of BrowserWindow.getAllWindows()) {
         if (!window.isDestroyed()) {

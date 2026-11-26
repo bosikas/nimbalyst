@@ -37,6 +37,7 @@ export type SharedMcpServerConfig = Pick<
 
 /** Provider-owned deps merged on top of the shared config per `getMcpConfigService`. */
 export interface PerProviderMcpDeps {
+  unifiedMcpTransport?: McpConfigServiceDeps['unifiedMcpTransport'];
   mcpConfigLoader: McpConfigServiceDeps['mcpConfigLoader'];
   claudeSettingsEnvLoader: McpConfigServiceDeps['claudeSettingsEnvLoader'];
   shellEnvironmentLoader: McpConfigServiceDeps['shellEnvironmentLoader'];
@@ -95,8 +96,6 @@ export function areTrackerToolsEnabled(workspacePath?: string): boolean {
 export function getMcpConfigService(overrides: PerProviderMcpDeps): McpConfigService {
   return new McpConfigService({
     ...shared,
-    mcpConfigLoader: overrides.mcpConfigLoader,
-    claudeSettingsEnvLoader: overrides.claudeSettingsEnvLoader,
-    shellEnvironmentLoader: overrides.shellEnvironmentLoader,
+    ...overrides,
   });
 }

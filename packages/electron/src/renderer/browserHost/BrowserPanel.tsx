@@ -7,12 +7,21 @@ import * as ExtensionSDK from '@nimbalyst/extension-sdk';
 import type { ExtensionStorage, PanelHost, PanelHostComponents, PanelHostProps } from '@nimbalyst/extension-sdk';
 import { navigateToTrackerReference } from '@nimbalyst/runtime';
 import { MaterialSymbol } from '@nimbalyst/runtime/ui/icons/MaterialSymbol';
-import type { BrowserHostPanel } from '../../shared/browserHost';
+import type { BrowserHostPanel, BrowserWorkspaceEvents } from '../../shared/browserHost';
+import { createBrowserPanelWorkspace } from './browserPanelWorkspace';
+import { useBrowserRefresh } from './useBrowserRefresh';
 
 export type PanelRequest = (path: string, init?: RequestInit) => Promise<Response>;
 type PanelComponent = React.ComponentType<PanelHostProps>;
 type PanelModule = { panels?: Record<string, { component?: PanelComponent }> };
 type StorageScope = 'workspace' | 'global';
+
+export interface BrowserPanelBridge {
+  invoke: (channel: string, ...args: unknown[]) => Promise<unknown>;
+  sessionAccess?: boolean;
+}
+
+export type RegisterBrowserPanelBridge = (bridge: BrowserPanelBridge) => () => void;
 
 function panelStorage(
   state: Record<StorageScope, Record<string, unknown>>,
@@ -99,13 +108,18 @@ class PanelBoundary extends React.Component<{ children: React.ReactNode }, { err
   }
 }
 
-export function BrowserPanel({ request, extensionId, panel, workspacePath, openPanel, close, openFile, openSession, components }:
+export function BrowserPanel({ request, extensionId, panel, workspacePath, openPanel, close, openFile, openSession, components, registerBridge }:
   { request: PanelRequest; extensionId: string; panel: BrowserHostPanel; workspacePath: string;
     openPanel: (id: string) => void; close: () => void; openFile: (path: string) => void; openSession: (id: string) => void;
-    components?: PanelHostComponents }) {
+    components?: PanelHostComponents; registerBridge?: RegisterBrowserPanelBridge }) {
   const [component, setComponent] = useState<PanelComponent | null>(null);
   const [storage, setStorage] = useState<ExtensionStorage>();
   const [error, setError] = useState('');
+  const workspace = useMemo(() => createBrowserPanelWorkspace(workspacePath), [workspacePath]);
+  const loadWorkspaceEvents = useCallback(async (signal: AbortSignal) => (
+    await request('/workspace-events', { signal })
+  ).json() as Promise<BrowserWorkspaceEvents>, [request]);
+  useBrowserRefresh(loadWorkspaceEvents, workspace.update, 3000);
   const invoke = useCallback(async (channel: string, ...args: unknown[]) => {
     if (channel === 'notifications:navigate-to-session') {
       const input = args[0] as { sessionId?: unknown; workspacePath?: unknown } | undefined;
@@ -123,8 +137,7 @@ export function BrowserPanel({ request, extensionId, panel, workspacePath, openP
 
   useLayoutEffect(() => {
     // Older extension bundles read their desktop bridge from window.
-    const previous = Object.getOwnPropertyDescriptor(window, 'electronAPI');
-    Object.defineProperty(window, 'electronAPI', { value: { invoke }, configurable: true });
+    const unregister = registerBridge?.({ invoke, sessionAccess: panel.sessionAccess });
     function onOpenSession(event: Event) {
       const { detail } = event as CustomEvent<{ sessionId?: string; workspacePath?: string }>;
       if (detail?.sessionId && detail.workspacePath === workspacePath) openSession(detail.sessionId);
@@ -132,10 +145,9 @@ export function BrowserPanel({ request, extensionId, panel, workspacePath, openP
     window.addEventListener('open-ai-session', onOpenSession);
     return () => {
       window.removeEventListener('open-ai-session', onOpenSession);
-      if (previous) Object.defineProperty(window, 'electronAPI', previous);
-      else Reflect.deleteProperty(window, 'electronAPI');
+      unregister?.();
     };
-  }, [invoke, openSession, workspacePath]);
+  }, [invoke, openSession, panel.sessionAccess, registerBridge, workspacePath]);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -166,12 +178,13 @@ export function BrowserPanel({ request, extensionId, panel, workspacePath, openP
   const host = useMemo(() => {
     const root = document.documentElement;
     const theme = () => root.dataset.theme ?? 'light';
-    const host: Partial<PanelHost> = {
+    const host: Partial<PanelHost> & Pick<PanelHost, 'getWorkspaceFolders' | 'onWorkspaceEvent'> = {
       panelId: panel.id,
       extensionId,
       workspacePath,
       get theme() { return theme(); },
-      getWorkspaceFolders: () => [workspacePath],
+      getWorkspaceFolders: workspace.getWorkspaceFolders,
+      onWorkspaceEvent: workspace.onWorkspaceEvent,
       getPrimaryFolderPath: () => workspacePath,
       onThemeChanged: (callback) => {
         const observer = new MutationObserver(() => callback(theme()));
@@ -182,7 +195,7 @@ export function BrowserPanel({ request, extensionId, panel, workspacePath, openP
       openPanel,
       close,
       storage,
-      components,
+      components: panel.sessionAccess ? components : undefined,
       setGutterBadge: () => {},
       data: {
         query: async <T,>(sql: string, params?: unknown[]) => {
@@ -200,7 +213,7 @@ export function BrowserPanel({ request, extensionId, panel, workspacePath, openP
       },
     };
     return Object.assign(host, { sessions: { open: openSession } }) as PanelHost;
-  }, [close, components, extensionId, invoke, openFile, openPanel, openSession, panel.id, request, storage, workspacePath]);
+  }, [close, components, extensionId, invoke, openFile, openPanel, openSession, panel.id, panel.sessionAccess, request, storage, workspace, workspacePath]);
 
   if (error) return <p role="alert">{error}</p>;
   const Component = component;

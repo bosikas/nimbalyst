@@ -120,9 +120,10 @@ export abstract class HeadlessCliAgentProvider extends BaseAgentProvider {
   /** Point the protocol adapter at the resolved executable and environment. */
   protected abstract configureProtocol(executablePath: string, env: Record<string, string> | null): void;
 
-  constructor(loaders: HeadlessCliEnvironmentLoaders) {
+  constructor(loaders: HeadlessCliEnvironmentLoaders, unifiedMcpTransport?: 'http') {
     super();
     this.mcpConfigService = getMcpConfigService({
+      unifiedMcpTransport,
       mcpConfigLoader: loaders.mcpConfigLoader,
       claudeSettingsEnvLoader: null,
       shellEnvironmentLoader: loaders.shellEnvironmentLoader,

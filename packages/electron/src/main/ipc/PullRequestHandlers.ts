@@ -13,6 +13,7 @@
  */
 
 import { BrowserWindow } from 'electron';
+import { notifyBrowserGitChange } from '../browserHost/browserWorkspaceEvents';
 import fs from 'node:fs';
 import { createGit } from '../services/gitClient';
 import log from 'electron-log/main';
@@ -66,6 +67,7 @@ const gitWorktreeService = new GitWorktreeService();
 
 /** Broadcast that a workspace's worktree list changed (e.g. a PR worktree was created). */
 function emitWorktreeListChanged(workspacePath: string): void {
+  notifyBrowserGitChange(workspacePath);
   for (const win of BrowserWindow.getAllWindows()) {
     if (!win.isDestroyed()) {
       win.webContents.send('git:status-changed', { workspacePath });

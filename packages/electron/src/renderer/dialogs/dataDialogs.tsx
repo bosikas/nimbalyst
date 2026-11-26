@@ -13,7 +13,7 @@ import { ProjectSelectionDialog } from '../components/ProjectSelectionDialog/Pro
 import { ErrorDialog } from '../components/ErrorDialog/ErrorDialog';
 import { SessionImportDialog } from '../components/AgenticCoding/SessionImportDialog';
 import { BlitzDialog } from '../components/BlitzDialog/BlitzDialog';
-import { ContextInspectionDialog, type ContextInspectionDialogData } from '../components/UnifiedAI/ContextInspectionDialog';
+import { registerContextInspectionDialog } from '../components/UnifiedAI/ContextInspectionDialog';
 import { DIALOG_IDS } from './registry';
 import { registerConfirmDialog } from './confirmDialogRegistration';
 import { store } from '@nimbalyst/runtime/store';
@@ -149,11 +149,7 @@ function BlitzDialogWrapper({
 
 // Register all data-carrying dialogs
 export function registerDataDialogs() {
-  registerDialog<ContextInspectionDialogData>({
-    id: DIALOG_IDS.CONTEXT_INSPECTION,
-    group: 'help',
-    component: ContextInspectionDialog,
-  });
+  registerContextInspectionDialog();
   registerDialog<ProjectSelectionData>({
     id: DIALOG_IDS.PROJECT_SELECTION,
     group: 'system',

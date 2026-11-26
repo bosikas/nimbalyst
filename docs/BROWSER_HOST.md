@@ -6,6 +6,8 @@ Create a private configuration file on the Linux PC. Generate the access token w
 
 The browser Sessions tab uses the desktop session history, including its tree, search, filters, and list options. The Linux host supplies the session list and handles supported commands such as creating, renaming, pinning, and archiving sessions. The browser refreshes session data automatically while the tab is visible.
 
+Browser extension panels receive workspace folder and Git status updates from the connected host. Extensions with AI permission can embed the same browser agent session panel used by Sessions.
+
 ```json
 {
   "workspacePath": "/home/you/projects/example",

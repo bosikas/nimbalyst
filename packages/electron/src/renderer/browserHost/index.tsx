@@ -1,16 +1,20 @@
 import React, { lazy, Suspense, useEffect, useLayoutEffect, useState } from 'react';
-import type { PanelHostComponents, PanelSessionTranscriptProps } from '@nimbalyst/extension-sdk';
+import type { PanelSessionTranscriptProps } from '@nimbalyst/extension-sdk';
 import { createRoot } from 'react-dom/client';
 import { Provider } from 'jotai';
 import { store } from '@nimbalyst/runtime/store';
 import { AgentSessionPanel } from '../components/AgentMode/AgentSessionPanel';
+import { registerContextInspectionDialog } from '../components/UnifiedAI/ContextInspectionDialog';
 import { DialogProvider } from '../contexts/DialogContext';
+import { createPanelHostComponents } from '../extensions/panels/panelHostComponents';
 import { sessionDraftHydratedAtom, sessionDraftInputAtom, sessionProcessingAtom, sessionStoreAtom } from '../store/atoms/sessions';
 import { sessionQueuedPromptsAtom } from '../store/atoms/sessionTranscript';
 import type { BrowserHostInfo, BrowserHostSession, BrowserHostSessionHistory } from '../../shared/browserHost';
 import { getTheme, registerThemeContribution } from '@nimbalyst/runtime';
 import { applyThemeToDOM } from '../hooks/useTheme';
 import { BrowserWorkspaceViews } from './BrowserExtensions';
+import type { BrowserPanelBridge, RegisterBrowserPanelBridge } from './BrowserPanel';
+import { useBrowserRefresh } from './useBrowserRefresh';
 import '../index.css';
 import '../styles/components.css';
 import './browserHost.css';
@@ -34,35 +38,6 @@ async function request(token: string, path: string, init?: RequestInit): Promise
 
 function postJson(input: unknown): RequestInit {
   return { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) };
-}
-
-function useRefresh<T>(load: (signal: AbortSignal) => Promise<T>, apply: (data: T) => void, interval: number, revision = 0) {
-  const [error, setError] = useState('');
-  useEffect(() => {
-    const controller = new AbortController();
-    let timer: number;
-    async function refresh() {
-      try {
-        if (!document.hidden) {
-          const data = await load(controller.signal);
-          if (controller.signal.aborted) return;
-          apply(data);
-          setError('');
-        }
-      } catch (err) {
-        if (!controller.signal.aborted) setError(err instanceof Error ? err.message : 'Connection lost');
-      } finally {
-        if (!controller.signal.aborted) timer = window.setTimeout(refresh, interval);
-      }
-    }
-    setError('');
-    void refresh();
-    return () => {
-      controller.abort();
-      window.clearTimeout(timer);
-    };
-  }, [load, apply, interval, revision]);
-  return error;
 }
 
 function Session({ token, id, workspacePath, collapseTranscript, className }: {
@@ -92,7 +67,7 @@ function Session({ token, id, workspacePath, collapseTranscript, className }: {
     if (store.get(sessionProcessingAtom(id)) !== processing) store.set(sessionProcessingAtom(id), processing);
     setLoaded(true);
   }, [id]);
-  const error = useRefresh(loadSession, updateSnapshot, 3000, refresh);
+  const error = useBrowserRefresh(loadSession, updateSnapshot, 3000, refresh);
 
   async function mutate(action: string, input?: unknown) {
     try {
@@ -119,6 +94,17 @@ function Session({ token, id, workspacePath, collapseTranscript, className }: {
   );
 }
 
+function PanelSession({ token, workspacePath, sessionId, ...props }:
+  PanelSessionTranscriptProps & { token: string; workspacePath: string }) {
+  return <Session key={sessionId} token={token} id={sessionId} workspacePath={workspacePath} {...props} />;
+}
+
+const sessionComponentCommands = new Set([
+  'action-prompts:list', 'ai:compactSession', 'ai:deleteQueuedPrompt',
+  'claude-code:answer-tool-permission', 'mcp-config:get-context-inspection',
+  'messages:respond-to-prompt', 'sessions:list-children', 'sessions:update-metadata',
+]);
+
 function Workspace({ token, info, disconnect }: { token: string; info: BrowserHostInfo; disconnect: () => void }) {
   useEffect(() => {
     document.title = `${info.workspaceName} – Nimbalyst`;
@@ -144,18 +130,23 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
   const [revision, setRevision] = useState(0);
   const refreshHistory = React.useCallback(() => setRevision((value) => value + 1), []);
   const [selected, setSelected] = useState('');
-  const panelComponents = React.useMemo<PanelHostComponents>(() => ({
-    SessionTranscript({ sessionId, collapseTranscript, className }: PanelSessionTranscriptProps) {
-      return <Session key={sessionId} token={token} id={sessionId} workspacePath={info.workspacePath ?? ''} collapseTranscript={collapseTranscript} className={className} />;
-    },
+  const panelComponents = React.useMemo(() => createPanelHostComponents(PanelSession, {
+    token, workspacePath: info.workspacePath ?? '',
   }), [token, info.workspacePath]);
   const loadSessions = React.useMemo(() => async (signal: AbortSignal) => (
     await request(token, '/session-history', { signal })
   ).json() as Promise<BrowserHostSessionHistory>, [token, revision]);
-  const error = useRefresh(loadSessions, setSessions, 6000);
+  const error = useBrowserRefresh(loadSessions, setSessions, 6000);
   const sessionId = selected || sessions?.find((session) => !session.isArchived)?.id;
   const loadPdf = React.useCallback(async () => (await request(token, '/pdf')).arrayBuffer(), [token]);
   const extensionRequest = React.useCallback((path: string, init?: RequestInit) => request(token, path, init), [token]);
+  const activePanelBridge = React.useRef<BrowserPanelBridge | undefined>(undefined);
+  const registerPanelBridge = React.useCallback<RegisterBrowserPanelBridge>((panelBridge) => {
+    activePanelBridge.current = panelBridge;
+    return () => {
+      if (activePanelBridge.current === panelBridge) activePanelBridge.current = undefined;
+    };
+  }, []);
   useLayoutEffect(() => {
     const previous = window.electronAPI;
     const bridge = {
@@ -164,6 +155,10 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
         return bridge.invoke('ai:getModels');
       },
       async invoke(channel: string, ...args: unknown[]) {
+        const panelBridge = activePanelBridge.current;
+        if (panelBridge && !(panelBridge.sessionAccess && sessionComponentCommands.has(channel))) {
+          return panelBridge.invoke(channel, ...args);
+        }
         if (channel === 'workspace:get-state') return {};
         if (channel === 'workspace:update-state') return { success: true };
         if (channel === 'claude-code:answer-tool-permission' || channel === 'messages:respond-to-prompt') {
@@ -178,6 +173,7 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
         }
         if (!channel.startsWith('sessions:') && ![
           'worktree:get-batch', 'ai:getModels', 'ai:compactSession', 'ai:deleteQueuedPrompt', 'action-prompts:list',
+          'mcp-config:get-context-inspection',
         ].includes(channel)) {
           throw new Error('This desktop action is unavailable in the browser');
         }
@@ -199,7 +195,8 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
         <button type="button" onClick={disconnect}>Disconnect</button>
       </header>
       <BrowserWorkspaceViews request={extensionRequest} pdfName={info.pdfName}
-        workspacePath={info.workspacePath ?? ''} openSession={setSelected} components={panelComponents} pdf={info.pdfName ? (
+        workspacePath={info.workspacePath ?? ''} openSession={setSelected} components={panelComponents}
+        registerPanelBridge={registerPanelBridge} pdf={info.pdfName ? (
           <Suspense fallback={<p role="status">Loading PDF Viewer…</p>}>
             <BrowserPdf fileName={info.pdfName} loadPdf={loadPdf} />
           </Suspense>
@@ -262,4 +259,5 @@ function App() {
   );
 }
 
+registerContextInspectionDialog();
 createRoot(document.getElementById('root')!).render(<App />);

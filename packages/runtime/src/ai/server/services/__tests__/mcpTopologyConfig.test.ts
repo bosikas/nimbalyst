@@ -143,6 +143,24 @@ describe('getMcpServersConfig consolidated topology', () => {
     };
   }
 
+  it('offers unified host and extension endpoints over HTTP to clients without SSE support', async () => {
+    const config = await new McpConfigService({
+      ...baseDeps(),
+      unifiedMcpTransport: 'http',
+      mcpAuthToken: 'test-token',
+      extensionMcpServerNamesLoader: () => ['backlog'],
+      mcpConfigLoader: async () => ({ external: { type: 'sse', url: 'https://example.test/sse' } }),
+    }).getMcpServersConfig({ workspacePath: '/workspace', sessionId: 'session' });
+
+    for (const name of [MCP_CORE, MCP_HOST, MCP_TRACKERS, MCP_SITUATIONAL, 'nimbalyst-backlog']) {
+      expect(config[name]).toMatchObject({
+        type: 'http', transport: 'http', headers: { Authorization: 'Bearer test-token' },
+      });
+    }
+    expect(config['nimbalyst-backlog'].url).toBe('http://127.0.0.1:3000/mcp/ext/backlog?workspacePath=%2Fworkspace&sessionId=session');
+    expect(config.external.type).toBe('sse');
+  });
+
   // ---- Landed (Phases 2-3) ----
 
   it('registers the core server as `nimbalyst` WITHOUT server-level alwaysLoad', async () => {

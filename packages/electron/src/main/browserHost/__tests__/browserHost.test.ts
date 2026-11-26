@@ -4,8 +4,8 @@ import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createBrowserHostHandler, startBrowserHosts } from '../browserHost';
-import type { BrowserHostSession } from '../../../shared/browserHost';
+import { createBrowserHostHandler, startBrowserHosts, type BrowserHostServices } from '../browserHost';
+import { notifyBrowserGitChange } from '../browserWorkspaceEvents';
 
 const token = 'a'.repeat(64);
 let root: string;
@@ -32,7 +32,7 @@ function setup() {
   const services = {
     getAppearance: vi.fn(async () => ({ theme: 'dark' })),
     listSessions: vi.fn(async () => [{ id: 'local', title: 'Local session' }]),
-    getSession: vi.fn(async (id: string): Promise<BrowserHostSession | null> => id === 'local'
+    getSession: vi.fn(async (id: string): ReturnType<BrowserHostServices['getSession']> => id === 'local'
       ? {
         id, provider: 'openai-codex', createdAt: 1, updatedAt: 1,
         messages: [{
@@ -127,8 +127,12 @@ describe('browser host', () => {
       { workspacePath, port: ports[0], token },
       { workspacePath: secondWorkspace, port: ports[1], token: secondToken },
     ]));
+    const attached = join(root, 'attached');
+    const folders = [workspacePath];
     const hosts = await startBrowserHosts(configPath, rendererPath, (path) => ({
-      ...setup().services, listSessions: async () => [{ id: 'local', title: path }],
+      ...setup().services,
+      getWorkspaceFolders: () => path === workspacePath ? folders : [path],
+      listSessions: async () => [{ id: 'local', title: path }],
     }));
     try {
       const sessions = (port: number, key: string) =>
@@ -137,6 +141,16 @@ describe('browser host', () => {
       expect(await (await sessions(ports[1], secondToken)).json()).toEqual([{ id: 'local', title: secondWorkspace }]);
       expect((await sessions(ports[0], secondToken)).status).toBe(401);
       expect((await sessions(ports[1], token)).status).toBe(401);
+      const workspaceEvents = (port: number, key: string) =>
+        fetch(`http://127.0.0.1:${port}/api/workspace-events`, { headers: { authorization: `Bearer ${key}` } });
+      expect((await workspaceEvents(ports[0], secondToken)).status).toBe(401);
+      expect(await (await workspaceEvents(ports[0], token)).json()).toEqual({ folders: [workspacePath], gitRevision: 0 });
+      folders.push(attached);
+      notifyBrowserGitChange(join(attached, 'nested-repo'));
+      expect(await (await workspaceEvents(ports[0], token)).json()).toEqual({
+        folders: [workspacePath, attached], gitRevision: 1,
+      });
+      expect(await (await workspaceEvents(ports[1], secondToken)).json()).toEqual({ folders: [secondWorkspace], gitRevision: 0 });
     } finally {
       for (const host of hosts) host.close();
     }
@@ -174,6 +188,21 @@ describe('browser host', () => {
     expect((await request('/api/sessions/local')).status).toBe(200);
     expect((await request('/api/sessions/local/interrupt', 'POST')).status).toBe(200);
     expect(services.interruptSession).toHaveBeenCalledWith('local');
+  });
+
+  it('returns persisted context usage without exposing private session metadata', async () => {
+    const { request, services } = setup();
+    const session = (await services.getSession('local'))!;
+    const tokenUsage = {
+      inputTokens: 8100, outputTokens: 90, totalTokens: 8190, contextWindow: 200000,
+      currentContext: { tokens: 8100, contextWindow: 200000 },
+    };
+    const metadata = { tokenUsage, providerSessionId: 'private-session-id' };
+    services.getSession.mockResolvedValue({ ...session, metadata });
+
+    const response = await (await request('/api/sessions/local')).json();
+    expect(response.tokenUsage).toEqual(tokenUsage);
+    expect(response.metadata).toEqual({});
   });
 
   it('serves session panel state and keeps model metadata and drafts scoped', async () => {

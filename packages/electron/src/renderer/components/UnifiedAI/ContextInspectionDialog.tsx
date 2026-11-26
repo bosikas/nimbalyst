@@ -2,7 +2,9 @@ import React, { useId } from 'react';
 import { FloatingFocusManager, FloatingOverlay, FloatingPortal, useFloating } from '@floating-ui/react';
 import { useAtomValue } from 'jotai';
 import type { TokenUsageCategory } from '@nimbalyst/runtime/ai/server/types';
+import { registerDialog } from '../../contexts/DialogContext';
 import type { DialogComponentProps } from '../../contexts/DialogContext.types';
+import { DIALOG_IDS } from '../../dialogs/registry';
 import { sessionPromptAdditionsAtom, sessionStoreAtom } from '../../store/atoms/sessions';
 import { ContextInspectionDetails } from './ContextInspectionDetails';
 import { ClaudeContextInspectionDetails } from './ClaudeContextInspectionDetails';
@@ -11,6 +13,14 @@ export interface ContextInspectionDialogData {
   sessionId: string;
   provider: 'openai-codex' | 'claude-code' | 'claude-code-cli';
   currentContext?: { tokens: number; contextWindow: number; categories?: TokenUsageCategory[] };
+}
+
+export function registerContextInspectionDialog() {
+  registerDialog<ContextInspectionDialogData>({
+    id: DIALOG_IDS.CONTEXT_INSPECTION,
+    group: 'help',
+    component: ContextInspectionDialog,
+  });
 }
 
 const providerNames = {

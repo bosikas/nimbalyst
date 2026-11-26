@@ -4,11 +4,14 @@ import { open, readFile, realpath, stat } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { Readable } from 'node:stream';
+import type { SessionData } from '@nimbalyst/runtime/ai/server/types';
 import {
   pendingBrowserPermissions, type BrowserHostApproval, type BrowserHostAutomation,
   type BrowserHostExtension, type BrowserHostInfo, type BrowserHostSession,
   type BrowserHostSessionHistory, type BrowserHostSessionSummary,
+  type BrowserWorkspaceEvents,
 } from '../../shared/browserHost';
+import { trackBrowserWorkspaceEvents } from './browserWorkspaceEvents';
 
 export interface BrowserHostConfig {
   token: string;
@@ -18,11 +21,13 @@ export interface BrowserHostConfig {
 }
 
 export interface BrowserHostServices {
+  getWorkspaceFolders?: () => string[];
+  readWorkspaceEvents?: () => BrowserWorkspaceEvents;
   getAppearance?: () => Promise<BrowserHostInfo['appearance']>;
   listSessions: () => Promise<BrowserHostSessionSummary[]>;
   listSessionHistory?: () => Promise<BrowserHostSessionHistory>;
   invokeSessionHistory?: (channel: string, args: unknown[]) => Promise<unknown>;
-  getSession: (id: string) => Promise<BrowserHostSession | null>;
+  getSession: (id: string) => Promise<(BrowserHostSession & Pick<SessionData, 'metadata'>) | null>;
   interruptSession: (id: string) => Promise<{ success: boolean }>;
   queuePrompt: (id: string, prompt: string) => Promise<void>;
   saveDraft?: (id: string, draft: string) => Promise<boolean>;
@@ -181,6 +186,9 @@ export function createBrowserHostHandler(config: BrowserHostConfig, services: Br
       const sessions = await services.listSessions();
       return json(sessions.map(({ id, title }) => ({ id, title })));
     }
+    if (request.method === 'GET' && pathname === '/api/workspace-events' && services.readWorkspaceEvents) {
+      return json(services.readWorkspaceEvents());
+    }
     if (request.method === 'GET' && pathname === '/api/session-history' && services.listSessionHistory) {
       return json(await services.listSessionHistory());
     }
@@ -290,7 +298,8 @@ export function createBrowserHostHandler(config: BrowserHostConfig, services: Br
     } = session;
     return json({
       id, title, provider, messages, createdAt, updatedAt, model, mode, isArchived,
-      parentSessionId, worktreeId, worktreePath, tokenUsage, draftInput, processing, queuedPrompts,
+      parentSessionId, worktreeId, worktreePath, draftInput, processing, queuedPrompts,
+      tokenUsage: tokenUsage ?? (metadata?.tokenUsage as BrowserHostSession['tokenUsage']),
       metadata: metadata && {
         effortLevel: metadata.effortLevel,
         thinkingMode: metadata.thinkingMode,
@@ -325,8 +334,17 @@ export async function startBrowserHosts(
   const hosts: Array<Awaited<ReturnType<typeof listenBrowserHost>>> = [];
   try {
     for (const { workspacePath, workspaceRoot, port, ...config } of configs) {
-      const handle = createBrowserHostHandler({ ...config, workspacePath: workspaceRoot }, createServices(workspacePath));
-      hosts.push(await listenBrowserHost(port, handle));
+      const services = createServices(workspacePath);
+      const events = trackBrowserWorkspaceEvents(services.getWorkspaceFolders ?? (() => [workspacePath]));
+      try {
+        const handle = createBrowserHostHandler({ ...config, workspacePath: workspaceRoot }, {
+          ...services, readWorkspaceEvents: events.read,
+        });
+        hosts.push(await listenBrowserHost(port, handle, events.dispose));
+      } catch (error) {
+        events.dispose();
+        throw error;
+      }
     }
     return hosts;
   } catch (error) {
@@ -361,7 +379,7 @@ async function resolveBrowserHostConfig(input: unknown, rendererPath: string) {
   return { port, workspacePath, workspaceRoot, token: config.token, pdfPath: config.pdfPath, rendererPath };
 }
 
-async function listenBrowserHost(port: number, handle: ReturnType<typeof createBrowserHostHandler>) {
+async function listenBrowserHost(port: number, handle: ReturnType<typeof createBrowserHostHandler>, dispose: () => void) {
   const server = createServer(async (request, response) => {
     const host = request.headers.host ?? '';
     let result: Response;
@@ -391,6 +409,7 @@ async function listenBrowserHost(port: number, handle: ReturnType<typeof createB
     response.writeHead(result.status, Object.fromEntries(result.headers));
     response.end(Buffer.from(await result.arrayBuffer()));
   });
+  server.once('close', dispose);
   await new Promise<void>((resolve, reject) => {
     server.once('error', reject);
     server.listen(port, '127.0.0.1', () => {

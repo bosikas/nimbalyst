@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useState } from 'react';
 import type { PanelHostComponents } from '@nimbalyst/extension-sdk';
 import { MaterialSymbol } from '@nimbalyst/runtime/ui/icons/MaterialSymbol';
 import type { BrowserHostExtension, BrowserHostSchedule } from '../../shared/browserHost';
-import { BrowserPanel } from './BrowserPanel';
+import { BrowserPanel, type RegisterBrowserPanelBridge } from './BrowserPanel';
 
 type Request = (path: string, init?: RequestInit) => Promise<Response>;
 const week = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
@@ -86,9 +86,10 @@ function Automations({ request }: { request: Request }) {
   );
 }
 
-export function BrowserWorkspaceViews({ request, pdf, pdfName, workspacePath, openSession, components, children }:
+export function BrowserWorkspaceViews({ request, pdf, pdfName, workspacePath, openSession, components, registerPanelBridge, children }:
   { request: Request; pdf: React.ReactNode; pdfName: string | null; workspacePath: string;
-    openSession: (id: string) => void; components?: PanelHostComponents; children: React.ReactNode }) {
+    openSession: (id: string) => void; components?: PanelHostComponents; registerPanelBridge?: RegisterBrowserPanelBridge;
+    children: React.ReactNode }) {
   const [view, setView] = useState('sessions');
   const [installed, setInstalled] = useState<BrowserHostExtension[]>([]);
   const [error, setError] = useState('');
@@ -149,7 +150,8 @@ export function BrowserWorkspaceViews({ request, pdf, pdfName, workspacePath, op
         {navigationError && <p role="alert">{navigationError}</p>}
         {active && <BrowserPanel key={view} request={request} extensionId={active.extensionId}
           panel={active.panel} workspacePath={workspacePath} openPanel={openPanel}
-          close={close} openFile={openFile} openSession={goToSession} components={components} />}
+          close={close} openFile={openFile} openSession={goToSession} components={components}
+          registerBridge={registerPanelBridge} />}
         {view === 'installed' && (
           <section className="browser-host-automations" aria-label="Installed extensions">
             {error && <p role="status">{error}</p>}

@@ -390,6 +390,7 @@ Companion app; pairs with a desktop over encrypted sync. Voice mode is not inclu
 ### Browser Host
 
 - Opt-in browser access to desktop workspaces over a private connection, with a separate port and token for each workspace. Use the desktop session history and agent session panel in the browser, including transcript search, editable drafts, model and effort controls, prompt submission, interruption, and tool permission responses. The icon rail opens installed extension panels with host-stored preferences, supported session and worktree controls, and catalog-authorized session data reads scoped to the connected workspace. Open a configured workspace PDF and create recurring schedules in the host's Automations extension. See [Browser host setup](./BROWSER_HOST.md).
+- Installed browser extension panels receive workspace folder and Git status updates. Panels with AI permission can embed the browser agent session panel.
 
 ### Web Console
 

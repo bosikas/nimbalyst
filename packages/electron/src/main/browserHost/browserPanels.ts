@@ -14,7 +14,9 @@ export async function listBrowserExtensions(): Promise<BrowserHostExtension[]> {
     const enabled = getExtensionEnabled(id);
     const panels = enabled && manifest.main && Array.isArray(manifest.contributions?.panels)
       ? manifest.contributions.panels.flatMap((panel) =>
-        panel?.id && panel.title ? [{ id: panel.id, title: panel.title, icon: panel.icon, order: panel.order }] : [],
+        panel?.id && panel.title
+          ? [{ id: panel.id, title: panel.title, icon: panel.icon, order: panel.order, sessionAccess: manifest.permissions?.ai === true }]
+          : [],
       )
       : [];
     extensions.push({ id, name: manifest.name || id, version: manifest.version || 'unknown', enabled, panels });

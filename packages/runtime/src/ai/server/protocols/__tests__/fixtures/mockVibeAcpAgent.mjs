@@ -33,13 +33,17 @@ for await (const line of input) {
       write({ id, result: { protocolVersion: 1, agentCapabilities: { loadSession: true }, authMethods: [] } });
       break;
     case 'session/new':
-    case 'session/load':
-      if (params.mcpServers?.length && params.mcpServers[0].name !== 'nimbalyst') {
+    case 'session/load': {
+      const servers = params.mcpServers ?? [];
+      const host = servers.find((server) => server.name === 'nimbalyst');
+      if (servers.length && (host?.type !== 'http' || host.url !== 'http://localhost:7000/mcp/core'
+        || !host.headers?.some(({ name, value }) => name === 'Authorization' && value === 'Bearer test-token'))) {
         write({ id, error: { code: -32602, message: 'Missing workspace MCP server' } });
         break;
       }
       write({ id, result: { sessionId, configOptions: configuration() } });
       break;
+    }
     case 'session/set_config_option':
       if (params.configId === 'mode') mode = params.value;
       if (params.configId === 'model') {

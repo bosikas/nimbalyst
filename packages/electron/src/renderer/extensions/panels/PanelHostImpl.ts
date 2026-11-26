@@ -6,7 +6,6 @@
  */
 
 import type { ComponentType } from 'react';
-import { createElement } from 'react';
 import type { PanelHost, PanelAIContext, ExtensionStorage, ExtensionFileStorage, ExtensionDataAccess, ExecOptions, ExecResult } from '@nimbalyst/runtime';
 import type { PanelHostComponents, PanelPanes, PanelPaneSide, PanelSessionTranscriptProps } from '@nimbalyst/extension-sdk';
 import { store } from '@nimbalyst/runtime/store';
@@ -15,6 +14,7 @@ import { setPanelGutterBadge } from './panelGutterBadges';
 import { addPanelPaneToggleHandler, setPanelPanes } from './panelPanes';
 import { workspaceRootPathsAtom } from '../../store/atoms/fileTree';
 import { isPathInWorkspace } from '../../../shared/pathUtils';
+import { createPanelHostComponents } from './panelHostComponents';
 
 // ============================================================================
 // Types
@@ -45,17 +45,6 @@ export interface PanelHostOptions {
 interface SessionTranscriptBindings {
   workspacePath: string;
   onOpenFile: (path: string) => void;
-}
-
-/** Bind the host's workspace and file-open path so the panel passes only a session id. */
-function createPanelHostComponents(
-  Transcript: ComponentType<SessionTranscriptBindings & PanelSessionTranscriptProps>,
-  bindings: SessionTranscriptBindings,
-): PanelHostComponents {
-  const SessionTranscript = (props: PanelSessionTranscriptProps) =>
-    createElement(Transcript, { ...props, ...bindings });
-  SessionTranscript.displayName = 'PanelHost.SessionTranscript';
-  return { SessionTranscript };
 }
 
 // ============================================================================

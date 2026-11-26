@@ -6,6 +6,7 @@ import { invokeBrowserSessionHistory } from '../browserSessionHistory';
 const mocks = vi.hoisted(() => ({
   extension: vi.fn(),
   getSession: vi.fn(),
+  inspectContext: vi.fn(),
   listSessions: vi.fn(),
   invoke: vi.fn(),
   query: vi.fn(),
@@ -24,6 +25,7 @@ vi.mock('../browserPanels', () => ({
 }));
 vi.mock('../browserPanelCommands', () => ({ invokeBrowserPanelCommand: mocks.invoke }));
 vi.mock('../../window/WindowManager', () => ({ findWindowByWorkspace: mocks.findWindow }));
+vi.mock('../../mcp/sessionContextInspection', () => ({ getSessionContextInspection: mocks.inspectContext }));
 vi.mock('../../utils/store', () => ({
   getAppSetting: mocks.getAppSetting,
   getWorkspaceState: mocks.getWorkspaceState,
@@ -42,6 +44,19 @@ vi.mock('@nimbalyst/runtime/storage/repositories/AISessionsRepository', () => ({
 
 const dispatch = (channel: string, args: unknown[]) => invokeBrowserPanel('/workspace', 'archive', channel, args);
 const sessionHistory = (channel: string, args: unknown[]) => invokeBrowserSessionHistory('/workspace', channel, args, 'codex');
+
+it('returns context evidence only for a session in the connected workspace', async () => {
+  const channel = 'mcp-config:get-context-inspection';
+  mocks.getSession.mockResolvedValue({ workspacePath: '/other' });
+  await expect(sessionHistory(channel, ['outside'])).rejects.toThrow('Session not found');
+  expect(mocks.inspectContext).not.toHaveBeenCalled();
+
+  mocks.getSession.mockResolvedValue({ workspacePath: '/workspace' });
+  const inspection = { preparedRequest: { categories: [{ name: 'Prompt', bytes: 512 }] } };
+  mocks.inspectContext.mockResolvedValue(inspection);
+  await expect(sessionHistory(channel, ['local'])).resolves.toEqual(inspection);
+  expect(mocks.inspectContext).toHaveBeenCalledWith('local', '/workspace');
+});
 
 it('runs native Sessions operations only against the connected workspace', async () => {
   mocks.getSession.mockResolvedValue({ workspacePath: '/other' });
