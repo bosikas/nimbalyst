@@ -19,6 +19,7 @@ import { toggleGutterItemHiddenAtom } from '../../store/atoms/appSettings';
 import { useFloatingMenu, FloatingPortal } from '../../hooks/useFloatingMenu';
 
 interface GeminiUsagePopoverProps {
+  canDisable?: boolean;
   anchorRef: RefObject<HTMLElement | null>;
   onClose: () => void;
   onRefresh: () => Promise<void>;
@@ -95,6 +96,7 @@ const UsageSection: React.FC<UsageSectionProps> = ({
 };
 
 export const GeminiUsagePopover: React.FC<GeminiUsagePopoverProps> = ({
+  canDisable = true,
   anchorRef,
   onClose,
   onRefresh,
@@ -218,7 +220,7 @@ export const GeminiUsagePopover: React.FC<GeminiUsagePopoverProps> = ({
                 Updated {formatLastUpdated(usage.lastUpdated)}
               </span>
             )}
-            <button
+            {canDisable && <button
               onClick={() => {
                 toggleGutterItemHidden({ id: 'gemini-usage', hidden: true });
                 onClose();
@@ -226,7 +228,7 @@ export const GeminiUsagePopover: React.FC<GeminiUsagePopoverProps> = ({
               className="text-[11px] text-nim-muted hover:text-nim transition-colors"
             >
               Disable
-            </button>
+            </button>}
           </div>
           <button
             onClick={() => window.electronAPI.openExternal('https://status.cloud.google.com/')}

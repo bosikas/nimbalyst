@@ -15,6 +15,10 @@ import {
 } from './HeadlessCliAgentProvider';
 
 export class MistralVibeProvider extends HeadlessCliAgentProvider {
+  static readAccountUsage() {
+    return MistralVibeACPProtocol.readAccountUsage();
+  }
+
   private static loaders: HeadlessCliEnvironmentLoaders = {
     mcpConfigLoader: null,
     shellEnvironmentLoader: null,

@@ -3,6 +3,8 @@ import type { PanelHostComponents } from '@nimbalyst/extension-sdk';
 import { MaterialSymbol } from '@nimbalyst/runtime/ui/icons/MaterialSymbol';
 import type { BrowserHostExtension, BrowserHostSchedule } from '../../shared/browserHost';
 import { BrowserPanel, type RegisterBrowserPanelBridge } from './BrowserPanel';
+import { BrowserUsageIndicators, useBrowserRailStatus } from './BrowserRailStatus';
+import { PanelGutterBadgeBubble } from '../extensions/panels/PanelGutterBadgeBubble';
 
 type Request = (path: string, init?: RequestInit) => Promise<Response>;
 const week = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
@@ -94,6 +96,7 @@ export function BrowserWorkspaceViews({ request, pdf, pdfName, workspacePath, op
   const [installed, setInstalled] = useState<BrowserHostExtension[]>([]);
   const [error, setError] = useState('');
   const [navigationError, setNavigationError] = useState('');
+  const refreshRailUsage = useBrowserRailStatus(request);
   useEffect(() => {
     const controller = new AbortController();
     void request('/extensions', { signal: controller.signal })
@@ -124,12 +127,13 @@ export function BrowserWorkspaceViews({ request, pdf, pdfName, workspacePath, op
   const close = useCallback(() => setView('sessions'), []);
   useEffect(() => setNavigationError(''), [view]);
 
-  function railButton(id: string, label: string, icon: string) {
+  function railButton(id: string, label: string, icon: string, panelId?: string) {
     const active = view === id;
     return (
       <button key={id} type="button" title={label} aria-label={label} aria-pressed={active}
         onClick={() => setView(active ? 'sessions' : id)}>
         <MaterialSymbol icon={icon} size={20} fill={active} />
+        {panelId && <PanelGutterBadgeBubble panelId={panelId} />}
       </button>
     );
   }
@@ -138,11 +142,13 @@ export function BrowserWorkspaceViews({ request, pdf, pdfName, workspacePath, op
     <div className="browser-host-layout">
       <nav className="browser-host-rail" aria-label="Workspace views">
         {railButton('sessions', 'Sessions', 'forum')}
-        {panels.map(({ viewId, panel }) => railButton(viewId, panel.title, panel.icon || 'extension'))}
+        {panels.map(({ extensionId, viewId, panel }) =>
+          railButton(viewId, panel.title, panel.icon || 'extension', `${extensionId}.${panel.id}`))}
         {pdf && railButton('pdf', 'PDF Viewer', 'picture_as_pdf')}
         {railButton('automations', 'Automations', 'schedule')}
         {railButton('installed', 'Installed extensions', 'extension')}
         {connectionControl}
+        <BrowserUsageIndicators refresh={refreshRailUsage} />
       </nav>
       <section className="browser-host-extension">
         {view === 'sessions' && children}

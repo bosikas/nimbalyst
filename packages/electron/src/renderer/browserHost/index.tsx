@@ -175,6 +175,12 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
     const previous = window.electronAPI;
     const bridge = {
       ...previous,
+      async openExternal(url: string) {
+        const target = new URL(url);
+        if (target.protocol === 'https:' || target.protocol === 'http:') {
+          window.open(target.href, '_blank', 'noopener,noreferrer');
+        }
+      },
       aiGetModels() {
         return bridge.invoke('ai:getModels');
       },

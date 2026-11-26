@@ -18,15 +18,14 @@ import {
 } from '../../store/atoms/codexUsageAtoms';
 import { CodexUsagePopover } from './CodexUsagePopover';
 import { refreshCodexUsage } from '../../store/listeners/codexUsageListeners';
-
-const RING_RADIUS = 12;
-const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
+import { UsageRing } from '../common/UsageRing';
 
 interface CodexUsageIndicatorProps {
   className?: string;
+  onRefresh?: () => Promise<void>;
 }
 
-export const CodexUsageIndicator: React.FC<CodexUsageIndicatorProps> = ({ className }) => {
+export const CodexUsageIndicator: React.FC<CodexUsageIndicatorProps> = ({ className, onRefresh }) => {
   const usage = useAtomValue(codexUsageAtom);
   const isAvailable = useAtomValue(codexUsageAvailableAtom);
   const indicatorColor = useAtomValue(codexUsageIndicatorColorAtom);
@@ -40,8 +39,8 @@ export const CodexUsageIndicator: React.FC<CodexUsageIndicatorProps> = ({ classN
   }, []);
 
   const handleRefresh = useCallback(async () => {
-    await refreshCodexUsage();
-  }, []);
+    await (onRefresh ?? refreshCodexUsage)();
+  }, [onRefresh]);
 
   if (!isAvailable) {
     return null;
@@ -49,7 +48,6 @@ export const CodexUsageIndicator: React.FC<CodexUsageIndicatorProps> = ({ classN
 
   const hasLoadError = Boolean(usage?.error);
   const utilization = hasLoadError ? 0 : mostConstrained?.window.usedPercent ?? 0;
-  const strokeDashoffset = RING_CIRCUMFERENCE * (1 - utilization / 100);
   const limitsAvailable = !hasLoadError && Boolean(mostConstrained);
 
   const colorClasses: Record<string, string> = {
@@ -86,39 +84,7 @@ export const CodexUsageIndicator: React.FC<CodexUsageIndicatorProps> = ({ classN
         aria-label="Codex Usage"
         data-testid="codex-usage-indicator"
       >
-        <svg
-          width="32"
-          height="32"
-          viewBox="0 0 32 32"
-          className="transform -rotate-90"
-        >
-          {/* Background ring */}
-          <circle
-            cx="16"
-            cy="16"
-            r={RING_RADIUS}
-            fill="none"
-            className="stroke-nim-tertiary"
-            strokeWidth="3"
-          />
-          {/* Progress ring */}
-          <circle
-            cx="16"
-            cy="16"
-            r={RING_RADIUS}
-            fill="none"
-            className={strokeColor}
-            strokeWidth="3"
-            strokeLinecap="round"
-            strokeDasharray={RING_CIRCUMFERENCE}
-            strokeDashoffset={strokeDashoffset}
-            style={{ transition: 'stroke-dashoffset 0.3s ease' }}
-          />
-        </svg>
-        {/* Percentage text */}
-        <span className="absolute inset-0 flex items-center justify-center text-[9px] font-semibold text-nim">
-          {limitsAvailable ? `${Math.round(utilization)}%` : '--'}
-        </span>
+        <UsageRing percent={limitsAvailable ? utilization : null} strokeColor={strokeColor} />
       </button>
 
       {isPopoverOpen && (
@@ -126,6 +92,7 @@ export const CodexUsageIndicator: React.FC<CodexUsageIndicatorProps> = ({ classN
           anchorRef={buttonRef}
           onClose={() => setIsPopoverOpen(false)}
           onRefresh={handleRefresh}
+          canDisable={!onRefresh}
         />
       )}
     </div>

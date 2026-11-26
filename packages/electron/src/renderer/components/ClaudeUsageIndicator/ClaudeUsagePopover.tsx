@@ -20,6 +20,7 @@ import { useFloatingMenu, FloatingPortal } from '../../hooks/useFloatingMenu';
 import { WeeklyUsageHistory } from '../UsageHistory/WeeklyUsageHistory';
 
 interface ClaudeUsagePopoverProps {
+  canDisable?: boolean;
   anchorRef: RefObject<HTMLElement | null>;
   onClose: () => void;
   onRefresh: () => Promise<void>;
@@ -104,6 +105,7 @@ const UsageSection: React.FC<UsageSectionProps> = ({
 };
 
 export const ClaudeUsagePopover: React.FC<ClaudeUsagePopoverProps> = ({
+  canDisable = true,
   anchorRef,
   onClose,
   onRefresh,
@@ -241,7 +243,7 @@ export const ClaudeUsagePopover: React.FC<ClaudeUsagePopoverProps> = ({
                 Updated {formatLastUpdated(usage.lastUpdated)}
               </span>
             )}
-            <button
+            {canDisable && <button
               onClick={() => {
                 toggleGutterItemHidden({ id: 'claude-usage', hidden: true });
                 onClose();
@@ -249,7 +251,7 @@ export const ClaudeUsagePopover: React.FC<ClaudeUsagePopoverProps> = ({
               className="text-[11px] text-nim-muted hover:text-nim transition-colors"
             >
               Disable
-            </button>
+            </button>}
           </div>
           <button
             onClick={() => window.electronAPI.openExternal('https://status.anthropic.com')}

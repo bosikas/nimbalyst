@@ -216,6 +216,7 @@ import { registerDataModelHandlers } from './ipc/DataModelHandlers';
 import { registerClaudeUsageHandlers } from './ipc/ClaudeUsageHandlers';
 import { claudeUsageService } from './services/ClaudeUsageService';
 import { registerCodexUsageHandlers } from './ipc/CodexUsageHandlers';
+import { readVibeUsage } from './services/VibeUsageService';
 import { codexUsageService } from './services/CodexUsageService';
 import { registerGeminiUsageHandlers } from './ipc/GeminiUsageHandlers';
 import { geminiUsageService } from './services/GeminiUsageService';
@@ -1783,6 +1784,8 @@ app.whenReady().then(async () => {
     registerClaudeUsageHandlers();
     claudeUsageService.initialize();
     registerCodexUsageHandlers();
+    safeHandle('vibe-usage:get', () => readVibeUsage());
+    safeHandle('vibe-usage:refresh', () => readVibeUsage(true));
     codexUsageService.initialize();
     registerGeminiUsageHandlers();
     geminiUsageService.initialize();

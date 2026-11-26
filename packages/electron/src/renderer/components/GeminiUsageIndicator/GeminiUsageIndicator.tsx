@@ -23,9 +23,10 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
 interface GeminiUsageIndicatorProps {
   className?: string;
+  onRefresh?: () => Promise<void>;
 }
 
-export const GeminiUsageIndicator: React.FC<GeminiUsageIndicatorProps> = ({ className }) => {
+export const GeminiUsageIndicator: React.FC<GeminiUsageIndicatorProps> = ({ className, onRefresh }) => {
   const usage = useAtomValue(geminiUsageAtom);
   const isAvailable = useAtomValue(geminiUsageAvailableAtom);
   const sessionColor = useAtomValue(geminiUsageSessionColorAtom);
@@ -38,8 +39,8 @@ export const GeminiUsageIndicator: React.FC<GeminiUsageIndicatorProps> = ({ clas
   }, []);
 
   const handleRefresh = useCallback(async () => {
-    await refreshGeminiUsage();
-  }, []);
+    await (onRefresh ?? refreshGeminiUsage)();
+  }, [onRefresh]);
 
   if (!isAvailable) {
     return null;
@@ -120,6 +121,7 @@ export const GeminiUsageIndicator: React.FC<GeminiUsageIndicatorProps> = ({ clas
           anchorRef={buttonRef}
           onClose={() => setIsPopoverOpen(false)}
           onRefresh={handleRefresh}
+          canDisable={!onRefresh}
         />
       )}
     </div>

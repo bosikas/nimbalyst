@@ -10,6 +10,7 @@ import { MaterialSymbol } from '@nimbalyst/runtime/ui/icons/MaterialSymbol';
 import type { BrowserHostPanel, BrowserWorkspaceEvents } from '../../shared/browserHost';
 import { createBrowserPanelWorkspace } from './browserPanelWorkspace';
 import { useBrowserRefresh } from './useBrowserRefresh';
+import { setPanelGutterBadge } from '../extensions/panels/panelGutterBadges';
 
 export type PanelRequest = (path: string, init?: RequestInit) => Promise<Response>;
 type PanelComponent = React.ComponentType<PanelHostProps>;
@@ -196,7 +197,7 @@ export function BrowserPanel({ request, extensionId, panel, workspacePath, openP
       close,
       storage,
       components: panel.sessionAccess ? components : undefined,
-      setGutterBadge: () => {},
+      setGutterBadge: (value, options) => setPanelGutterBadge(`${extensionId}.${panel.id}`, value, options?.tone),
       data: {
         query: async <T,>(sql: string, params?: unknown[]) => {
           const result = await invoke('extension:database:query', { sql, params }) as { rows: T[] };

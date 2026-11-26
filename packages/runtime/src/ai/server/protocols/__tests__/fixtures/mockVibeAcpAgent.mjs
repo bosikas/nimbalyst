@@ -30,6 +30,12 @@ const update = (body) => write({ method: 'session/update', params: { sessionId, 
 for await (const line of input) {
   const { id, method, params, result } = JSON.parse(line);
   switch (method) {
+    case '_account/read':
+      write({ id, result: params.sessionId === sessionId ? {
+        budget: { usage_percentage: 23.4, reset_at: '2027-01-01T00:00:00Z' },
+        api_key: { has_key: true },
+      } : {} });
+      break;
     case '_trust/status': {
       appendFileSync(process.env.VIBE_TRUST_LOG, JSON.stringify([method, params]) + '\n');
       if (process.env.VIBE_TRUST_CASE === 'older-cli') {

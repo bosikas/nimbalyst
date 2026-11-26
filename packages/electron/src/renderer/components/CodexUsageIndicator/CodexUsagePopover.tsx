@@ -20,6 +20,7 @@ import { useFloatingMenu, FloatingPortal } from '../../hooks/useFloatingMenu';
 import { WeeklyUsageHistory } from '../UsageHistory/WeeklyUsageHistory';
 
 interface CodexUsagePopoverProps {
+  canDisable?: boolean;
   anchorRef: RefObject<HTMLElement | null>;
   onClose: () => void;
   onRefresh: () => Promise<void>;
@@ -98,6 +99,7 @@ const UsageSection: React.FC<UsageSectionProps> = ({
 };
 
 export const CodexUsagePopover: React.FC<CodexUsagePopoverProps> = ({
+  canDisable = true,
   anchorRef,
   onClose,
   onRefresh,
@@ -228,7 +230,7 @@ export const CodexUsagePopover: React.FC<CodexUsagePopoverProps> = ({
                 Updated {formatLastUpdated(usage.lastUpdated)}
               </span>
             )}
-            <button
+            {canDisable && <button
               onClick={() => {
                 toggleGutterItemHidden({ id: 'codex-usage', hidden: true });
                 onClose();
@@ -236,7 +238,7 @@ export const CodexUsagePopover: React.FC<CodexUsagePopoverProps> = ({
               className="text-[11px] text-nim-muted hover:text-nim transition-colors"
             >
               Disable
-            </button>
+            </button>}
           </div>
           <button
             onClick={() => window.electronAPI.openExternal('https://status.openai.com')}

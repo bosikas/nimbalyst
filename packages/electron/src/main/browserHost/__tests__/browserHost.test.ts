@@ -50,6 +50,7 @@ function setup() {
     saveDraft: vi.fn(async () => true),
     respondToPermission: vi.fn(async () => ({ success: true })),
     listExtensions: vi.fn(async () => [{ id: 'pdf-viewer', name: 'PDF Viewer', version: '1.0.0', enabled: true }]),
+    readRailStatus: vi.fn(async () => ({ claude: null, codex: null, gemini: null, vibe: null, badges: {} })),
     readPanelAssets: vi.fn(async (id: string) => id === 'example.extension' ? { source: 'export const panels = {};', css: '' } : null),
     callPanelTool: vi.fn(async () => ({ ready: true })),
     invokePanel: vi.fn(async () => ({ success: true })),
@@ -70,6 +71,17 @@ function setup() {
 }
 
 describe('browser host', () => {
+  it('authenticates rail status and validates usage refresh targets', async () => {
+    const { request, services } = setup();
+    expect((await request('/api/rail-status', 'GET', false)).status).toBe(401);
+    expect((await request('/api/rail-status?refresh=unknown')).status).toBe(400);
+    expect(services.readRailStatus).not.toHaveBeenCalled();
+    expect(await (await request('/api/rail-status?refresh=vibe')).json()).toEqual({
+      claude: null, codex: null, gemini: null, vibe: null, badges: {},
+    });
+    expect(services.readRailStatus).toHaveBeenCalledWith('vibe');
+  });
+
   it('authenticates appearance, extension assets and extension tool calls', async () => {
     const { request, post, services } = setup();
     expect((await request('/api', 'GET', false)).status).toBe(401);

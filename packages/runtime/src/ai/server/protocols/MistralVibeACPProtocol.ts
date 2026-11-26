@@ -14,6 +14,11 @@ export const MISTRAL_VIBE_INSTALL_PATHS = ['.local/bin/' + MISTRAL_VIBE_EXECUTAB
 const MODEL_PREFIX = 'mistral-vibe:';
 const execFileAsync = promisify(execFile);
 
+export interface MistralVibeAccountUsage {
+  utilization: number;
+  resetsAt: string | null;
+}
+
 interface VibeTrustStatus {
   trust_status?: string;
   details?: {
@@ -39,6 +44,7 @@ async function findRegisteredWorktree(workspacePath: string, projectPath: unknow
   } catch {
     // Git may be unavailable, or this may be a workspace outside a repository.
   }
+  return undefined;
 }
 
 async function inheritWorktreeTrust(connection: ClientSideConnection, cwd: string, primaryCheckout: string) {
@@ -69,6 +75,25 @@ async function inheritWorktreeTrust(connection: ClientSideConnection, cwd: strin
 }
 
 export class MistralVibeACPProtocol extends AcpStdioAgentProtocol {
+  private static latestAccountProtocol?: WeakRef<MistralVibeACPProtocol>;
+  private accountSession?: { connection: ClientSideConnection; id: string };
+
+  static async readAccountUsage(): Promise<MistralVibeAccountUsage | null> {
+    const session = this.latestAccountProtocol?.deref()?.accountSession;
+    if (!session) return null;
+    try {
+      const { budget } = await session.connection.extMethod('_account/read', { sessionId: session.id }) as {
+        budget?: { usage_percentage?: unknown; reset_at?: unknown } | null;
+      };
+      const utilization = budget?.usage_percentage;
+      if (typeof utilization !== 'number' || !Number.isFinite(utilization) || utilization < 0) return null;
+      const reset = budget?.reset_at;
+      return { utilization, resetsAt: typeof reset === 'string' && Number.isFinite(Date.parse(reset)) ? reset : null };
+    } catch {
+      return null;
+    }
+  }
+
   constructor(deps?: GrokACPProtocolDeps) {
     super({
       platform: 'mistral-vibe-acp',
@@ -129,12 +154,26 @@ export class MistralVibeACPProtocol extends AcpStdioAgentProtocol {
   /** Query the CLI's workspace catalog without starting a model turn. */
   override async createSession(options: SessionOptions): Promise<ProtocolSession> {
     await this.prepareWorktree(options);
-    return super.createSession(options);
+    const session = await super.createSession(options);
+    return this.rememberAccountSession(session);
   }
 
   override async resumeSession(sessionId: string, options: SessionOptions): Promise<ProtocolSession> {
     await this.prepareWorktree(options);
-    return super.resumeSession(sessionId, options);
+    const session = await super.resumeSession(sessionId, options);
+    return this.rememberAccountSession(session);
+  }
+
+  private async rememberAccountSession(session: ProtocolSession): Promise<ProtocolSession> {
+    const connection = await this.getConnection();
+    this.accountSession = { connection, id: session.id };
+    MistralVibeACPProtocol.latestAccountProtocol = new WeakRef(this);
+    return session;
+  }
+
+  override destroy(): void {
+    this.accountSession = undefined;
+    super.destroy();
   }
 
   private async prepareWorktree(options: SessionOptions): Promise<void> {

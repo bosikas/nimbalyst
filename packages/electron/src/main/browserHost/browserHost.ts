@@ -9,6 +9,7 @@ import {
   pendingBrowserPermissions, type BrowserHostApproval, type BrowserHostAutomation,
   type BrowserHostExtension, type BrowserHostInfo, type BrowserHostSession,
   type BrowserHostSessionHistory, type BrowserHostSessionSummary,
+  type BrowserHostRailStatus, type BrowserUsageProvider,
   type BrowserWorkspaceEvents,
 } from '../../shared/browserHost';
 import { trackBrowserWorkspaceEvents } from './browserWorkspaceEvents';
@@ -22,6 +23,7 @@ export type BrowserHostConfig = BrowserHostAccess & {
 };
 
 export interface BrowserHostServices {
+  readRailStatus?: (refresh?: BrowserUsageProvider) => Promise<BrowserHostRailStatus>;
   getWorkspaceFolders?: () => string[];
   readWorkspaceEvents?: () => BrowserWorkspaceEvents;
   getAppearance?: () => Promise<BrowserHostInfo['appearance']>;
@@ -214,6 +216,13 @@ export function createBrowserHostHandler(config: BrowserHostConfig, services: Br
     }
     if (request.method === 'GET' && pathname === '/api/extensions') {
       return json(await services.listExtensions());
+    }
+    if (request.method === 'GET' && pathname === '/api/rail-status' && services.readRailStatus) {
+      const refresh = url.searchParams.get('refresh');
+      if (refresh !== null && refresh !== 'claude' && refresh !== 'codex' && refresh !== 'gemini' && refresh !== 'vibe') {
+        return failure('Unknown usage provider', 400);
+      }
+      return json(await services.readRailStatus(refresh ?? undefined));
     }
     const extension = /^\/api\/extensions\/([\w.-]{1,160})\/(panel|tool|invoke)$/.exec(pathname);
     if (extension) {

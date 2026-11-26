@@ -1,6 +1,20 @@
 import type { SessionData } from '@nimbalyst/runtime/ai/server/types';
 import type { SessionMeta } from '@nimbalyst/runtime/ai/adapters/sessionStore';
 import type { ThemeContribution } from '@nimbalyst/extension-sdk';
+import type { ClaudeUsageData } from './claudeUsage';
+import type { CodexUsageData } from '../main/services/CodexUsageService';
+import type { GeminiUsageData } from '../main/services/GeminiUsageService';
+import type { MistralVibeProvider } from '@nimbalyst/runtime/ai/server';
+
+export type VibeUsageData = Awaited<ReturnType<typeof MistralVibeProvider.readAccountUsage>>;
+export type BrowserUsageProvider = 'claude' | 'codex' | 'gemini' | 'vibe';
+export interface BrowserHostRailStatus {
+  claude: ClaudeUsageData | null;
+  codex: CodexUsageData | null;
+  gemini: GeminiUsageData | null;
+  vibe: VibeUsageData;
+  badges: Record<string, { count: number; tone: 'default' | 'warning' }>;
+}
 
 export interface BrowserHostSessionSummary {
   id: string;

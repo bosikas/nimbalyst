@@ -60,6 +60,7 @@ import { getAIProviderOverridesWithWorktreeFallback } from '../../utils/aiSettin
 import { DocumentContextService } from '@nimbalyst/runtime';
 import { getSyncProvider } from '../SyncManager';
 import { publishContextUsage } from './publishContextUsage';
+import { readBrowserRailStatus } from '../../browserHost/browserRailStatus';
 import { normalizeCodexProviderConfig, stripTransientProviderFields } from '@nimbalyst/runtime/ai/server/utils/modelConfigUtils';
 import { resolveProjectPath } from '../../utils/workspaceDetection';
 import { inferWorktreePathFromFilePath, inferWorktreePathFromCommand } from './worktreeInference';
@@ -550,6 +551,7 @@ export class AIService {
         sessionId, promptId, promptType: 'permission_request', response: { decision, scope: 'once' },
       }),
       listExtensions: listBrowserExtensions,
+      readRailStatus: (refresh) => readBrowserRailStatus([workspacePath, ...getWorkspaceRoots(workspacePath)], refresh),
       readPanelAssets: readBrowserPanelAssets,
       callPanelTool: (extensionId, name, args) => callBrowserPanelTool(workspacePath, extensionId, name, args),
       invokePanel: (extensionId, channel, args) => invokeBrowserPanel(workspacePath, extensionId, channel, args),

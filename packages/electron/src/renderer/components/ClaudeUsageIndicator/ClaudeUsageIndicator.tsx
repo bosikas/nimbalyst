@@ -23,9 +23,10 @@ const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
 interface ClaudeUsageIndicatorProps {
   className?: string;
+  onRefresh?: () => Promise<void>;
 }
 
-export const ClaudeUsageIndicator: React.FC<ClaudeUsageIndicatorProps> = ({ className }) => {
+export const ClaudeUsageIndicator: React.FC<ClaudeUsageIndicatorProps> = ({ className, onRefresh }) => {
   const usage = useAtomValue(claudeUsageAtom);
   const isAvailable = useAtomValue(claudeUsageAvailableAtom);
   const sessionColor = useAtomValue(claudeUsageSessionColorAtom);
@@ -38,8 +39,8 @@ export const ClaudeUsageIndicator: React.FC<ClaudeUsageIndicatorProps> = ({ clas
   }, []);
 
   const handleRefresh = useCallback(async () => {
-    await refreshClaudeUsage();
-  }, []);
+    await (onRefresh ?? refreshClaudeUsage)();
+  }, [onRefresh]);
 
   if (!isAvailable) {
     return null;
@@ -123,6 +124,7 @@ export const ClaudeUsageIndicator: React.FC<ClaudeUsageIndicatorProps> = ({ clas
           anchorRef={buttonRef}
           onClose={() => setIsPopoverOpen(false)}
           onRefresh={handleRefresh}
+          canDisable={!onRefresh}
         />
       )}
     </div>

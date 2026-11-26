@@ -12,6 +12,7 @@ import { TrustIndicator } from '../TrustIndicator';
 import { ExtensionDevIndicator } from '../ExtensionDevIndicator';
 import { ClaudeUsageIndicator } from '../ClaudeUsageIndicator';
 import { CodexUsageIndicator } from '../CodexUsageIndicator';
+import { VibeUsageIndicator } from '../VibeUsageIndicator';
 import { GeminiUsageIndicator } from '../GeminiUsageIndicator';
 import { VoiceModeButton } from '../UnifiedAI/VoiceModeButton';
 import { useExtensionGutterButtons, useExtensionBottomPanelButtons } from '../../extensions/panels/usePanels';
@@ -488,6 +489,10 @@ export const NavigationGutter: React.FC<NavigationGutterProps> = ({
     {
       id: 'codex-usage', section: 'indicators', icon: 'speed', label: 'Codex Usage', hideable: true, scope: 'app',
       render: () => <CodexUsageIndicator />,
+    },
+    {
+      id: 'vibe-usage', section: 'indicators', icon: 'speed', label: 'Mistral Vibe Usage', hideable: true, scope: 'app',
+      render: () => <VibeUsageIndicator />,
     },
     {
       id: 'gemini-usage', section: 'indicators', icon: 'gemini', label: 'Gemini Usage', hideable: true, scope: 'app',

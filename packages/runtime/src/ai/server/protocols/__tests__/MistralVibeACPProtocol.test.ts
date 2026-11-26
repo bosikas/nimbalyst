@@ -28,6 +28,19 @@ const options = {
 };
 
 describe('Mistral Vibe ACP', () => {
+  it('reads only the usage and reset date from a live native account', async () => {
+    const protocol = new MistralVibeACPProtocol({ command: process.execPath, args: [fixture] });
+    try {
+      await protocol.createSession(options);
+      expect(await MistralVibeACPProtocol.readAccountUsage()).toEqual({
+        utilization: 23.4, resetsAt: '2027-01-01T00:00:00Z',
+      });
+    } finally {
+      protocol.destroy();
+    }
+    expect(await MistralVibeACPProtocol.readAccountUsage()).toBeNull();
+  });
+
   it.each(['grant', 'create', 'declined', 'untrusted-source', 'unrelated', 'older-cli'])(
     'inherits native trust only for an eligible checkout (%s)', async (trustCase) => {
       const root = await realpath(await mkdtemp(path.join(tmpdir(), 'vibe-worktree-trust-')));
