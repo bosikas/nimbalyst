@@ -1,3 +1,6 @@
+import { copyFile, mkdtemp, rm } from 'node:fs/promises';
+import { homedir, tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { DEFAULT_MODELS } from '../../modelConstants';
 import {
   MISTRAL_VIBE_EXECUTABLE,
@@ -32,9 +35,26 @@ export class MistralVibeProvider extends HeadlessCliAgentProvider {
     const provider = new MistralVibeProvider();
     const executable = provider.resolveExecutable();
     if (!executable) return fallback;
-    const protocol = new MistralVibeACPProtocol({ command: executable, env: provider.buildChildEnvironment() });
+    const env = provider.buildChildEnvironment();
+    let probeHome: string | undefined;
+    let protocol: MistralVibeACPProtocol | undefined;
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
+      // Vibe persists ACP model selections. Inspect the model options in a
+      // private copy of the settings so browsing the picker cannot change them.
+      probeHome = await mkdtemp(join(tmpdir(), 'nimbalyst-vibe-catalog-'));
+      const vibeHome = env.VIBE_HOME || join(homedir(), '.vibe');
+      for (const file of [
+        'config.toml', '.env', 'trusted_folders.toml', 'model_catalog_cache.json',
+        'managed_config_cache.json', 'experiment_eval_cache.json', 'experiment_held_eval_cache.json',
+      ]) {
+        try {
+          await copyFile(join(vibeHome, file), join(probeHome, file));
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        }
+      }
+      protocol = new MistralVibeACPProtocol({ command: executable, env: { ...env, VIBE_HOME: probeHome } });
       return await Promise.race([
         protocol.discoverModels(workspacePath),
         new Promise<AIModel[]>((resolve) => {
@@ -45,7 +65,8 @@ export class MistralVibeProvider extends HeadlessCliAgentProvider {
       return fallback;
     } finally {
       clearTimeout(timeout);
-      protocol.destroy();
+      protocol?.destroy();
+      if (probeHome) await rm(probeHome, { recursive: true, force: true, maxRetries: 2 }).catch(() => {});
     }
   }
 
