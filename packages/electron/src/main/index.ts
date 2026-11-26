@@ -260,7 +260,7 @@ import { AISessionsRepository } from '@nimbalyst/runtime/storage/repositories/AI
 import { isMCPServerEnabledForProvider, MCP_PROVIDER_IDS, type MCPProviderId } from '@nimbalyst/runtime/types/MCPServerConfig';
 import type { MCPServerConfig } from '@nimbalyst/runtime/types/MCPServerConfig';
 import { logger, overrideConsole } from './utils/logger';
-import { startBrowserHost } from './browserHost/browserHost';
+import { startBrowserHosts } from './browserHost/browserHost';
 import { startPerformanceMonitoring, stopPerformanceMonitoring } from './utils/performanceMonitor';
 import { setupForceQuit } from './utils/forceQuit';
 import { stopAllFileWatchers } from './file/FileWatcher';
@@ -2666,15 +2666,16 @@ app.whenReady().then(async () => {
     const browserHostConfig = process.env.NIMBALYST_BROWSER_HOST_CONFIG;
     if (browserHostConfig) {
         const ai = aiService;
-        void startBrowserHost(browserHostConfig, join(__dirname, '../renderer'), (workspacePath) =>
+        void startBrowserHosts(browserHostConfig, join(__dirname, '../renderer'), (workspacePath) =>
             ai.getBrowserHostServices(workspacePath)
-        ).then((host) => {
+        ).then((hosts) => {
+            const close = () => hosts.forEach((host) => host.close());
             if (isAppQuitting) {
-                host.close();
+                close();
                 return;
             }
-            app.once('will-quit', host.close);
-            logger.main.info(`[BrowserHost] Listening on 127.0.0.1:${host.port}`);
+            app.once('will-quit', close);
+            for (const host of hosts) logger.main.info(`[BrowserHost] Listening on 127.0.0.1:${host.port}`);
         }).catch((error) => logger.main.error('[BrowserHost] Could not start:', error));
     }
 

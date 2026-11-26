@@ -253,23 +253,45 @@ export function createBrowserHostHandler(config: BrowserHostConfig, services: Br
   };
 }
 
-export async function startBrowserHost(
+export async function startBrowserHosts(
   configPath: string,
   rendererPath: string,
   createServices: (workspacePath: string) => BrowserHostServices,
 ) {
   const text = await readFile(configPath, 'utf8');
-  let config: Partial<Omit<BrowserHostConfig, 'rendererPath'>> & {
-    port?: number;
-  };
+  let input: unknown;
   try {
-    config = JSON.parse(text);
+    input = JSON.parse(text);
   } catch {
     throw new Error('Browser host configuration is not valid JSON');
   }
-  if (!config || typeof config !== 'object' || Array.isArray(config)) {
-    throw new Error('Browser host configuration must be an object');
+  const entries = Array.isArray(input) ? input : [input];
+  if (entries.length === 0) throw new Error('Browser host requires at least one workspace');
+  const configs = await Promise.all(entries.map((entry: unknown) => resolveBrowserHostConfig(entry, rendererPath)));
+  if (new Set(configs.map(({ port }) => port)).size !== configs.length ||
+      new Set(configs.map(({ token }) => token)).size !== configs.length) {
+    throw new Error('Browser host requires a distinct port and token for each workspace');
   }
+  await stat(join(rendererPath, 'browser-host.html'));
+
+  const hosts: Array<Awaited<ReturnType<typeof listenBrowserHost>>> = [];
+  try {
+    for (const { workspacePath, workspaceRoot, port, ...config } of configs) {
+      const handle = createBrowserHostHandler({ ...config, workspacePath: workspaceRoot }, createServices(workspacePath));
+      hosts.push(await listenBrowserHost(port, handle));
+    }
+    return hosts;
+  } catch (error) {
+    for (const host of hosts) host.close();
+    throw error;
+  }
+}
+
+async function resolveBrowserHostConfig(input: unknown, rendererPath: string) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) {
+    throw new Error('Each browser host configuration must be an object');
+  }
+  const config = input as Partial<Omit<BrowserHostConfig, 'rendererPath'>> & { port?: number };
   if (typeof config.token !== 'string' || !/^[a-f0-9]{64}$/.test(config.token)) {
     throw new Error('Browser host requires a random 32-byte hex token');
   }
@@ -288,14 +310,10 @@ export async function startBrowserHost(
   const workspacePath = config.workspacePath;
   const workspaceRoot = await realpath(workspacePath);
   if (!(await stat(workspaceRoot)).isDirectory()) throw new Error('Browser host workspace must be a directory');
-  await stat(join(rendererPath, 'browser-host.html'));
-  const handle = createBrowserHostHandler({
-    token: config.token,
-    pdfPath: config.pdfPath,
-    workspacePath: workspaceRoot,
-    rendererPath,
-  }, createServices(workspacePath));
+  return { port, workspacePath, workspaceRoot, token: config.token, pdfPath: config.pdfPath, rendererPath };
+}
 
+async function listenBrowserHost(port: number, handle: ReturnType<typeof createBrowserHostHandler>) {
   const server = createServer(async (request, response) => {
     const host = request.headers.host ?? '';
     let result: Response;

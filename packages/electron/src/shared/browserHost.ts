@@ -30,6 +30,7 @@ export interface BrowserHostPanel {
   id: string;
   title: string;
   icon: string;
+  order?: number;
 }
 
 export type BrowserHostSchedule =

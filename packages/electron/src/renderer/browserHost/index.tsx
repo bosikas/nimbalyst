@@ -6,7 +6,7 @@ import type { BrowserHostInfo, BrowserHostSession, BrowserHostSessionSummary } f
 import { getTheme, registerThemeContribution } from '@nimbalyst/runtime';
 import { applyThemeToDOM } from '../hooks/useTheme';
 import { AIInput } from '../components/UnifiedAI/AIInput';
-import { BrowserExtensions } from './BrowserExtensions';
+import { BrowserWorkspaceViews } from './BrowserExtensions';
 import '../index.css';
 import '../styles/components.css';
 import './browserHost.css';
@@ -138,6 +138,10 @@ function Session({ token, id }: { token: string; id: string }) {
 
 function Workspace({ token, info, disconnect }: { token: string; info: BrowserHostInfo; disconnect: () => void }) {
   useEffect(() => {
+    document.title = `${info.workspaceName} – Nimbalyst`;
+    return () => { document.title = 'Nimbalyst'; };
+  }, [info.workspaceName]);
+  useEffect(() => {
     const appearance = info.appearance;
     const theme = appearance?.theme ?? 'system';
     const contribution = appearance?.contribution;
@@ -155,7 +159,6 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
   }, [info.appearance]);
   const [sessions, setSessions] = useState<BrowserHostSessionSummary[]>([]);
   const [selected, setSelected] = useState('');
-  const [view, setView] = useState<'sessions' | 'extensions'>('sessions');
   const loadSessions = React.useCallback(async (signal: AbortSignal) => (
     await request(token, '/sessions', { signal })
   ).json() as Promise<BrowserHostSessionSummary[]>, [token]);
@@ -163,22 +166,19 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
   const sessionId = sessions.find(({ id }) => id === selected)?.id ?? sessions[0]?.id;
   const loadPdf = React.useCallback(async () => (await request(token, '/pdf')).arrayBuffer(), [token]);
   const extensionRequest = React.useCallback((path: string, init?: RequestInit) => request(token, path, init), [token]);
-  const openSession = React.useCallback((id: string) => {
-    setSelected(id);
-    setView('sessions');
-  }, []);
 
   return (
     <main className="browser-host-workspace">
       <header className="browser-host-toolbar">
         <h1>{info.workspaceName}</h1>
-        <nav aria-label="Workspace views">
-          <button type="button" aria-pressed={view === 'sessions'} onClick={() => setView('sessions')}>Sessions</button>
-          <button type="button" aria-pressed={view === 'extensions'} onClick={() => setView('extensions')}>Extensions</button>
-        </nav>
         <button type="button" onClick={disconnect}>Disconnect</button>
       </header>
-      {view === 'sessions' ? (
+      <BrowserWorkspaceViews request={extensionRequest} pdfName={info.pdfName}
+        workspacePath={info.workspacePath ?? ''} openSession={setSelected} pdf={info.pdfName ? (
+          <Suspense fallback={<p role="status">Loading PDF Viewer…</p>}>
+            <BrowserPdf fileName={info.pdfName} loadPdf={loadPdf} />
+          </Suspense>
+        ) : null}>
         <div className="browser-host-sessions">
           <aside aria-label="Sessions">
             {error && <p role="status">{error}</p>}
@@ -191,14 +191,7 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
           </aside>
           {sessionId && <Session key={sessionId} token={token} id={sessionId} />}
         </div>
-      ) : (
-        <BrowserExtensions request={extensionRequest} pdfName={info.pdfName}
-          workspacePath={info.workspacePath ?? ''} openSession={openSession} pdf={info.pdfName ? (
-            <Suspense fallback={<p role="status">Loading PDF Viewer…</p>}>
-              <BrowserPdf fileName={info.pdfName} loadPdf={loadPdf} />
-            </Suspense>
-          ) : null} />
-      )}
+      </BrowserWorkspaceViews>
     </main>
   );
 }

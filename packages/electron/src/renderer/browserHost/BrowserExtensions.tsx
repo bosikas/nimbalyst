@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { MaterialSymbol } from '@nimbalyst/runtime/ui/icons/MaterialSymbol';
 import type { BrowserHostExtension, BrowserHostSchedule } from '../../shared/browserHost';
 import { BrowserPanel } from './BrowserPanel';
 
@@ -84,9 +85,10 @@ function Automations({ request }: { request: Request }) {
   );
 }
 
-export function BrowserExtensions({ request, pdf, pdfName, workspacePath, openSession }:
-  { request: Request; pdf: React.ReactNode; pdfName: string | null; workspacePath: string; openSession: (id: string) => void }) {
-  const [view, setView] = useState(pdf ? 'pdf' : 'automations');
+export function BrowserWorkspaceViews({ request, pdf, pdfName, workspacePath, openSession, children }:
+  { request: Request; pdf: React.ReactNode; pdfName: string | null; workspacePath: string;
+    openSession: (id: string) => void; children: React.ReactNode }) {
+  const [view, setView] = useState('sessions');
   const [installed, setInstalled] = useState<BrowserHostExtension[]>([]);
   const [error, setError] = useState('');
   const [navigationError, setNavigationError] = useState('');
@@ -99,53 +101,70 @@ export function BrowserExtensions({ request, pdf, pdfName, workspacePath, openSe
     return () => controller.abort();
   }, [request]);
 
-  const active = installed.flatMap((extension) =>
-    (extension.panels ?? []).map((panel) => ({ extensionId: extension.id, panel })),
-  ).find(({ extensionId, panel }) => view === `${extensionId}/${panel.id}`);
+  const panels = installed.flatMap((extension) =>
+    (extension.panels ?? []).map((panel) => ({ extensionId: extension.id, panel, viewId: `${extension.id}/${panel.id}` })),
+  ).sort((a, b) => (a.panel.order ?? 100) - (b.panel.order ?? 100));
+  const active = panels.find(({ viewId }) => view === viewId);
+  const goToSession = useCallback((id: string) => {
+    openSession(id);
+    setView('sessions');
+  }, [openSession]);
   const openPanel = useCallback((id: string) => {
     const extension = installed.find((entry) => entry.panels?.some((panel) => panel.id === id));
     if (extension) setView(`${extension.id}/${id}`);
     else setNavigationError('Extension panel is unavailable');
   }, [installed]);
   const openFile = useCallback((path: string) => {
-    if (path.startsWith('session://')) openSession(path.slice('session://'.length).split('/')[0]);
+    if (path.startsWith('session://')) goToSession(path.slice('session://'.length).split('/')[0]);
     else if (pdfName && path === `${workspacePath}/${pdfName}`) setView('pdf');
     else setNavigationError('This file cannot be opened in the browser');
-  }, [openSession, pdfName, workspacePath]);
-  const close = useCallback(() => setView('installed'), []);
+  }, [goToSession, pdfName, workspacePath]);
+  const close = useCallback(() => setView('sessions'), []);
   useEffect(() => setNavigationError(''), [view]);
 
+  function railButton(id: string, label: string, icon: string) {
+    const active = view === id;
+    return (
+      <button key={id} type="button" title={label} aria-label={label} aria-pressed={active}
+        onClick={() => setView(active ? 'sessions' : id)}>
+        <MaterialSymbol icon={icon} size={20} fill={active} />
+      </button>
+    );
+  }
+
   return (
-    <section className="browser-host-extension">
-      <div className="browser-host-toolbar">
-        <nav aria-label="Extension views">
-          {pdf && <button type="button" aria-pressed={view === 'pdf'} onClick={() => setView('pdf')}>PDF Viewer</button>}
-          <button type="button" aria-pressed={view === 'automations'} onClick={() => setView('automations')}>Automations</button>
-          <button type="button" aria-pressed={view === 'installed'} onClick={() => setView('installed')}>Installed extensions</button>
-          {active && <button type="button" aria-pressed="true" onClick={close}>{active.panel.title}</button>}
-        </nav>
-      </div>
-      {view === 'pdf' && pdf}
-      {view === 'automations' && <Automations request={request} />}
-      {navigationError && <p role="alert">{navigationError}</p>}
-      {active && <BrowserPanel key={view} request={request} extensionId={active.extensionId}
-        panel={active.panel} workspacePath={workspacePath} openPanel={openPanel}
-        close={close} openFile={openFile} openSession={openSession} />}
-      {view === 'installed' && (
-        <section className="browser-host-automations" aria-label="Installed extensions">
-          {error && <p role="status">{error}</p>}
-          <ul>{installed.map((extension) => (
-            <li key={extension.id}>
-              {extension.name} {extension.version} · {extension.enabled ? 'Enabled' : 'Disabled'}
-              {extension.panels?.map((panel) => (
-                <button key={panel.id} type="button" onClick={() => setView(`${extension.id}/${panel.id}`)}>
-                  Open {panel.title}
-                </button>
-              ))}
-            </li>
-          ))}</ul>
-        </section>
-      )}
-    </section>
+    <div className="browser-host-layout">
+      <nav className="browser-host-rail" aria-label="Workspace views">
+        {railButton('sessions', 'Sessions', 'forum')}
+        {panels.map(({ viewId, panel }) => railButton(viewId, panel.title, panel.icon || 'extension'))}
+        {pdf && railButton('pdf', 'PDF Viewer', 'picture_as_pdf')}
+        {railButton('automations', 'Automations', 'schedule')}
+        {railButton('installed', 'Installed extensions', 'extension')}
+      </nav>
+      <section className="browser-host-extension">
+        {view === 'sessions' && children}
+        {view === 'pdf' && pdf}
+        {view === 'automations' && <Automations request={request} />}
+        {navigationError && <p role="alert">{navigationError}</p>}
+        {active && <BrowserPanel key={view} request={request} extensionId={active.extensionId}
+          panel={active.panel} workspacePath={workspacePath} openPanel={openPanel}
+          close={close} openFile={openFile} openSession={goToSession} />}
+        {view === 'installed' && (
+          <section className="browser-host-automations" aria-label="Installed extensions">
+            {error && <p role="status">{error}</p>}
+            <ul>{installed.map((extension) => (
+              <li key={extension.id}>
+                {extension.name} {extension.version} · {extension.enabled ? 'Enabled' : 'Disabled'}
+                {extension.panels?.map((panel) => (
+                  <button key={panel.id} type="button" onClick={() => setView(`${extension.id}/${panel.id}`)}>
+                    Open {panel.title}
+                  </button>
+                ))}
+              </li>
+            ))}</ul>
+          </section>
+        )}
+      </section>
+    </div>
   );
 }

@@ -1,9 +1,10 @@
 // @vitest-environment node
 import { mkdir, mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { createBrowserHostHandler, startBrowserHost } from '../browserHost';
+import { createBrowserHostHandler, startBrowserHosts } from '../browserHost';
 import type { BrowserHostSession } from '../../../shared/browserHost';
 
 const token = 'a'.repeat(64);
@@ -93,8 +94,43 @@ describe('browser host', () => {
   it('reports invalid configuration without including its contents', async () => {
     const configPath = join(root, 'config.json');
     await writeFile(configPath, `{"token": "${token}" invalid}`);
-    await expect(startBrowserHost(configPath, rendererPath, () => setup().services))
+    await expect(startBrowserHosts(configPath, rendererPath, () => setup().services))
       .rejects.toThrow(/^Browser host configuration is not valid JSON$/);
+  });
+
+  it('binds each configured workspace to its own loopback port and token', async () => {
+    const secondWorkspace = join(root, 'nimbalyst');
+    await mkdir(secondWorkspace);
+    const listeners = [createServer(), createServer()];
+    const ports = await Promise.all(listeners.map((server) => new Promise<number>((resolve, reject) => {
+      server.once('error', reject);
+      server.listen(0, '127.0.0.1', () => {
+        const address = server.address();
+        if (!address || typeof address === 'string') reject(new Error('No test port'));
+        else resolve(address.port);
+      });
+    })));
+    await Promise.all(listeners.map((server) => new Promise<void>((resolve) => server.close(() => resolve()))));
+
+    const secondToken = 'b'.repeat(64);
+    const configPath = join(root, 'browser-host.json');
+    await writeFile(configPath, JSON.stringify([
+      { workspacePath, port: ports[0], token },
+      { workspacePath: secondWorkspace, port: ports[1], token: secondToken },
+    ]));
+    const hosts = await startBrowserHosts(configPath, rendererPath, (path) => ({
+      ...setup().services, listSessions: async () => [{ id: 'local', title: path }],
+    }));
+    try {
+      const sessions = (port: number, key: string) =>
+        fetch(`http://127.0.0.1:${port}/api/sessions`, { headers: { authorization: `Bearer ${key}` } });
+      expect(await (await sessions(ports[0], token)).json()).toEqual([{ id: 'local', title: workspacePath }]);
+      expect(await (await sessions(ports[1], secondToken)).json()).toEqual([{ id: 'local', title: secondWorkspace }]);
+      expect((await sessions(ports[0], secondToken)).status).toBe(401);
+      expect((await sessions(ports[1], token)).status).toBe(401);
+    } finally {
+      for (const host of hosts) host.close();
+    }
   });
 
   it('serves the browser entry and requires authentication for session and file data', async () => {

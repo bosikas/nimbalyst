@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 <!-- New features go here -->
-- An opt-in browser host lets you read and control sessions, check installed extensions, view a PDF, and schedule recurring automations from another computer.
+- The browser host opens multiple workspaces in separate windows and puts extension panels, PDF Viewer, and Automations in a desktop-style icon rail.
 - Mistral Vibe is available as an agent provider for users signed in to the Vibe CLI.
 - Session summaries can include a short outcome, a write-up linked to source messages, and durable next actions for Work Overview.
 - Workspaces can define a PR reviewer preset that starts a Codex review from just a diff and brief, with its own model, instructions, permissions and starting skills, kept separate from global and repository instructions.

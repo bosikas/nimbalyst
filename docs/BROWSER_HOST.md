@@ -1,6 +1,6 @@
 # Browser host
 
-Nimbalyst Desktop serves an opt-in browser workspace while the host app is running. Connect from another computer through an SSH tunnel to read transcripts, send prompts, interrupt turns, and answer tool permissions in the host's selected theme. Open installed extension panels under **Extensions → Installed extensions** and a configured workspace file with PDF Viewer. Extension panels use their installed UI bundles and can call their own workspace backend tools. Controls that require desktop-only APIs may be unavailable in the browser.
+Nimbalyst Desktop serves opt-in browser workspaces while the host app is running. Connect from another computer through an SSH tunnel to read transcripts, send prompts, interrupt turns, and answer tool permissions in the host's selected theme. Use the left rail to open extension panels, Automations, or a configured workspace file in PDF Viewer. Extension panels use their installed UI bundles and can call their own workspace backend tools. Controls that require desktop-only APIs may be unavailable in the browser.
 
 Create a private configuration file on the Linux PC. Generate the access token with `openssl rand -hex 32` and set the file mode to `600`.
 
@@ -14,6 +14,8 @@ Create a private configuration file on the Linux PC. Generate the access token w
 ```
 
 Use the workspace path as shown in Nimbalyst. The optional PDF path is relative to the workspace and the file limit is 32 MB. The port defaults to 17864.
+
+To serve more than one workspace from the same desktop app, make the configuration a JSON array of these objects. Set a distinct port and token for each workspace and forward each port through SSH. Open the workspaces in separate desktop windows so their extension backends can run. On the client, open each forwarded address in its own tab or window and use that workspace's token.
 
 Launch a built Nimbalyst desktop app that includes this change with the configuration file path.
 
@@ -31,4 +33,4 @@ The browser keeps the token in memory until you disconnect or close the page.
 
 ## Schedule automations
 
-Keep the configured workspace open in Nimbalyst on Linux with the Automations extension enabled. In the browser, open **Extensions → Automations** to view schedules and create daily, weekly, or interval runs. Daily and weekly times use the Linux host's time zone. The existing extension stores schedules in the workspace and runs them while the host app is open, including when the browser is disconnected.
+Keep the configured workspace open in Nimbalyst on Linux with the Automations extension enabled. In the browser, open **Automations** from the left rail to view schedules and create daily, weekly, or interval runs. Daily and weekly times use the Linux host's time zone. The existing extension stores schedules in the workspace and runs them while the host app is open, including when the browser is disconnected.
