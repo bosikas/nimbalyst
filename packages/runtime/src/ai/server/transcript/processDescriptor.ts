@@ -260,7 +260,7 @@ export async function processDescriptor(
 
 export function selectRawParser(
   provider: string,
-): 'codex' | 'codex-acp' | 'copilot' | 'claude-code' | 'opencode' | 'voice' | 'grok-build' | 'cursor-agent' | 'gemini-antigravity' {
+): 'codex' | 'codex-acp' | 'copilot' | 'claude-code' | 'opencode' | 'voice' | 'grok-build' | 'mistral-vibe' | 'cursor-agent' | 'gemini-antigravity' {
   if (provider === 'copilot-cli') {
     return 'copilot';
   }
@@ -273,6 +273,7 @@ export function selectRawParser(
   if (provider === 'opencode') {
     return 'opencode';
   }
+  if (provider === 'mistral-vibe') return 'mistral-vibe';
   if (provider === 'grok-build') {
     return 'grok-build';
   }

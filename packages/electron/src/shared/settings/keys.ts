@@ -137,6 +137,11 @@ export const SETTINGS_REGISTRY = {
     { store: 'ai-settings', path: 'providerSettings.copilot-cli' },
     { enabled: false, testStatus: 'idle', installStatus: 'not-installed' },
   ),
+  'ai.provider.mistral-vibe': setting(
+    ProviderConfigSchema,
+    { store: 'ai-settings', path: 'providerSettings.mistral-vibe' },
+    { enabled: false, testStatus: 'idle', installStatus: 'not-installed' },
+  ),
   'ai.provider.grok-build': setting(
     ProviderConfigSchema,
     { store: 'ai-settings', path: 'providerSettings.grok-build' },

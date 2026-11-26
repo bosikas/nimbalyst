@@ -40,6 +40,7 @@ export function registerModelHandlers(ctx: AIServiceContext): void {
     if (resolveProviderEnabled('claude-code-cli', providerSettings['claude-code-cli'])) enabledSet.add('claude-code-cli');
     if (providerSettings['openai']?.enabled === true && !!apiKeys['openai']) enabledSet.add('openai');
     if (providerSettings['openai-codex']?.enabled === true) enabledSet.add('openai-codex');
+    if (providerSettings['mistral-vibe']?.enabled === true) enabledSet.add('mistral-vibe');
     if (providerSettings['opencode']?.enabled === true) enabledSet.add('opencode');
     // Without these the model picker stays empty for an enabled provider:
     // the catalog is only fetched for ids in this set. Both default to
@@ -226,6 +227,11 @@ export function registerModelHandlers(ctx: AIServiceContext): void {
         enabled: providerSettings['copilot-cli']?.enabled === true,
         models: providerSettings['copilot-cli']?.models,
         hiddenModels: providerSettings['copilot-cli']?.hiddenModels
+      },
+      'mistral-vibe': {
+        enabled: providerSettings['mistral-vibe']?.enabled === true,
+        models: providerSettings['mistral-vibe']?.models,
+        hiddenModels: providerSettings['mistral-vibe']?.hiddenModels
       },
       'grok-build': {
         enabled: resolveProviderEnabled('grok-build', providerSettings['grok-build']),

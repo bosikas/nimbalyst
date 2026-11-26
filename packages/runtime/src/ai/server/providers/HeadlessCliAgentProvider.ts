@@ -41,6 +41,10 @@ import { AgentProtocolTranscriptAdapter } from './agentProtocol/AgentProtocolTra
 import { TranscriptMigrationRepository } from '../../../storage/repositories/TranscriptMigrationRepository';
 
 /** Loaders the Electron main process injects once at startup. */
+import type { GrokACPPermissionDecision, GrokACPPermissionRequest } from '../protocols/GrokACPProtocol';
+import { generateToolPattern } from '../permissions/toolPermissionHelpers';
+import { handleToolPermissionFallback } from './claudeCode/toolAuthorization';
+
 export interface HeadlessCliEnvironmentLoaders {
   mcpConfigLoader: ((workspacePath?: string) => Promise<Record<string, MCPServerConfig>>) | null;
   shellEnvironmentLoader: (() => Record<string, string> | null) | null;
@@ -337,6 +341,8 @@ export abstract class HeadlessCliAgentProvider extends BaseAgentProvider {
         attachments as any,
       );
 
+      let context: Pick<StreamChunk, 'contextFillTokens' | 'contextWindow'> = {};
+      let contextCompacted = false;
       for await (const event of this.protocol.sendMessage(session, {
         content: prompt,
         attachments,
@@ -365,6 +371,14 @@ export abstract class HeadlessCliAgentProvider extends BaseAgentProvider {
           yield snapshot;
         }
 
+        if (event.metadata?.contextCompacted === true) {
+          context = {};
+          contextCompacted = true;
+        }
+        if (event.contextFillTokens !== undefined && event.contextWindow !== undefined) {
+          context = { contextFillTokens: event.contextFillTokens, contextWindow: event.contextWindow };
+          yield { type: 'context_usage', ...context };
+        }
         for (const item of transcriptAdapter.processEvent(event)) {
           switch (item.kind) {
             case 'text':
@@ -384,6 +398,8 @@ export abstract class HeadlessCliAgentProvider extends BaseAgentProvider {
                 content: item.event.content,
                 isComplete: true,
                 usage: item.event.usage,
+                ...context,
+                ...(contextCompacted ? { contextCompacted: true } : {}),
               };
               break;
             case 'error':
@@ -516,7 +532,7 @@ export abstract class HeadlessCliAgentProvider extends BaseAgentProvider {
    * can, so it only needs the trust-level gate here and handles risky tools via
    * `session/request_permission`.
    */
-  private requestTurnPermission(
+  protected requestTurnPermission(
     workspacePath: string,
     permissionsPath?: string,
   ): { decision: 'allow' | 'deny'; reason?: string; permissionMode?: string | null } {
@@ -539,6 +555,59 @@ export abstract class HeadlessCliAgentProvider extends BaseAgentProvider {
       return { decision: 'allow', permissionMode: trustStatus.mode };
     }
     return { decision: 'deny', reason: this.descriptor.permissionModeMessage };
+  }
+
+  protected async handleProtocolPermissionRequest(
+    request: GrokACPPermissionRequest,
+  ): Promise<GrokACPPermissionDecision> {
+    const permissionsPath = request.permissionsPath || request.workspacePath;
+    const trust = BaseAgentProvider.trustChecker?.(permissionsPath);
+    if (!trust) return { decision: 'allow' as const, scope: 'once' as const };
+    if (!trust.trusted) return { decision: 'deny' as const, scope: 'once' as const };
+    if (trust.mode === 'bypass-all') {
+      return { decision: 'allow' as const, scope: 'once' as const };
+    }
+    if (
+      trust.mode === 'allow-all'
+      && ['Edit', 'Write', 'Read', 'Glob', 'Grep', 'LS', 'NotebookEdit'].includes(request.toolName)
+    ) {
+      return { decision: 'allow' as const, scope: 'once' as const };
+    }
+
+    const input = request.toolInput ?? {};
+    const pattern = generateToolPattern(request.toolName, input);
+    if (
+      BaseAgentProvider.permissionPatternChecker
+      && await BaseAgentProvider.permissionPatternChecker(permissionsPath, pattern)
+    ) {
+      this.permissions.sessionApprovedPatterns.add(pattern);
+      return { decision: 'allow' as const, scope: 'always' as const };
+    }
+
+    const authorization = await handleToolPermissionFallback(
+      {
+        permissions: this.permissions,
+        logSecurity: (message, data) => this.logSecurity(message, data),
+        logAgentMessage: (sessionId, content) =>
+          this.logAgentMessage(sessionId, this.getProviderName(), 'output', content),
+        emit: (event, payload) => this.emit(event, payload),
+        pollForPermissionResponse: (sessionId, requestId, signal) =>
+          this.pollForPermissionResponse(sessionId, requestId, signal),
+        savePattern: BaseAgentProvider.permissionPatternSaver ?? undefined,
+        logError: (message, error) => console.error(message, error),
+      },
+      {
+        toolName: request.toolName,
+        input,
+        options: { signal: request.signal, toolUseID: request.requestId },
+        sessionId: request.nimbalystSessionId,
+        workspacePath: permissionsPath,
+      },
+    );
+    return {
+      decision: authorization.behavior === 'allow' ? 'allow' as const : 'deny' as const,
+      scope: 'once' as const,
+    };
   }
 
   private async processTranscriptMessages(sessionId: string): Promise<void> {

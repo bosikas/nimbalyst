@@ -10,6 +10,7 @@ import {
   assertExhaustiveProvider,
   isClaudeCodeFamily,
 } from './types';
+import { DEFAULT_MODELS } from '../modelConstants';
 
 interface ModelCatalogCacheEntry {
   provider: AIProviderType;
@@ -47,6 +48,7 @@ const PROVIDER_API_KEY_SOURCE: Readonly<Record<AIProviderType, string | null>> =
   opencode: null,
   'copilot-cli': null,
   'grok-build': null,
+  'mistral-vibe': null,
   'cursor-agent': null,
   'antigravity-gemini-agent': null,
 });
@@ -199,6 +201,9 @@ export class ModelRegistry {
       case 'copilot-cli':
         const { CopilotCLIProvider } = await import('./providers/CopilotCLIProvider');
         return CopilotCLIProvider.getModels();
+      case 'mistral-vibe':
+        const { MistralVibeProvider } = await import('./providers/MistralVibeProvider');
+        return MistralVibeProvider.getModels();
       case 'grok-build':
         const { GrokBuildProvider } = await import('./providers/GrokBuildProvider');
         return GrokBuildProvider.getModels();
@@ -310,6 +315,8 @@ export class ModelRegistry {
       case 'copilot-cli':
         const { CopilotCLIProvider: CLP } = await import('./providers/CopilotCLIProvider');
         return CLP.getDefaultModel();
+      case 'mistral-vibe':
+        return DEFAULT_MODELS['mistral-vibe'];
       case 'grok-build':
         const { GrokBuildProvider: GBP } = await import('./providers/GrokBuildProvider');
         return GBP.getDefaultModel();

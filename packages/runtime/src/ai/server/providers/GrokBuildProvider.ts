@@ -12,15 +12,11 @@
 
 import {
   GrokACPProtocol,
-  type GrokACPPermissionDecision,
-  type GrokACPPermissionRequest,
   type GrokAskUserQuestionHandler,
 } from '../protocols/GrokACPProtocol';
 import { DEFAULT_MODELS } from '../../modelConstants';
 import type { AIModel, AIProviderType } from '../types';
 import type { MCPServerConfig } from '../../../types/MCPServerConfig';
-import { generateToolPattern } from '../permissions/toolPermissionHelpers';
-import { handleToolPermissionFallback } from './claudeCode/toolAuthorization';
 import {
   HeadlessCliAgentProvider,
   buildHeadlessChildEnvironment,
@@ -110,59 +106,6 @@ export class GrokBuildProvider extends HeadlessCliAgentProvider {
 
   static setAskUserQuestionHandler(handler: GrokAskUserQuestionHandler | null): void {
     GrokBuildProvider.askUserQuestionHandler = handler;
-  }
-
-  private async handleProtocolPermissionRequest(
-    request: GrokACPPermissionRequest,
-  ): Promise<GrokACPPermissionDecision> {
-    const permissionsPath = request.permissionsPath || request.workspacePath;
-    const trust = GrokBuildProvider.trustChecker?.(permissionsPath);
-    if (!trust) return { decision: 'allow' as const, scope: 'once' as const };
-    if (!trust.trusted) return { decision: 'deny' as const, scope: 'once' as const };
-    if (trust.mode === 'bypass-all') {
-      return { decision: 'allow' as const, scope: 'once' as const };
-    }
-    if (
-      trust.mode === 'allow-all'
-      && ['Edit', 'Write', 'Read', 'Glob', 'Grep', 'LS', 'NotebookEdit'].includes(request.toolName)
-    ) {
-      return { decision: 'allow' as const, scope: 'once' as const };
-    }
-
-    const input = request.toolInput ?? {};
-    const pattern = generateToolPattern(request.toolName, input);
-    if (
-      GrokBuildProvider.permissionPatternChecker
-      && await GrokBuildProvider.permissionPatternChecker(permissionsPath, pattern)
-    ) {
-      this.permissions.sessionApprovedPatterns.add(pattern);
-      return { decision: 'allow' as const, scope: 'always' as const };
-    }
-
-    const authorization = await handleToolPermissionFallback(
-      {
-        permissions: this.permissions,
-        logSecurity: (message, data) => this.logSecurity(message, data),
-        logAgentMessage: (sessionId, content) =>
-          this.logAgentMessage(sessionId, this.getProviderName(), 'output', content),
-        emit: (event, payload) => this.emit(event, payload),
-        pollForPermissionResponse: (sessionId, requestId, signal) =>
-          this.pollForPermissionResponse(sessionId, requestId, signal),
-        savePattern: GrokBuildProvider.permissionPatternSaver ?? undefined,
-        logError: (message, error) => console.error(message, error),
-      },
-      {
-        toolName: request.toolName,
-        input,
-        options: { signal: request.signal, toolUseID: request.requestId },
-        sessionId: request.nimbalystSessionId,
-        workspacePath: permissionsPath,
-      },
-    );
-    return {
-      decision: authorization.behavior === 'allow' ? 'allow' as const : 'deny' as const,
-      scope: 'once' as const,
-    };
   }
 
   /**

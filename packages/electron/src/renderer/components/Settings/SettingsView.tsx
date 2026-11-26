@@ -31,6 +31,7 @@ import { OpenAICodexPanel } from '../GlobalSettings/panels/OpenAICodexPanel';
 import { OpenCodePanel } from '../GlobalSettings/panels/OpenCodePanel';
 import { CopilotCLIPanel } from '../GlobalSettings/panels/CopilotCLIPanel';
 
+import { MistralVibePanel } from '../GlobalSettings/panels/MistralVibePanel';
 import { GrokBuildPanel } from '../GlobalSettings/panels/GrokBuildPanel';
 import { CursorAgentPanel } from '../GlobalSettings/panels/CursorAgentPanel';
 import { GeminiPanel } from '../GlobalSettings/panels/GeminiPanel';
@@ -91,6 +92,7 @@ const CLI_CATALOG_PROVIDERS = new Set<string>([
   'openai-codex',
   'opencode',
   'copilot-cli',
+  'mistral-vibe',
   'grok-build',
   'cursor-agent',
 ]);
@@ -922,6 +924,12 @@ export function SettingsView({
         );
       case 'copilot-cli':
         return wrapWithOverride('copilot-cli', 'GitHub Copilot', <CopilotCLIPanel {...commonProps} />);
+      case 'mistral-vibe':
+        return wrapWithOverride(
+          'mistral-vibe',
+          'Mistral Vibe',
+          <MistralVibePanel config={commonProps.config} onToggle={commonProps.onToggle} />,
+        );
       case 'grok-build':
         return wrapWithOverride(
           'grok-build',

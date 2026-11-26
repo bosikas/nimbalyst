@@ -233,6 +233,7 @@ import {
   OpenAICodexACPProvider,
   OpenCodeProvider,
   CopilotCLIProvider,
+  MistralVibeProvider,
   GrokBuildProvider,
   CursorAgentProvider,
   GeminiAntigravityProvider,
@@ -2207,6 +2208,13 @@ app.whenReady().then(async () => {
     OpenAICodexACPProvider.setEnhancedPathLoader(() => getEnhancedPath());
     OpenCodeProvider.setEnhancedPathLoader(() => getEnhancedPath());
     CopilotCLIProvider.setEnhancedPathLoader(() => getEnhancedPath());
+    MistralVibeProvider.configureLoaders({
+        mcpConfigLoader: (workspacePath) =>
+            loadEnabledMcpServersFor(MCP_PROVIDER_IDS.MISTRAL_VIBE, 'Mistral Vibe', workspacePath),
+        shellEnvironmentLoader: () => getShellEnvironment(),
+        enhancedPathLoader: () => getEnhancedPath(),
+        executablePathLoader: null,
+    });
     GrokBuildProvider.setEnhancedPathLoader(() => getEnhancedPath());
     CursorAgentProvider.setEnhancedPathLoader(() => getEnhancedPath());
 

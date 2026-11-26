@@ -447,6 +447,7 @@ const AGENT_SOURCES = new Set([
   'opencode',
   'copilot-cli',
   'grok-build',
+  'mistral-vibe',
   'cursor-agent',
   'antigravity-gemini-agent',
 ]);
@@ -462,6 +463,7 @@ const CODEX_SHAPED_OUTPUT_SOURCES = new Set([
   'opencode',
   'copilot-cli',
   'grok-build',
+  'mistral-vibe',
   'cursor-agent',
 ]);
 

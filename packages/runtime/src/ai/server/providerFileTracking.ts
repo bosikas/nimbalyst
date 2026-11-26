@@ -97,6 +97,7 @@ export const BUILTIN_FILE_CHANGE_FIDELITY: Readonly<Record<AIProviderType, FileC
     // every removal is an opaque `rm` inside `run_terminal_command`. Switching
     // the watcher off would make deleted files disappear from the sidebar.
     'grok-build': 'tool-args',
+    'mistral-vibe': 'tool-args',
 
     // `editToolCall.result.success` carries `path`, a unified `diffString`,
     // and `beforeFullFileContent`/`afterFullFileContent` — an authoritative
@@ -152,6 +153,7 @@ export const PROVIDER_EDIT_TOOL_NAMES: Readonly<Record<AIProviderType, readonly 
 
     // Cursor drives its baseline from `beforeFullFileContent` in the tool
     // result, so it needs no disk-snapshot tag.
+    'mistral-vibe': Object.freeze([]),
     'cursor-agent': Object.freeze([]),
 
     // Empty on purpose despite `write_file` being a real edit tool. This table

@@ -245,7 +245,7 @@ export function shouldSyncMessageForSessionRoom(
   // Keep this in sync with `HeadlessAgentRawParser`: a record type the parser
   // learns to render must be added here, or mobile silently shows less than
   // the desktop does. `headlessAgentSyncParity.test.ts` is the gate.
-  if (source.startsWith('grok-build') || source.startsWith('cursor-agent')) {
+  if (source.startsWith('grok-build') || source.startsWith('cursor-agent') || source.startsWith('mistral-vibe')) {
     const eventType = typeof metadata?.eventType === 'string' ? metadata.eventType : '';
     if (!eventType) return true;
     return HEADLESS_AGENT_SYNCED_EVENT_TYPES.has(eventType);

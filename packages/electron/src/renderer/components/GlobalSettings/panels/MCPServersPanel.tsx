@@ -54,19 +54,22 @@ const CODEX_FORCED_SERVER_NAME = 'nimbalyst';
 const MCP_PROVIDER_IDS = {
   CLAUDE_AGENT: 'claude-agent',
   CODEX: 'codex',
+  MISTRAL_VIBE: 'mistral-vibe',
 } as const;
 
-const ALL_MCP_PROVIDER_IDS = [MCP_PROVIDER_IDS.CLAUDE_AGENT, MCP_PROVIDER_IDS.CODEX] as const;
+const ALL_MCP_PROVIDER_IDS = [MCP_PROVIDER_IDS.CLAUDE_AGENT, MCP_PROVIDER_IDS.CODEX, MCP_PROVIDER_IDS.MISTRAL_VIBE] as const;
 
 const PROVIDER_LABELS: Record<string, string> = {
   'claude-agent': 'Claude',
   'codex': 'Codex',
+  'mistral-vibe': 'Mistral Vibe',
 };
 
 /** Maps MCP provider IDs to app settings provider IDs */
 const MCP_TO_APP_PROVIDER: Record<string, string> = {
   'claude-agent': 'claude-code',
   'codex': 'openai-codex',
+  'mistral-vibe': 'mistral-vibe',
 };
 
 function getEffectiveProviders(config: MCPServerConfig): string[] {

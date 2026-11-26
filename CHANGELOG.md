@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 <!-- New features go here -->
+- Mistral Vibe is available as an agent provider for users signed in to the Vibe CLI.
 - Session summaries can include a short outcome, a write-up linked to source messages, and durable next actions for Work Overview.
 - Workspaces can define a PR reviewer preset that starts a Codex review from just a diff and brief, with its own model, instructions, permissions and starting skills, kept separate from global and repository instructions.
 - Extensions can set an auto-archive interval for sessions they own at creation or once the work is finished.

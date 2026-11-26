@@ -361,7 +361,7 @@ export function providerPayloadSlots(chunk: unknown, source: string): PayloadSlo
     collectClaudeSlots(chunk, out);
   } else if (isCodexSource(source)) {
     collectCodexSlots(chunk, out);
-  } else if (source.startsWith('grok-build') || source.startsWith('cursor-agent')) {
+  } else if (source.startsWith('grok-build') || source.startsWith('cursor-agent') || source.startsWith('mistral-vibe')) {
     // The turn-final assistant row uses Codex's `item.completed` shape, so it
     // walks with the Codex collector; everything else is these agents' own.
     collectCodexSlots(chunk, out);

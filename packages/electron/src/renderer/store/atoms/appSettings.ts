@@ -1230,6 +1230,7 @@ const defaultProviders: Record<string, ProviderConfig> = {
   'openai-codex-acp': { enabled: false, testStatus: 'idle', installStatus: 'not-installed' },
   opencode: { enabled: false, testStatus: 'idle', installStatus: 'not-installed' },
   'copilot-cli': { enabled: false, testStatus: 'idle', installStatus: 'not-installed' },
+  'mistral-vibe': { enabled: false, testStatus: 'idle', installStatus: 'not-installed' },
   'grok-build': { enabled: false, testStatus: 'idle', installStatus: 'not-installed' },
   'cursor-agent': { enabled: false, testStatus: 'idle', installStatus: 'not-installed' },
   'antigravity-gemini-agent': { enabled: false, testStatus: 'idle', installStatus: 'not-installed' },

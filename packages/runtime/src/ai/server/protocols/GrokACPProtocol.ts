@@ -18,11 +18,13 @@ import {
 } from '@agentclientprotocol/sdk';
 import type {
   CancelNotification,
+  ContentBlock,
   McpServer,
   PermissionOption,
   PromptResponse,
   RequestPermissionRequest,
   RequestPermissionResponse,
+  SessionConfigOption,
   SessionModelState,
   SessionNotification,
   ToolCallUpdate,
@@ -36,6 +38,7 @@ export {
   mapGrokAcpSessionUpdate,
   readGrokACPUpdateEnvelope,
 } from './headless/GrokBuildRecordMapper';
+import { buildAcpAttachmentBlocks } from './acpAttachmentBlocks';
 import { scrubProviderApiKeys } from '../providerApiKeyScrub';
 import type {
   AgentProtocol,
@@ -112,6 +115,20 @@ export type GrokAskUserQuestionHandler = (
   request: GrokAskUserQuestionRequest,
 ) => Promise<GrokAskUserQuestionResponse>;
 
+interface AcpAgentBehavior {
+  platform: string;
+  displayName: string;
+  command: string;
+  args: string[];
+  mapUpdate(update: Record<string, unknown>, workspacePath: string): ProtocolEvent[];
+  getUsage(response: PromptResponse): ProtocolEvent['usage'];
+  formatError(error: unknown): string;
+  configureSession?(connection: ACPClientConnection, sessionId: string, options: SessionOptions, config: SessionConfigOption[]): Promise<string | undefined>;
+  supportsFork?: boolean;
+  supportsAttachments?: boolean;
+  supportsSseMcp?: boolean;
+}
+
 export interface GrokACPProtocolDeps {
   spawnProcess?: typeof spawn;
   command?: string;
@@ -141,6 +158,7 @@ interface GrokSessionRaw extends Record<string, unknown> {
 interface GrokSessionState {
   deliveredMcpServerCount: number;
   models: SessionModelState | null;
+  config: SessionConfigOption[];
 }
 
 interface ActiveTurnState {
@@ -186,8 +204,8 @@ class AsyncEventQueue<T> {
   }
 }
 
-export class GrokACPProtocol implements AgentProtocol {
-  readonly platform = PLATFORM;
+export class AcpStdioAgentProtocol implements AgentProtocol {
+  readonly platform: string;
 
   private readonly spawnProcess: typeof spawn;
   private readonly commandWasInjected: boolean;
@@ -206,17 +224,18 @@ export class GrokACPProtocol implements AgentProtocol {
   private readonly sessionStates = new Map<string, GrokSessionState>();
   private readonly activeTurns = new Map<string, ActiveTurnState>();
 
-  constructor(deps?: GrokACPProtocolDeps) {
+  constructor(private readonly agent: AcpAgentBehavior, deps?: GrokACPProtocolDeps) {
+    this.platform = agent.platform;
     this.spawnProcess = deps?.spawnProcess ?? spawn;
     this.commandWasInjected = deps?.command !== undefined;
-    this.command = deps?.command ?? 'grok';
-    this.args = deps?.args ?? DEFAULT_ARGS;
+    this.command = deps?.command ?? agent.command;
+    this.args = deps?.args ?? agent.args;
     this.extraEnv = deps?.env ?? {};
     this.onPermissionRequest = deps?.onPermissionRequest;
     this.onAskUserQuestion = deps?.onAskUserQuestion;
   }
 
-  setGrokPath(executablePath: string): void {
+  setExecutablePath(executablePath: string): void {
     if (!this.commandWasInjected) this.command = executablePath;
   }
 
@@ -230,7 +249,7 @@ export class GrokACPProtocol implements AgentProtocol {
 
   async createSession(options: SessionOptions): Promise<ProtocolSession> {
     const connection = await this.getConnection();
-    const mcpServers = convertGrokMcpServers(options.mcpServers);
+    const mcpServers = convertGrokMcpServers(options.mcpServers, this.agent.supportsSseMcp);
     const cwd = await resolveGrokCwd(options.workspacePath);
     let result;
     try {
@@ -239,15 +258,16 @@ export class GrokACPProtocol implements AgentProtocol {
         mcpServers,
       });
     } catch (error) {
-      throw new Error(`Failed to create Grok ACP session: ${this.formatError(error)}`);
+      throw new Error(`Failed to create ${this.agent.displayName} ACP session: ${this.formatError(error)}`);
     }
 
     const state: GrokSessionState = {
       deliveredMcpServerCount: mcpServers.length,
       models: result.models ?? null,
+      config: result.configOptions ?? [],
     };
     this.sessionStates.set(result.sessionId, state);
-    const appliedModel = await this.applySessionModel(result.sessionId, options.model, state);
+    const appliedModel = await this.configureSession(connection, result.sessionId, options, state);
     return this.buildSession(result.sessionId, options, cwd, state, appliedModel);
   }
 
@@ -257,7 +277,7 @@ export class GrokACPProtocol implements AgentProtocol {
 
     let state = this.sessionStates.get(sessionId);
     if (!state) {
-      const mcpServers = convertGrokMcpServers(options.mcpServers);
+      const mcpServers = convertGrokMcpServers(options.mcpServers, this.agent.supportsSseMcp);
       let result;
       try {
         result = await connection.loadSession({
@@ -269,12 +289,13 @@ export class GrokACPProtocol implements AgentProtocol {
         // Never mint a replacement here. The caller persisted this provider id,
         // and silently replacing it would orphan the existing Grok history.
         throw new Error(
-          `Failed to load persisted Grok session "${sessionId}": ${this.formatError(error)}`,
+          `Failed to load persisted ${this.agent.displayName} session "${sessionId}": ${this.formatError(error)}`,
         );
       }
       state = {
         deliveredMcpServerCount: mcpServers.length,
         models: result?.models ?? null,
+        config: result?.configOptions ?? [],
       };
       this.sessionStates.set(sessionId, state);
     }
@@ -284,8 +305,20 @@ export class GrokACPProtocol implements AgentProtocol {
     // delivered, not the count it just re-resolved — claiming delivery of a
     // server the agent has never heard of is the lie this reports around.
 
-    const appliedModel = await this.applySessionModel(sessionId, options.model, state);
+    const appliedModel = await this.configureSession(connection, sessionId, options, state);
     return this.buildSession(sessionId, options, cwd, state, appliedModel);
+  }
+
+  private async configureSession(
+    connection: ACPClientConnection,
+    sessionId: string,
+    options: SessionOptions,
+    state: GrokSessionState,
+  ): Promise<string | undefined> {
+    if (this.agent.configureSession) {
+      return this.agent.configureSession(connection, sessionId, options, state.config);
+    }
+    return this.applySessionModel(sessionId, options.model, state);
   }
 
   /**
@@ -323,8 +356,21 @@ export class GrokACPProtocol implements AgentProtocol {
     return wanted;
   }
 
-  async forkSession(_sessionId: string, options: SessionOptions): Promise<ProtocolSession> {
-    return this.createSession(options);
+  async forkSession(sessionId: string, options: SessionOptions): Promise<ProtocolSession> {
+    if (!this.agent.supportsFork) return this.createSession(options);
+    await this.resumeSession(sessionId, options);
+    const connection = await this.getConnection();
+    const cwd = await resolveGrokCwd(options.workspacePath);
+    const mcpServers = convertGrokMcpServers(options.mcpServers, this.agent.supportsSseMcp);
+    const result = await connection.unstable_forkSession({ sessionId, cwd, mcpServers });
+    const state: GrokSessionState = {
+      deliveredMcpServerCount: mcpServers.length,
+      models: result.models ?? null,
+      config: result.configOptions ?? [],
+    };
+    this.sessionStates.set(result.sessionId, state);
+    const appliedModel = await this.configureSession(connection, result.sessionId, options, state);
+    return this.buildSession(result.sessionId, options, cwd, state, appliedModel);
   }
 
   async *sendMessage(
@@ -335,7 +381,7 @@ export class GrokACPProtocol implements AgentProtocol {
     const raw = session.raw as GrokSessionRaw | undefined;
     const workspacePath = raw?.workspacePath;
     if (!workspacePath) {
-      yield { type: 'error', error: 'Grok ACP session is missing its workspace path.' };
+      yield { type: 'error', error: `${this.agent.displayName} ACP session is missing its workspace path.` };
       return;
     }
 
@@ -353,15 +399,18 @@ export class GrokACPProtocol implements AgentProtocol {
     };
     this.activeTurns.set(session.id, turn);
 
+    if (signal.aborted) {
+      this.activeTurns.delete(session.id);
+      return;
+    }
     const abortHandler = () => void this.cancelPrompt(session.id);
     signal.addEventListener('abort', abortHandler, { once: true });
 
     const promptTask = (async () => {
       try {
-        const response = await connection.prompt({
-          sessionId: session.id,
-          prompt: this.buildPromptBlocks(message, raw.options.systemPrompt),
-        });
+        const prompt = await this.buildPromptBlocks(message, raw.options.systemPrompt);
+        if (signal.aborted) return;
+        const response = await connection.prompt({ sessionId: session.id, prompt });
 
         queue.push({
           type: 'raw_event',
@@ -374,7 +423,7 @@ export class GrokACPProtocol implements AgentProtocol {
           },
         });
 
-        const usage = normalizeGrokAcpUsage(response);
+        const usage = this.agent.getUsage(response);
         queue.push({
           type: 'complete',
           content: '',
@@ -436,7 +485,7 @@ export class GrokACPProtocol implements AgentProtocol {
   ): ProtocolSession {
     return {
       id: sessionId,
-      platform: PLATFORM,
+      platform: this.platform,
       deliveredMcpServerCount: state.deliveredMcpServerCount,
       ...(appliedModel ? { appliedModel } : {}),
       raw: {
@@ -480,12 +529,13 @@ export class GrokACPProtocol implements AgentProtocol {
       stderrTail = `${stderrTail}${chunk.toString('utf8')}`.slice(-STDERR_TAIL_LIMIT);
     });
     child.once('error', (error) => {
-      this.processExitError = error;
+      if (this.childProcess === child) this.processExitError = error;
     });
     child.once('exit', (code, signal) => {
+      if (this.childProcess !== child) return;
       const exitReason = code !== null
-        ? `Grok ACP process exited with code ${code}`
-        : `Grok ACP process exited with signal ${signal ?? 'unknown'}`;
+        ? `${this.agent.displayName} ACP process exited with code ${code}`
+        : `${this.agent.displayName} ACP process exited with signal ${signal ?? 'unknown'}`;
       this.processExitError = new Error(
         stderrTail.trim() ? `${exitReason}\nstderr: ${stderrTail.trim()}` : exitReason,
       );
@@ -538,11 +588,15 @@ export class GrokACPProtocol implements AgentProtocol {
     } catch (error) {
       const detail = this.formatError(this.processExitError ?? error);
       this.destroy();
-      throw new Error(`Failed to initialize Grok ACP agent "${this.command}": ${detail}`);
+      throw new Error(`Failed to initialize ${this.agent.displayName} ACP agent "${this.command}": ${detail}`);
     }
   }
 
   private handleSessionUpdate(params: SessionNotification): void {
+    if (this.agent.configureSession && params.update.sessionUpdate === 'config_option_update') {
+      const state = this.sessionStates.get(params.sessionId);
+      if (state) state.config = params.update.configOptions;
+    }
     const turn = this.activeTurns.get(params.sessionId);
     if (!turn) return;
 
@@ -558,11 +612,7 @@ export class GrokACPProtocol implements AgentProtocol {
 
     const update = readGrokACPUpdateEnvelope(rawEvent);
     if (!update) return;
-    for (const event of mapGrokAcpSessionUpdate(
-      update,
-      turn.workspacePath,
-      path.resolve,
-    )) {
+    for (const event of this.agent.mapUpdate(update, turn.workspacePath)) {
       turn.queue.push(event);
     }
   }
@@ -629,7 +679,7 @@ export class GrokACPProtocol implements AgentProtocol {
     method: string,
     params: Record<string, unknown>,
   ): Promise<Record<string, unknown>> {
-    if (method !== '_x.ai/ask_user_question') {
+    if (this.platform !== PLATFORM || method !== '_x.ai/ask_user_question') {
       throw RequestError.methodNotFound(method);
     }
 
@@ -678,11 +728,8 @@ export class GrokACPProtocol implements AgentProtocol {
     // response while ACP's session/new or session/load remains authoritative.
   }
 
-  private buildPromptBlocks(message: ProtocolMessage, systemPrompt?: string) {
-    const prompt: Array<
-      | { type: 'text'; text: string }
-      | { type: 'resource'; resource: { uri: string; text: string; mimeType: string } }
-    > = [];
+  private async buildPromptBlocks(message: ProtocolMessage, systemPrompt?: string): Promise<ContentBlock[]> {
+    const prompt: ContentBlock[] = [];
     if (systemPrompt) {
       prompt.push({
         type: 'resource',
@@ -694,6 +741,7 @@ export class GrokACPProtocol implements AgentProtocol {
       });
     }
     prompt.push({ type: 'text', text: message.content });
+    if (this.agent.supportsAttachments) prompt.push(...await buildAcpAttachmentBlocks(message.attachments));
     return prompt;
   }
 
@@ -708,6 +756,29 @@ export class GrokACPProtocol implements AgentProtocol {
   }
 
   private formatError(error: unknown): string {
+    return this.agent.formatError(error);
+  }
+}
+
+export class GrokACPProtocol extends AcpStdioAgentProtocol {
+  constructor(deps?: GrokACPProtocolDeps) {
+    super({
+      platform: PLATFORM,
+      displayName: 'Grok',
+      command: 'grok',
+      args: DEFAULT_ARGS,
+      mapUpdate: (update, workspacePath) => mapGrokAcpSessionUpdate(update, workspacePath, path.resolve),
+      getUsage: normalizeGrokAcpUsage,
+      formatError: formatGrokError,
+    }, deps);
+  }
+
+  setGrokPath(executablePath: string): void {
+    this.setExecutablePath(executablePath);
+  }
+}
+
+function formatGrokError(error: unknown): string {
     const message = error instanceof Error ? error.message : String(error);
     if (isMissingAgentStdioSubcommand(message)) {
       return 'This version of the Grok CLI does not support `grok agent stdio`, '
@@ -721,11 +792,11 @@ export class GrokACPProtocol implements AgentProtocol {
       return 'The Grok CLI was not found. Install it, then run `grok login` to authenticate.';
     }
     return message;
-  }
 }
 
 export function convertGrokMcpServers(
   mcpServers?: Record<string, MCPServerConfig>,
+  supportsSse = true,
 ): McpServer[] {
   if (!mcpServers) return [];
 
@@ -735,6 +806,7 @@ export function convertGrokMcpServers(
     const url = typeof record.url === 'string' ? record.url : undefined;
     if (url) {
       const transport = String(record.type ?? record.transport ?? 'http').toLowerCase();
+      if (transport === 'sse' && !supportsSse) continue;
       const headers = Object.entries(
         (record.headers ?? record.http_headers ?? {}) as Record<string, string>,
       ).map(([headerName, value]) => ({ name: headerName, value }));

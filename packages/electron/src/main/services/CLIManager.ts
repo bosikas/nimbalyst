@@ -66,6 +66,7 @@ type CLITool =
   | 'openai-codex'
   | 'opencode'
   | 'copilot-cli'
+  | 'mistral-vibe'
   | 'grok-build'
   | 'cursor-agent';
 
@@ -88,6 +89,11 @@ const CLI_INSTALL_STRATEGIES: Record<CLITool, CLIInstallStrategy> = {
   'openai-codex': { kind: 'npm', package: '@openai/codex' },
   'opencode': { kind: 'npm', package: 'opencode-ai' },      // npm: opencode-ai, binary: opencode
   'copilot-cli': { kind: 'npm', package: '@github/copilot' },  // npm: @github/copilot, binary: copilot
+  'mistral-vibe': {
+    kind: 'script',
+    command: 'uv tool install mistral-vibe',
+    docsUrl: 'https://docs.mistral.ai/vibe/code/cli/install-setup',
+  },
   'grok-build': {
     kind: 'script',
     command: 'curl -fsSL https://x.ai/cli/install.sh | bash',
@@ -115,6 +121,7 @@ const CLI_COMMANDS: Record<CLITool, string> = {
   'openai-codex': 'codex',
   'opencode': 'opencode',
   'copilot-cli': 'copilot',
+  'mistral-vibe': 'vibe-acp',
   'grok-build': 'grok',
   'cursor-agent': 'cursor-agent',  // NOT `agent`: both vendors symlink that name
 };
@@ -128,6 +135,7 @@ const CLI_COMMANDS: Record<CLITool, string> = {
  * makes detection independent of install.
  */
 const CLI_EXTRA_INSTALL_LOCATIONS: Partial<Record<CLITool, readonly string[]>> = {
+  'mistral-vibe': ['.local/bin/vibe-acp'],
   'grok-build': ['.grok/bin/grok', '.local/bin/grok'],
   'cursor-agent': ['.local/bin/cursor-agent'],
 };

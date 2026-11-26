@@ -120,10 +120,10 @@ export function accumulateClaudeCodeTurnUsage(
 }
 
 export interface ProviderTurnUsageInput {
-  usage: ChunkUsage;
-  /** True for 'openai-codex', whose usage is cumulative for the provider thread. */
+  usage: ChunkUsage | undefined;
+  /** True for 'openai-codex' and 'mistral-vibe', whose usage is cumulative for the provider session. */
   threadCumulative: boolean;
-  /** A resumed Codex thread with no stored baseline: its first snapshot is not new spend. */
+  /** A resumed provider session with no stored baseline: its first snapshot is not new spend. */
   isResumedThread: boolean;
   reportsCurrentContext: boolean;
   /** The measured window when the provider reports context, else undefined. */
@@ -138,9 +138,11 @@ export function accumulateProviderTurnUsage(
 ): StoredTokenUsage {
   const base = current ?? EMPTY_USAGE;
   const storedContextWindow = turn.reportedContextWindow || base.contextWindow;
-  const next = turn.threadCumulative
-    ? threadCumulativeCounters(base, turn)
-    : perTurnCounters(base, turn.usage);
+  const next = turn.usage
+    ? (turn.threadCumulative
+      ? threadCumulativeCounters(base, { ...turn, usage: turn.usage })
+      : perTurnCounters(base, turn.usage))
+    : base;
 
   return {
     ...next,
@@ -175,12 +177,15 @@ function perTurnCounters(base: StoredTokenUsage, usage: ChunkUsage) {
 }
 
 /**
- * Codex turn usage is cumulative for the provider thread. Convert it to
+ * Codex and Vibe report cumulative session usage. Convert it to
  * per-session deltas using the last seen cumulative snapshot. Baselines are
  * cache-inclusive (the shape stored before the cache split existed), and the
  * cached share of the input delta is moved to cacheReadInputTokens.
  */
-function threadCumulativeCounters(base: StoredTokenUsage, turn: ProviderTurnUsageInput) {
+function threadCumulativeCounters(
+  base: StoredTokenUsage,
+  turn: ProviderTurnUsageInput & { usage: ChunkUsage },
+) {
   const cumulativeCached =
     count(turn.usage.cache_read_input_tokens) + count(turn.usage.cache_creation_input_tokens);
   const cumulativeInput = count(turn.usage.input_tokens) + cumulativeCached;

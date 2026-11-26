@@ -259,6 +259,7 @@ export function registerSettingsHandlers(ctx: AIServiceContext): void {
           // Copilot uses its own CLI auth, no API key needed
           apiKey = 'not-required';
           break;
+        case 'mistral-vibe':
         case 'grok-build':
         case 'cursor-agent':
           // CLI login only; no API key to test.

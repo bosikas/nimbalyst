@@ -2393,13 +2393,16 @@ export class MessageStreamingHandler {
 
               // Update local session reference for next iteration
               session.tokenUsage = updatedUsage;
-            } else if (tokenUsage && session.provider !== 'claude-code') {
+            } else if ((tokenUsage || contextCompacted) && session.provider !== 'claude-code') {
               // For non-claude-code providers, use tokenUsage from chunk
               const isCodexProvider = session.provider === 'openai-codex';
+              const isVibeProvider = session.provider === 'mistral-vibe';
               const reportsCurrentContext = agentCapabilitiesForProviderType(
                 session.provider,
               ).contextReporting === 'context-window';
-              const codexInitData = isCodexProvider ? (provider as any).getInitData?.() : null;
+              const initData = isCodexProvider || isVibeProvider
+                ? (provider as { getInitData?: () => { isResumedThread?: boolean; isResumedSession?: boolean } | null }).getInitData?.()
+                : null;
 
               // #914: only providers measured to report both a live fill and
               // denominator may populate currentContext. A catalog window by
@@ -2410,9 +2413,8 @@ export class MessageStreamingHandler {
 
               const updatedUsage = accumulateProviderTurnUsage(session.tokenUsage, {
                 usage: tokenUsage,
-                // Codex SDK turn.completed usage is cumulative for the provider thread.
-                threadCumulative: isCodexProvider,
-                isResumedThread: codexInitData?.isResumedThread === true,
+                threadCumulative: isCodexProvider || isVibeProvider,
+                isResumedThread: (isVibeProvider ? initData?.isResumedSession : initData?.isResumedThread) === true,
                 reportsCurrentContext,
                 reportedContextWindow,
                 contextFillTokens,

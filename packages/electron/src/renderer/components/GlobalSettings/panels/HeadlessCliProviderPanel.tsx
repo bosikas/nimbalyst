@@ -17,7 +17,7 @@ import type { FileChangeFidelity } from '@nimbalyst/runtime/ai/server/providerFi
  * assume every panel means the same thing by "file tracking".
  */
 
-type CLIStatus = 'checking' | 'installed' | 'signed-out' | 'not-installed';
+type CLIStatus = 'checking' | 'installed' | 'manual-auth' | 'signed-out' | 'not-installed';
 
 export interface HeadlessCliProviderPanelProps {
   config: ProviderConfig;
@@ -32,6 +32,9 @@ export interface HeadlessCliProviderPanelProps {
   docsUrl: string;
   docsLabel: string;
   fileChangeFidelity: FileChangeFidelity;
+  manualAuthentication?: boolean;
+  supportsToolPermissions?: boolean;
+  usageUrl?: string;
 }
 
 interface InstallStrategy {
@@ -64,6 +67,9 @@ export function HeadlessCliProviderPanel({
   docsUrl,
   docsLabel,
   fileChangeFidelity,
+  manualAuthentication = false,
+  supportsToolPermissions = false,
+  usageUrl,
 }: HeadlessCliProviderPanelProps) {
   const [cliStatus, setCLIStatus] = useState<CLIStatus>('checking');
   const [cliVersion, setCLIVersion] = useState<string | null>(null);
@@ -77,8 +83,10 @@ export function HeadlessCliProviderPanel({
       // when the CLI is BOTH installed and logged in, and the panel must say
       // which of the two is missing rather than reporting a bare "installed"
       // for a CLI that would fail on the first turn.
-      const availability = await window.electronAPI.aiGetHeadlessAgentAvailability?.();
-      signedIn = availability?.[toolId]?.signedIn ?? false;
+      if (!manualAuthentication) {
+        const availability = await window.electronAPI.aiGetHeadlessAgentAvailability?.();
+        signedIn = availability?.[toolId]?.signedIn ?? false;
+      }
     } catch {
       // Fall through to the install probe below.
     }
@@ -86,14 +94,14 @@ export function HeadlessCliProviderPanel({
       const result = await window.electronAPI.invoke('cli:checkInstallation', toolId);
       if (result?.installed) {
         setCLIVersion(result.version || null);
-        setCLIStatus(signedIn ? 'installed' : 'signed-out');
+        setCLIStatus(manualAuthentication ? 'manual-auth' : signedIn ? 'installed' : 'signed-out');
         return;
       }
     } catch {
       // Fall through to not-installed.
     }
     setCLIStatus('not-installed');
-  }, [toolId]);
+  }, [toolId, manualAuthentication]);
 
   useEffect(() => {
     void checkCLI();
@@ -112,7 +120,7 @@ export function HeadlessCliProviderPanel({
       }
     })();
     return () => { cancelled = true; };
-  }, [toolId]);
+  }, [toolId, manualAuthentication]);
 
   return (
     <div className="provider-panel headless-cli-provider-panel flex flex-col">
@@ -142,6 +150,14 @@ export function HeadlessCliProviderPanel({
               Installed and signed in{cliVersion ? ` (${cliVersion})` : ''}
             </span>
           </div>
+        )}
+
+        {cliStatus === 'manual-auth' && (
+          <p className="text-[13px] text-[var(--nim-text-muted)]">
+            Installed{cliVersion ? ` (${cliVersion})` : ''}. Run{' '}
+            <code className="text-[var(--nim-code-text)] select-text">{loginCommand}</code>{' '}
+            and choose browser sign-in to use your subscription.
+          </p>
         )}
 
         {cliStatus === 'signed-out' && (
@@ -214,6 +230,17 @@ export function HeadlessCliProviderPanel({
         </p>
       )}
 
+      {usageUrl && (
+        <a
+          href={usageUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block mt-3 text-[13px] text-[var(--nim-primary)] hover:underline"
+        >
+          View Mistral plan usage
+        </a>
+      )}
+
       {config.enabled && (
         <>
           <div className="provider-panel-section py-4 mb-4 border-b border-[var(--nim-border)]">
@@ -233,10 +260,12 @@ export function HeadlessCliProviderPanel({
             <p className="text-[13px] text-[var(--nim-text-muted)] leading-relaxed">
               {FIDELITY_COPY[fileChangeFidelity]}
             </p>
-            <p className="text-[13px] text-[var(--nim-text-muted)] mt-3 leading-relaxed">
-              This agent cannot pause a turn to ask permission for an individual tool, so a
-              session requires the &ldquo;Allow Edits&rdquo; workspace permission mode.
-            </p>
+            {!supportsToolPermissions && (
+              <p className="text-[13px] text-[var(--nim-text-muted)] mt-3 leading-relaxed">
+                This agent cannot pause a turn to ask permission for an individual tool, so a
+                session requires the &ldquo;Allow Edits&rdquo; workspace permission mode.
+              </p>
+            )}
           </div>
         </>
       )}

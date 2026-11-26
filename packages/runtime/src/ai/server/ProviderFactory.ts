@@ -12,6 +12,7 @@ import { OpenAICodexACPProvider } from './providers/OpenAICodexACPProvider';
 import { LMStudioProvider } from './providers/LMStudioProvider';
 import { OpenCodeProvider } from './providers/OpenCodeProvider';
 import { CopilotCLIProvider } from './providers/CopilotCLIProvider';
+import { MistralVibeProvider } from './providers/MistralVibeProvider';
 import { GrokBuildProvider } from './providers/GrokBuildProvider';
 import { CursorAgentProvider } from './providers/CursorAgentProvider';
 import { GeminiAntigravityProvider } from './providers/GeminiAntigravityProvider';
@@ -84,6 +85,9 @@ export class ProviderFactory {
         break;
       case 'copilot-cli':
         provider = new CopilotCLIProvider();
+        break;
+      case 'mistral-vibe':
+        provider = new MistralVibeProvider();
         break;
       case 'grok-build':
         provider = new GrokBuildProvider();

@@ -61,7 +61,7 @@ import {
   ToolResult,
 } from './ProtocolInterface';
 import { scrubProviderApiKeys } from '../providerApiKeyScrub';
-import { buildDocumentAttachmentPromptText } from '../providers/codex/documentAttachmentPrompt';
+import { buildAcpAttachmentBlocks } from './acpAttachmentBlocks';
 import type { ToolPermissionScope } from '../providers/ProviderPermissionMixin';
 
 interface ACPToolPermissionRequest {
@@ -1034,28 +1034,7 @@ export class CodexACPProtocol implements AgentProtocol {
       text: message.content,
     });
 
-    for (const attachment of message.attachments ?? []) {
-      if (attachment.type === 'document' && attachment.filepath) {
-        blocks.push({
-          type: 'text',
-          text: await buildDocumentAttachmentPromptText(attachment),
-        });
-        continue;
-      }
-
-      if (attachment.type !== 'image' || !attachment.filepath) {
-        continue;
-      }
-      const data = await fs.readFile(attachment.filepath);
-      blocks.push({
-        type: 'image',
-        data: data.toString('base64'),
-        mimeType: attachment.mimeType ?? 'application/octet-stream',
-        uri: `file://${attachment.filepath}`,
-      });
-    }
-
-    return blocks;
+    return [...blocks, ...await buildAcpAttachmentBlocks(message.attachments)];
   }
 
   private async cancelPrompt(sessionId: string): Promise<void> {

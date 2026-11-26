@@ -67,6 +67,7 @@ export function resolveProviderAuthRequirement(
     case 'openai-codex-acp':
     case 'opencode':
     case 'copilot-cli':
+    case 'mistral-vibe':
     case 'grok-build':
     case 'cursor-agent':
     case 'antigravity-gemini-agent':

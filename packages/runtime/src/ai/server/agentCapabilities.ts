@@ -168,6 +168,13 @@ export const BUILTIN_AGENT_CAPABILITIES: Readonly<Record<AIProviderType, AgentCa
     contextReporting: 'token-counts',
   },
 
+  'mistral-vibe': {
+    slashCommands: false,
+    skills: false,
+    compaction: 'rpc',
+    contextReporting: 'context-window',
+  },
+
   // Cursor's stream-json `result` carries inputTokens/outputTokens/
   // cacheReadTokens, again with no denominator. Headless `--print` exposes no
   // command catalog and no compaction call.
@@ -227,6 +234,7 @@ const BUILTIN_SESSION_DIRECTIVE_SUPPORT: Readonly<Record<AIProviderType, boolean
   opencode: true,
   'copilot-cli': true,
   'grok-build': true,
+  'mistral-vibe': true,
   'cursor-agent': true,
   'antigravity-gemini-agent': true,
 });

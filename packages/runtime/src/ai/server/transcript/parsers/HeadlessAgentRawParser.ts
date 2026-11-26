@@ -37,7 +37,9 @@ import {
 } from '../../protocols/headless/GrokBuildRecordMapper';
 import { mapCursorRecord } from '../../protocols/headless/CursorAgentRecordMapper';
 
-export type HeadlessAgentKind = 'grok-build' | 'cursor-agent';
+import { mapVibeSessionUpdate } from '../../protocols/headless/MistralVibeRecordMapper';
+
+export type HeadlessAgentKind = 'grok-build' | 'cursor-agent' | 'mistral-vibe';
 
 export type NonRenderingHeadlessAgentRecord =
   | 'textDelta'
@@ -144,6 +146,10 @@ export class HeadlessAgentRawParser implements IRawMessageParser {
     // New Grok rows are raw ACP JSON-RPC envelopes. Historical Grok rows are
     // flat streaming-json records under the same source, so dispatch from the
     // frame's own structure and keep both paths permanently.
+    if (this.kind === 'mistral-vibe') {
+      const update = readGrokACPUpdateEnvelope(record);
+      if (update) return mapVibeSessionUpdate(update).flatMap((event) => projectEvent(event, msg));
+    }
     if (this.kind === 'grok-build') {
       const acpUpdate = readGrokACPUpdateEnvelope(record);
       if (acpUpdate) {
@@ -164,7 +170,7 @@ export class HeadlessAgentRawParser implements IRawMessageParser {
       // stream time; by the time a raw message is re-parsed the path is
       // already absolute, and '' leaves an absolute path untouched.
       ? mapGrokRecord(record, '')
-      : mapCursorRecord(record);
+      : this.kind === 'cursor-agent' ? mapCursorRecord(record) : [];
 
     return events.flatMap((event) => projectEvent(event, msg));
   }

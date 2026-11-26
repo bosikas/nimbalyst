@@ -171,7 +171,7 @@ export function registerTurnControlHandlers(ctx: AIServiceContext): void {
     const compactable = provider as unknown as {
       compactSession?: (
         id: string,
-        options?: { workspacePath?: string; providerSessionId?: string },
+        options?: { workspacePath?: string; permissionsPath?: string; providerSessionId?: string },
       ) => Promise<void>;
     };
     if (typeof compactable?.compactSession !== 'function') {
@@ -180,6 +180,7 @@ export function registerTurnControlHandlers(ctx: AIServiceContext): void {
     try {
       await compactable.compactSession(sessionId, {
         workspacePath: storedSession?.worktreePath || storedSession?.workspacePath,
+        permissionsPath: storedSession?.workspacePath,
         providerSessionId: storedSession?.providerSessionId,
       });
 
