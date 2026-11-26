@@ -23,12 +23,30 @@ export class MistralVibeProvider extends HeadlessCliAgentProvider {
     this.loaders = loaders;
   }
 
-  static getModels(): AIModel[] {
-    return [{
+  static async getModels(workspacePath = process.cwd()): Promise<AIModel[]> {
+    const fallback: AIModel[] = [{
       id: DEFAULT_MODELS['mistral-vibe'],
       name: 'Mistral Vibe (CLI default)',
       provider: 'mistral-vibe',
     }];
+    const provider = new MistralVibeProvider();
+    const executable = provider.resolveExecutable();
+    if (!executable) return fallback;
+    const protocol = new MistralVibeACPProtocol({ command: executable, env: provider.buildChildEnvironment() });
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        protocol.discoverModels(workspacePath),
+        new Promise<AIModel[]>((resolve) => {
+          timeout = setTimeout(() => resolve(fallback), 8_000);
+        }),
+      ]);
+    } catch {
+      return fallback;
+    } finally {
+      clearTimeout(timeout);
+      protocol.destroy();
+    }
   }
 
   protected readonly descriptor: HeadlessCliAgentDescriptor = {

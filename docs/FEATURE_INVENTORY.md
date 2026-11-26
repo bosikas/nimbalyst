@@ -68,7 +68,7 @@ Twelve built-in provider lanes, plus any agent an extension contributes. Every l
 - OpenAI Codex over ACP
 - GitHub Copilot CLI (ACP)
 - Grok Build (ACP)
-- Mistral Vibe (ACP, with CLI subscription sign-in, live context and session tokens, context compaction, workspace MCP tools, and permission prompts)
+- Mistral Vibe (ACP, with CLI subscription sign-in, workspace model discovery, per-model thinking and effort controls, live context and session tokens, context compaction, workspace MCP tools, and permission prompts)
 - Cursor Agent
 - Gemini via Google Antigravity (Connect-RPC over the user's Antigravity login; reports no usage numbers, so context and cost display as unavailable rather than guessed)
 - OpenCode, with slash commands, Compact, agent roles, and a model picker populated from the user's connected accounts

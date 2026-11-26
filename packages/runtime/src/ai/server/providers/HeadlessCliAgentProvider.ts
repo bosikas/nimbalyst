@@ -312,7 +312,11 @@ export abstract class HeadlessCliAgentProvider extends BaseAgentProvider {
         systemPrompt,
         mcpServers,
         permissionMode: permission.permissionMode ?? undefined,
-        raw: { permissionsPath: documentContext?.permissionsPath },
+        raw: {
+          permissionsPath: documentContext?.permissionsPath,
+          effortLevel: this.config?.effortLevel,
+          thinkingMode: this.config?.thinkingMode,
+        },
       };
       const session = isResumedSession
         ? await this.protocol.resumeSession(existingSessionId, sessionOptions)

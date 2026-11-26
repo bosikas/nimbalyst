@@ -203,7 +203,7 @@ export class ModelRegistry {
         return CopilotCLIProvider.getModels();
       case 'mistral-vibe':
         const { MistralVibeProvider } = await import('./providers/MistralVibeProvider');
-        return MistralVibeProvider.getModels();
+        return MistralVibeProvider.getModels(workspacePath);
       case 'grok-build':
         const { GrokBuildProvider } = await import('./providers/GrokBuildProvider');
         return GrokBuildProvider.getModels();
@@ -224,7 +224,7 @@ export class ModelRegistry {
     baseUrl: string | undefined,
   ): string {
     // Claude providers read project/local `.claude/settings*.json` for custom models.
-    if (provider === 'opencode' || isClaudeCodeFamily(provider)) {
+    if (provider === 'opencode' || provider === 'mistral-vibe' || isClaudeCodeFamily(provider)) {
       return JSON.stringify([provider, workspacePath ?? null]);
     }
     if (provider === 'lmstudio') {

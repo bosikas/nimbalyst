@@ -92,6 +92,15 @@ export function clampEffortLevel(level: EffortLevel, modelId?: string): EffortLe
   return EFFORT_RANK[level] > EFFORT_RANK[ceiling] ? ceiling : level;
 }
 
+/** Select an advertised level when a model accepts a subset with gaps. */
+export function selectSupportedEffortLevel(
+  level: EffortLevel,
+  supported: readonly EffortLevel[],
+): EffortLevel | undefined {
+  const ranked = EFFORT_LEVELS.filter(({ key }) => supported.includes(key));
+  return ranked.filter(({ key }) => EFFORT_RANK[key] <= EFFORT_RANK[level]).at(-1)?.key ?? ranked[0]?.key;
+}
+
 /** The effort levels to offer for a model, for the composer's effort selector. */
 export function getAvailableEffortLevels(modelId?: string): { key: EffortLevel; label: string }[] {
   const ceiling = resolveEffortCeiling(modelId);

@@ -496,7 +496,7 @@ export class AcpStdioAgentProtocol implements AgentProtocol {
     };
   }
 
-  private async getConnection(): Promise<ACPClientConnection> {
+  protected async getConnection(): Promise<ACPClientConnection> {
     if (this.connection) return this.connection;
     if (!this.initializationPromise) {
       this.initializationPromise = this.initializeConnection();

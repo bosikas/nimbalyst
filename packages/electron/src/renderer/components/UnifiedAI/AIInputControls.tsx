@@ -1,4 +1,5 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
+import type { AIModel } from '@nimbalyst/runtime/ai/server/types';
 import type { AIInputProps } from './AIInput';
 import { ModeTag } from './ModeTag';
 import { ModelSelector } from './ModelSelector';
@@ -75,14 +76,24 @@ export function AIInputControls({
   onActionInsert,
 }: AIInputControlsProps) {
   const [activeMenu, setActiveMenu] = useState<MenuName | null>(null);
+  const [vibeModels, setVibeModels] = useState<AIModel[]>([]);
+  const handleModelCatalog = useCallback((grouped: Record<string, AIModel[]>) => {
+    setVibeModels(grouped['mistral-vibe'] ?? []);
+  }, []);
+  const isVibeModel = currentModel?.startsWith('mistral-vibe:');
+  const vibeModel = isVibeModel ? vibeModels.find((model) => model.id === currentModel) : undefined;
+  const showEffort = isVibeModel ? (vibeModel?.effortLevels?.length ?? 0) > 1 : showEffortLevel;
+  const showThinking = isVibeModel ? vibeModel?.supportsThinkingOff : showThinkingToggle;
+  const vibeThinkingOff = Boolean(vibeModel?.supportsThinkingOff && thinkingMode === 'disabled');
+  const effortDisabled = reasoningControlsDisabled || vibeThinkingOff;
   const menus: MenuName[] = [];
   if (onModelChange && !readOnlyModel && currentProvider !== 'openai-realtime')
     menus.push('model');
   if (
-    showEffortLevel &&
+    showEffort &&
     onEffortLevelChange &&
     effortLevel &&
-    !reasoningControlsDisabled
+    !effortDisabled
   )
     menus.push('effort');
   if (workspacePath) menus.push('actions');
@@ -141,6 +152,7 @@ export function AIInputControls({
           <ModelSelector
             {...menuProps('model')}
             currentModel={currentModel || ''}
+            onCatalogChange={handleModelCatalog}
             onModelChange={(modelId) => {
               onModelChange?.(modelId);
               focusInput();
@@ -164,7 +176,7 @@ export function AIInputControls({
           turnActive={isLoading}
         />
       )}
-      {showEffortLevel && onEffortLevelChange && effortLevel && (
+      {showEffort && onEffortLevelChange && effortLevel && (
         <EffortLevelSelector
           {...menuProps('effort')}
           level={effortLevel}
@@ -172,12 +184,13 @@ export function AIInputControls({
             onEffortLevelChange(level);
             focusInput();
           }}
-          disabled={reasoningControlsDisabled}
-          disabledTitle={reasoningControlsDisabledTitle}
+          disabled={effortDisabled}
+          disabledTitle={vibeThinkingOff ? 'Enable thinking to adjust effort' : reasoningControlsDisabledTitle}
           modelId={currentModel}
+          supportedLevels={vibeModel?.effortLevels}
         />
       )}
-      {showThinkingToggle && onThinkingModeChange && thinkingMode && (
+      {showThinking && onThinkingModeChange && thinkingMode && (
         <ThinkingModeSelector
           mode={thinkingMode}
           onModeChange={onThinkingModeChange}

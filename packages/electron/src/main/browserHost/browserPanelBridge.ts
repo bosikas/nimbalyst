@@ -143,6 +143,8 @@ export async function invokeBrowserPanel(workspacePath: string, extensionId: str
           parentSessionId,
           metadata: {
             effortLevel: metadata.effortLevel,
+            thinkingMode: metadata.thinkingMode === 'enabled' || metadata.thinkingMode === 'disabled'
+              ? metadata.thinkingMode : undefined,
             toolScope: metadata.toolScope,
             generateSummary: metadata.generateSummary,
             autoArchiveAfterMinutes: metadata.autoArchiveAfterMinutes,

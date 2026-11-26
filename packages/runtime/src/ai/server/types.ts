@@ -369,6 +369,8 @@ export interface AIModel {
   cost?: AIModelCost;
   status?: 'alpha' | 'beta' | 'deprecated' | 'active';
   capabilities?: AIModelCapabilities;
+  effortLevels?: EffortLevel[];
+  supportsThinkingOff?: boolean;
   /**
    * Listed only because the user already selected it: discovery did not find
    * the model under an authenticated provider, so a new turn would fail. Kept

@@ -41,6 +41,7 @@ interface ModelSelectorProps {
   onOpenChange?: (open: boolean) => void;
   currentModel: string;  // Full provider:model ID
   onModelChange: (modelId: string) => void;
+  onCatalogChange?: (grouped: Record<string, AIModel[]>) => void;
   sessionHasMessages?: boolean;  // Whether current session has any messages
   currentProvider?: string | null;  // Current session provider
   /**
@@ -65,6 +66,7 @@ export function ModelSelector({
   onOpenChange,
   currentModel,
   onModelChange,
+  onCatalogChange,
   sessionHasMessages = false,
   currentProvider = null,
   readOnly = false,
@@ -117,6 +119,7 @@ export function ModelSelector({
       const response = await window.electronAPI.aiGetModels();
       if (response.success && response.grouped) {
         setModels(response.grouped);
+        onCatalogChange?.(response.grouped);
         // Labels and effort/thinking support for custom Claude gateway models.
         registerClaudeCustomModelsFromCatalog(Object.values(response.grouped).flat() as AIModel[]);
         const meta = response as {
@@ -131,7 +134,7 @@ export function ModelSelector({
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [onCatalogChange]);
 
   React.useLayoutEffect(() => {
     if (openRequest === undefined || openRequest === lastOpenRequestRef.current) return;

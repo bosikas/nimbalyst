@@ -18,6 +18,40 @@ const options = {
 };
 
 describe('Mistral Vibe ACP', () => {
+  it('discovers grouped models and the effort options for each model', async () => {
+    const protocol = new MistralVibeACPProtocol({ command: process.execPath, args: [fixture] });
+    try {
+      const models = await protocol.discoverModels(options.workspacePath);
+      expect(models).toMatchObject([
+        { id: 'mistral-vibe:default', effortLevels: ['high'], supportsThinkingOff: true },
+        { id: 'mistral-vibe:mistral-medium', effortLevels: ['high'], supportsThinkingOff: true },
+        { id: 'mistral-vibe:deepseek', effortLevels: ['low', 'high', 'max'], supportsThinkingOff: true },
+      ]);
+    } finally {
+      protocol.destroy();
+    }
+  });
+
+  it('applies effort after changing the model on create and resume', async () => {
+    const protocol = new MistralVibeACPProtocol({ command: process.execPath, args: [fixture] });
+    try {
+      const model = 'mistral-vibe:deepseek';
+      const created = await protocol.createSession({ ...options, model, raw: { effortLevel: 'max' } });
+      const first: ProtocolEvent[] = [];
+      for await (const event of protocol.sendMessage(created, { content: '/report-config' })) first.push(event);
+      expect(first).toContainEqual(expect.objectContaining({ type: 'text', content: 'deepseek:max' }));
+
+      const resumed = await protocol.resumeSession(created.id, {
+        ...options, model, raw: { effortLevel: 'medium', thinkingMode: 'disabled' },
+      });
+      const second: ProtocolEvent[] = [];
+      for await (const event of protocol.sendMessage(resumed, { content: '/report-config' })) second.push(event);
+      expect(second).toContainEqual(expect.objectContaining({ type: 'text', content: 'deepseek:off' }));
+    } finally {
+      protocol.destroy();
+    }
+  });
+
   it('resumes through a new process and streams permission, edits, context and usage', async () => {
     const onPermissionRequest = vi.fn(async () => ({ decision: 'allow', scope: 'once' } as const));
     const createProtocol = () => new MistralVibeACPProtocol({

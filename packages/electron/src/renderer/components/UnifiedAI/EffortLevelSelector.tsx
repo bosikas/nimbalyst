@@ -1,5 +1,6 @@
 import React, { useEffect } from 'react';
 import { MaterialSymbol } from '@nimbalyst/runtime/ui/icons/MaterialSymbol';
+import { selectSupportedEffortLevel } from '@nimbalyst/runtime/ai/server/effortLevels';
 import type { EffortLevel } from '../../utils/modelUtils';
 import { EFFORT_LEVELS, DEFAULT_EFFORT_LEVEL, clampEffortLevel, getAvailableEffortLevels } from '../../utils/modelUtils';
 import { FloatingPortal, useFloatingMenu } from '../../hooks/useFloatingMenu';
@@ -18,9 +19,10 @@ interface EffortLevelSelectorProps {
    * Astra/Sol/Terra reach Ultra; gpt-5.4/5.5 stop at xHigh).
    */
   modelId?: string;
+  supportedLevels?: readonly EffortLevel[];
 }
 
-export function EffortLevelSelector({ open, onOpenChange, level, onLevelChange, disabled = false, disabledTitle, modelId }: EffortLevelSelectorProps) {
+export function EffortLevelSelector({ open, onOpenChange, level, onLevelChange, disabled = false, disabledTitle, modelId, supportedLevels }: EffortLevelSelectorProps) {
   const menu = useFloatingMenu({ placement: 'top-start', offsetPx: 4, open, onOpenChange });
   const { isOpen, setIsOpen } = menu;
   const { getTypeaheadMatch, resetTypeahead } = useMenuTypeahead(isOpen);
@@ -33,8 +35,12 @@ export function EffortLevelSelector({ open, onOpenChange, level, onLevelChange, 
 
   // Show what will actually run: a session carrying a level the current model
   // cannot accept displays its clamped value rather than the stored one.
-  const availableLevels = getAvailableEffortLevels(modelId);
-  const effectiveLevel = clampEffortLevel(level, modelId);
+  const availableLevels = supportedLevels
+    ? EFFORT_LEVELS.filter(({ key }) => supportedLevels.includes(key))
+    : getAvailableEffortLevels(modelId);
+  const effectiveLevel = supportedLevels
+    ? selectSupportedEffortLevel(level, supportedLevels)
+    : clampEffortLevel(level, modelId);
   const currentLevel = availableLevels.find((l) => l.key === effectiveLevel) ?? EFFORT_LEVELS.find((l) => l.key === DEFAULT_EFFORT_LEVEL)!;
 
   const setMenuRef = React.useCallback((node: HTMLDivElement | null) => {
