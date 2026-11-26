@@ -12,6 +12,32 @@ it('binds session data and extension CTEs to the authorized workspace', () => {
   expect(result.sql).toContain(sql.slice(5));
 });
 
+it('scopes worktree joins, graph session files and tracker bodies', () => {
+  const db = new Database(':memory:');
+  try {
+    db.exec(`
+      CREATE TABLE ai_sessions(id TEXT, workspace_id TEXT, worktree_id TEXT);
+      CREATE TABLE worktrees(id TEXT, workspace_id TEXT, path TEXT);
+      CREATE TABLE session_files(id TEXT, workspace_id TEXT);
+      CREATE TABLE tracker_items(id TEXT, workspace TEXT);
+      CREATE TABLE tracker_body_cache(item_id TEXT, content TEXT);
+      INSERT INTO ai_sessions VALUES ('local', '/workspace', 'worktree'), ('other', '/other', 'worktree');
+      INSERT INTO worktrees VALUES ('worktree', '/workspace', 'inside'), ('worktree', '/other', 'outside');
+      INSERT INTO session_files VALUES ('file', '/workspace'), ('outside-file', '/other');
+      INSERT INTO tracker_items VALUES ('local-issue', '/workspace'), ('outside-issue', '/other');
+      INSERT INTO tracker_body_cache VALUES ('local-issue', 'local body'), ('outside-issue', 'other body');
+    `);
+    const { sql, params } = scopeBrowserExtensionQuery(`
+      SELECT w.path FROM ai_sessions s LEFT JOIN worktrees w ON w.id = s.worktree_id
+      UNION ALL SELECT id FROM session_files
+      UNION ALL SELECT content FROM tracker_body_cache
+    `, [], '/workspace', 'sqlite');
+    expect(db.prepare(sql).pluck().all({ 1: params[0] })).toEqual(['inside', 'file', 'local body']);
+  } finally {
+    db.close();
+  }
+});
+
 it('cannot return another workspace through joins, CTEs or UNION branches', () => {
   const db = new Database(':memory:');
   try {

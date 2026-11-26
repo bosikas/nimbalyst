@@ -1,7 +1,18 @@
 type Token = { text: string; start: number; end: number };
-const relations = new Set([
-  'ai_sessions', 'ai_agent_messages', 'session_commits', 'queued_prompts', 'ai_session_wakeups',
+const workspaceColumns = new Map([
+  ['ai_sessions', 'workspace_id'],
+  ['worktrees', 'workspace_id'],
+  ['session_files', 'workspace_id'],
+  ['tracker_items', 'workspace'],
 ]);
+const parentRelations = new Map([
+  ['ai_agent_messages', { column: 'session_id', parent: 'ai_sessions' }],
+  ['session_commits', { column: 'session_id', parent: 'ai_sessions' }],
+  ['queued_prompts', { column: 'session_id', parent: 'ai_sessions' }],
+  ['ai_session_wakeups', { column: 'session_id', parent: 'ai_sessions' }],
+  ['tracker_body_cache', { column: 'item_id', parent: 'tracker_items' }],
+]);
+const relations = new Set([...workspaceColumns.keys(), ...parentRelations.keys()]);
 const expressions = new Set([
   'select', 'values', 'from', 'join', 'in', 'exists', 'not', 'where', 'having',
   'on', 'and', 'or', 'when', 'then', 'else', 'by', 'over', 'filter',
@@ -99,10 +110,19 @@ export function scopeBrowserExtensionQuery(sql: string, params: unknown[], works
   if (used.size === 0) return { sql, params };
 
   const schema = engine === 'sqlite' ? 'main' : 'public';
-  const scoped = [`ai_sessions AS (SELECT * FROM ${schema}.ai_sessions WHERE workspace_id = $${params.length + 1})`];
-  for (const table of used) {
-    if (table !== 'ai_sessions') {
-      scoped.push(`${table} AS (SELECT * FROM ${schema}.${table} WHERE session_id IN (SELECT id FROM ai_sessions))`);
+  const scoped = [];
+  for (const [table, { parent }] of parentRelations) {
+    if (used.has(table)) used.add(parent);
+  }
+  const workspaceMarker = `$${params.length + 1}`;
+  for (const [table, column] of workspaceColumns) {
+    if (used.has(table)) {
+      scoped.push(`${table} AS (SELECT * FROM ${schema}.${table} WHERE ${column} = ${workspaceMarker})`);
+    }
+  }
+  for (const [table, { column, parent }] of parentRelations) {
+    if (used.has(table)) {
+      scoped.push(`${table} AS (SELECT * FROM ${schema}.${table} WHERE ${column} IN (SELECT id FROM ${parent}))`);
     }
   }
   const body = tokens[0].text === 'with' ? sql.slice(tokens[0].end) : sql;
