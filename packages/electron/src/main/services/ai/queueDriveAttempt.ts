@@ -53,7 +53,7 @@ export interface QueueDriveAttemptDeps<W> {
  * keeps its existing "wait until the user opens the project" contract.
  */
 export function allowsAutoOpen(reason: DriveReason): boolean {
-  return reason === 'mobile-control' || reason === 'mobile-index' || reason === 'send-now';
+  return reason === 'mobile-control' || reason === 'mobile-index' || reason === 'send-now' || reason === 'browser-host';
 }
 
 export async function runQueueDriveAttempt<W>(

@@ -1,7 +1,9 @@
 import React, { lazy, Suspense, useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
 import { AgentTranscriptPanel } from '@nimbalyst/runtime/ui/AgentTranscript/components/AgentTranscriptPanel';
+import { pendingBrowserPermissions } from '../../shared/browserHost';
 import type { BrowserHostInfo, BrowserHostSession, BrowserHostSessionSummary } from '../../shared/browserHost';
+import { BrowserExtensions } from './BrowserExtensions';
 import '../index.css';
 import '../styles/components.css';
 import './browserHost.css';
@@ -9,15 +11,21 @@ import './browserHost.css';
 const BrowserPdf = lazy(() => import('./BrowserPdf'));
 
 async function request(token: string, path: string, init?: RequestInit): Promise<Response> {
+  const headers = new Headers(init?.headers);
+  headers.set('authorization', 'Bearer ' + token);
   const response = await fetch('/api' + path, {
     ...init,
-    headers: { authorization: 'Bearer ' + token },
+    headers,
   });
   if (!response.ok) {
     const data = await response.json() as { error?: string };
     throw new Error(data.error ?? 'Linux host request failed');
   }
   return response;
+}
+
+function postJson(input: unknown): RequestInit {
+  return { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) };
 }
 
 function useRefresh<T>(load: (signal: AbortSignal) => Promise<T>, apply: (data: T) => void, interval: number) {
@@ -51,8 +59,9 @@ function useRefresh<T>(load: (signal: AbortSignal) => Promise<T>, apply: (data: 
 
 function Session({ token, id }: { token: string; id: string }) {
   const [session, setSession] = useState<BrowserHostSession>();
-  const [interruption, setInterruption] = useState('');
-  const [interrupting, setInterrupting] = useState(false);
+  const [feedback, setFeedback] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [draft, setDraft] = useState('');
   const loadSession = React.useCallback(async (signal: AbortSignal) => {
     const response = await request(token, '/sessions/' + encodeURIComponent(id), { signal });
     const data = await response.json() as BrowserHostSession;
@@ -63,31 +72,58 @@ function Session({ token, id }: { token: string; id: string }) {
   }, [token, id]);
   const error = useRefresh(loadSession, setSession, 3000);
 
-  async function interrupt() {
-    setInterrupting(true);
-    setInterruption('');
+  async function mutate(action: string, init: RequestInit, message: string) {
+    setBusy(true);
+    setFeedback('');
     try {
-      await request(token, '/sessions/' + encodeURIComponent(id) + '/interrupt', { method: 'POST' });
-      setInterruption('Interrupt sent');
+      await request(token, '/sessions/' + encodeURIComponent(id) + '/' + action, init);
+      setFeedback(message);
+      return true;
     } catch (err) {
-      setInterruption(err instanceof Error ? err.message : 'Could not interrupt the session');
+      setFeedback(err instanceof Error ? err.message : 'Session request failed');
+      return false;
     } finally {
-      setInterrupting(false);
+      setBusy(false);
     }
   }
 
+  async function queuePrompt(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (await mutate('prompt', postJson({ prompt: draft }), 'Prompt queued')) setDraft('');
+  }
+
   if (!session) return <p role="status">{error || 'Loading session…'}</p>;
+  const permissions = pendingBrowserPermissions(session.messages);
   return (
     <section className="browser-host-session">
       <div className="browser-host-toolbar">
         <h2>{session.title ?? 'Untitled session'}</h2>
-        <button type="button" disabled={interrupting} onClick={() => void interrupt()}>Interrupt</button>
-        {interruption && <span role="status">{interruption}</span>}
+        <button type="button" disabled={busy}
+          onClick={() => void mutate('interrupt', { method: 'POST' }, 'Interrupt sent')}>Interrupt</button>
+        {feedback && <span role="status">{feedback}</span>}
       </div>
       {error && <p role="status">{error}</p>}
+      {permissions.map(({ requestId, toolName, rawCommand, patternDisplayName, warnings }) => (
+        <section className="browser-host-permission" key={requestId} aria-label={`Permission for ${toolName}`}>
+          <details>
+            <summary>Permission requested for {toolName}</summary>
+            <pre>{rawCommand || patternDisplayName}</pre>
+            {warnings?.map((warning) => <p key={warning}>{warning}</p>)}
+            <button type="button" disabled={busy} onClick={() => void mutate('permission',
+              postJson({ requestId, decision: 'allow' }), 'Permission granted for this request')}>Allow once</button>
+            <button type="button" disabled={busy} onClick={() => void mutate('permission',
+              postJson({ requestId, decision: 'deny' }), 'Permission denied')}>Deny</button>
+          </details>
+        </section>
+      ))}
       <div className="browser-host-transcript">
         <AgentTranscriptPanel sessionId={id} sessionData={session} hideSidebar />
       </div>
+      <form className="browser-host-toolbar" onSubmit={(event) => void queuePrompt(event)}>
+        <textarea aria-label="Prompt" placeholder="Send a prompt" value={draft} required maxLength={32000}
+          onChange={(event) => setDraft(event.target.value)} />
+        <button type="submit" disabled={busy || !draft.trim()}>Send</button>
+      </form>
     </section>
   );
 }
@@ -102,6 +138,7 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
   const error = useRefresh(loadSessions, setSessions, 6000);
   const sessionId = sessions.find(({ id }) => id === selected)?.id ?? sessions[0]?.id;
   const loadPdf = React.useCallback(async () => (await request(token, '/pdf')).arrayBuffer(), [token]);
+  const extensionRequest = React.useCallback((path: string, init?: RequestInit) => request(token, path, init), [token]);
 
   return (
     <main className="browser-host-workspace">
@@ -127,14 +164,11 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
           {sessionId && <Session key={sessionId} token={token} id={sessionId} />}
         </div>
       ) : (
-        <section className="browser-host-extension" aria-label="PDF Viewer">
-          <h2>PDF Viewer</h2>
-          {info.pdfName ? (
+        <BrowserExtensions request={extensionRequest} pdf={info.pdfName ? (
             <Suspense fallback={<p role="status">Loading PDF Viewer…</p>}>
               <BrowserPdf fileName={info.pdfName} loadPdf={loadPdf} />
             </Suspense>
-          ) : <p>No workspace PDF configured.</p>}
-        </section>
+          ) : null} />
       )}
     </main>
   );

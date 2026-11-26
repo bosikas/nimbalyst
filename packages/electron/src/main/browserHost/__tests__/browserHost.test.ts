@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createBrowserHostHandler, startBrowserHost } from '../browserHost';
+import type { BrowserHostSession } from '../../../shared/browserHost';
 
 const token = 'a'.repeat(64);
 let root: string;
@@ -28,17 +29,37 @@ afterEach(async () => {
 function setup() {
   const services = {
     listSessions: vi.fn(async () => [{ id: 'local', title: 'Local session' }]),
-    getSession: vi.fn(async (id: string) => id === 'local'
-      ? { id, provider: 'openai-codex', messages: [], createdAt: 1, updatedAt: 1 }
+    getSession: vi.fn(async (id: string): Promise<BrowserHostSession | null> => id === 'local'
+      ? {
+        id, provider: 'openai-codex', createdAt: 1, updatedAt: 1,
+        messages: [{
+          id: 1, sequence: 1, createdAt: new Date(), type: 'interactive_prompt', subagentId: null,
+          interactivePrompt: {
+            promptType: 'permission_request', requestId: 'pending', status: 'pending', toolName: 'Read',
+            rawCommand: 'read README.md', pattern: 'README.md', patternDisplayName: 'README.md',
+            isDestructive: false, warnings: [],
+          },
+        }],
+      }
       : null),
     interruptSession: vi.fn(async () => ({ success: true })),
+    queuePrompt: vi.fn(async () => {}),
+    respondToPermission: vi.fn(async () => ({ success: true })),
+    listExtensions: vi.fn(async () => [{ id: 'pdf-viewer', name: 'PDF Viewer', version: '1.0.0', enabled: true }]),
+    listAutomations: vi.fn(async () => 'No automations'),
+    createAutomation: vi.fn(async () => 'Automation scheduled'),
   };
   const handle = createBrowserHostHandler({ token, workspacePath, pdfPath: 'example.pdf', rendererPath }, services);
   const request = (path: string, method = 'GET', authorized = true) => handle(new Request(
     `http://127.0.0.1:17864${path}`,
     { method, headers: authorized ? { authorization: `Bearer ${token}` } : {} },
   ));
-  return { request, services, handle };
+  const post = (path: string, data: unknown) => handle(new Request(`http://127.0.0.1:17864${path}`, {
+    method: 'POST',
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+    body: JSON.stringify(data),
+  }));
+  return { request, post, services, handle };
 }
 
 describe('browser host', () => {
@@ -67,6 +88,40 @@ describe('browser host', () => {
     expect((await request('/api/sessions/local')).status).toBe(200);
     expect((await request('/api/sessions/local/interrupt', 'POST')).status).toBe(200);
     expect(services.interruptSession).toHaveBeenCalledWith('local');
+  });
+
+  it('queues only valid prompts for sessions in the selected workspace', async () => {
+    const { post, services } = setup();
+    expect((await post('/api/sessions/outside/prompt', { prompt: 'Run checks' })).status).toBe(404);
+    expect((await post('/api/sessions/local/prompt', { prompt: ' ' })).status).toBe(400);
+    expect((await post('/api/sessions/local/prompt', { prompt: 'x'.repeat(65_536) })).status).toBe(400);
+    expect((await post('/api/sessions/local/prompt', { prompt: '  Run checks  ' })).status).toBe(202);
+    expect(services.queuePrompt).toHaveBeenCalledExactlyOnceWith('local', 'Run checks');
+  });
+
+  it('answers pending permissions for the selected session only', async () => {
+    const { post, services } = setup();
+    expect((await post('/api/sessions/outside/permission', { requestId: 'pending', decision: 'allow' })).status).toBe(404);
+    expect((await post('/api/sessions/local/permission', { requestId: 'missing', decision: 'allow' })).status).toBe(409);
+    expect((await post('/api/sessions/local/permission', { requestId: 'pending', decision: 'always' })).status).toBe(400);
+    expect((await post('/api/sessions/local/permission', { requestId: 'pending', decision: 'deny' })).status).toBe(200);
+    expect(services.respondToPermission).toHaveBeenCalledExactlyOnceWith('local', 'pending', 'deny');
+  });
+
+  it('exposes installed extension status and forwards validated schedules only', async () => {
+    const { post, request, services } = setup();
+    expect((await request('/api/extensions', 'GET', false)).status).toBe(401);
+    expect(await (await request('/api/extensions')).json()).toEqual([
+      { id: 'pdf-viewer', name: 'PDF Viewer', version: '1.0.0', enabled: true },
+    ]);
+    expect(await (await request('/api/automations')).json()).toEqual({ text: 'No automations' });
+    const input = { title: 'Status', prompt: 'Summarize the project', type: 'weekly', time: '12:30' };
+    expect((await post('/api/automations', { ...input, days: ['holiday'] })).status).toBe(400);
+    expect((await post('/api/automations', { ...input, time: '99:00', days: ['mon'] })).status).toBe(400);
+    expect((await post('/api/automations', { ...input, days: ['mon', 'mon', 'fri'] })).status).toBe(201);
+    expect(services.createAutomation).toHaveBeenCalledExactlyOnceWith({
+      title: 'Status', prompt: 'Summarize the project', schedule: { type: 'weekly', time: '12:30', days: ['mon', 'fri'] },
+    });
   });
 
   it('rejects cross-origin requests, rebinding hosts, and a PDF symlink outside the workspace', async () => {

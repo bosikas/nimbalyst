@@ -26,6 +26,7 @@ export type DriveReason =
   | 'mobile-control'
   | 'mobile-index'
   | 'renderer-trigger'
+  | 'browser-host'
   | 'send-now'
   | 'meta-agent'
   | 'wakeup'

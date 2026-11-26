@@ -3,7 +3,11 @@ import { constants } from 'node:fs';
 import { open, readFile, realpath, stat } from 'node:fs/promises';
 import { createServer } from 'node:http';
 import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
-import type { BrowserHostInfo, BrowserHostSession, BrowserHostSessionSummary } from '../../shared/browserHost';
+import { Readable } from 'node:stream';
+import {
+  pendingBrowserPermissions, type BrowserHostApproval, type BrowserHostAutomation,
+  type BrowserHostExtension, type BrowserHostInfo, type BrowserHostSession, type BrowserHostSessionSummary,
+} from '../../shared/browserHost';
 
 export interface BrowserHostConfig {
   token: string;
@@ -16,9 +20,17 @@ export interface BrowserHostServices {
   listSessions: () => Promise<BrowserHostSessionSummary[]>;
   getSession: (id: string) => Promise<BrowserHostSession | null>;
   interruptSession: (id: string) => Promise<{ success: boolean }>;
+  queuePrompt: (id: string, prompt: string) => Promise<void>;
+  respondToPermission: (id: string, requestId: string, decision: BrowserHostApproval) => Promise<{ success: boolean }>;
+  listExtensions: () => Promise<BrowserHostExtension[]>;
+  listAutomations: () => Promise<string>;
+  createAutomation: (automation: BrowserHostAutomation) => Promise<string>;
 }
 
 const maxPdfBytes = 32 * 1024 * 1024;
+const maxBodyBytes = 64 * 1024;
+const scheduleTime = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
+const weekdays = new Set(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']);
 const loopbackHost = /^127\.0\.0\.1(?::\d{1,5})?$/;
 const assetPath = /^\/assets\/[\w][\w./-]*$/;
 const contentTypes: Record<string, string> = {
@@ -43,6 +55,45 @@ function json(data: unknown, status = 200): Response {
 
 function failure(error: string, status: number): Response {
   return json({ error }, status);
+}
+
+async function readBody(request: Request): Promise<Record<string, unknown> | null> {
+  if (!request.body || request.headers.get('content-type') !== 'application/json') return null;
+  const reader = request.body.getReader();
+  try {
+    let length = 0;
+    const chunks: Uint8Array[] = [];
+    for (let read = await reader.read(); !read.done; read = await reader.read()) {
+      length += read.value.length;
+      if (length > maxBodyBytes) return null;
+      chunks.push(read.value);
+    }
+    const value: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    return value && typeof value === 'object' && !Array.isArray(value)
+      ? value as Record<string, unknown>
+      : null;
+  } catch {
+    return null;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function parseAutomation(input: Record<string, unknown> | null): BrowserHostAutomation | null {
+  const title = typeof input?.title === 'string' ? input.title.trim() : '';
+  const prompt = typeof input?.prompt === 'string' ? input.prompt.trim() : '';
+  if (!input || !title || title.length > 120 || !prompt || prompt.length > 32_000) return null;
+  if (input.type === 'interval' && typeof input.minutes === 'number' &&
+      Number.isInteger(input.minutes) && input.minutes >= 1 && input.minutes <= 10_080) {
+    return { title, prompt, schedule: { type: 'interval', minutes: input.minutes } };
+  }
+  if (typeof input.time !== 'string' || !scheduleTime.test(input.time)) return null;
+  if (input.type === 'daily') return { title, prompt, schedule: { type: 'daily', time: input.time } };
+  if (input.type === 'weekly' && Array.isArray(input.days) && input.days.length > 0 &&
+      input.days.length <= 7 && input.days.every((day) => typeof day === 'string' && weekdays.has(day))) {
+    return { title, prompt, schedule: { type: 'weekly', time: input.time, days: [...new Set<string>(input.days)] } };
+  }
+  return null;
 }
 
 function isInside(root: string, filePath: string): boolean {
@@ -114,16 +165,52 @@ export function createBrowserHostHandler(config: BrowserHostConfig, services: Br
     if (request.method === 'GET' && pathname === '/api/pdf') {
       return readPdf(config);
     }
+    if (request.method === 'GET' && pathname === '/api/extensions') {
+      return json(await services.listExtensions());
+    }
+    if (pathname === '/api/automations') {
+      if (request.method !== 'GET' && request.method !== 'POST') return failure('Method denied', 405);
+      const automation = request.method === 'POST' ? parseAutomation(await readBody(request)) : null;
+      if (request.method === 'POST' && !automation) return failure('Invalid automation', 400);
+      try {
+        const text = automation
+          ? await services.createAutomation(automation)
+          : await services.listAutomations();
+        return json({ text }, automation ? 201 : 200);
+      } catch {
+        return failure('Open this workspace on the host and enable the Automations extension', 503);
+      }
+    }
 
-    const match = /^\/api\/sessions\/([\w-]{1,128})(\/interrupt)?$/.exec(pathname);
+    const match = /^\/api\/sessions\/([\w-]{1,128})(?:\/(interrupt|prompt|permission))?$/.exec(pathname);
     if (!match) return failure('Not found', 404);
-    const [, id, interrupt] = match;
-    if (request.method !== (interrupt ? 'POST' : 'GET')) return failure('Method denied', 405);
+    const [, id, action] = match;
+    if (request.method !== (action ? 'POST' : 'GET')) return failure('Method denied', 405);
     const session = await services.getSession(id);
     if (!session) return failure('Session unavailable', 404);
-    if (interrupt) {
+    if (action === 'interrupt') {
       const result = await services.interruptSession(id);
       return result.success ? json({ success: true }) : failure('Session could not be interrupted', 409);
+    }
+    if (action === 'prompt') {
+      const input = await readBody(request);
+      const prompt = typeof input?.prompt === 'string' ? input.prompt.trim() : '';
+      if (!prompt || prompt.length > 32_000) return failure('Invalid prompt', 400);
+      await services.queuePrompt(id, prompt);
+      return json({ success: true }, 202);
+    }
+    if (action === 'permission') {
+      const input = await readBody(request);
+      const requestId = input?.requestId;
+      const decision = input?.decision;
+      if (typeof requestId !== 'string' || (decision !== 'allow' && decision !== 'deny')) {
+        return failure('Invalid permission response', 400);
+      }
+      if (!pendingBrowserPermissions(session.messages).some((prompt) => prompt.requestId === requestId)) {
+        return failure('Permission request is no longer pending', 409);
+      }
+      const result = await services.respondToPermission(id, requestId, decision);
+      return result.success ? json({ success: true }) : failure('Permission response could not be delivered', 409);
     }
 
     const { title, provider, messages, createdAt, updatedAt } = session;
@@ -175,7 +262,6 @@ export async function startBrowserHost(
   }, createServices(workspacePath));
 
   const server = createServer(async (request, response) => {
-    request.resume();
     const host = request.headers.host ?? '';
     let result: Response;
     try {
@@ -186,15 +272,21 @@ export async function startBrowserHost(
         if (!target.startsWith('/') || target.startsWith('//') || target.includes('\\')) {
           result = failure('Invalid request path', 400);
         } else {
-          result = await handle(new Request('http://' + host + target, {
+          const init: RequestInit & { duplex?: 'half' } = {
             method: request.method,
             headers: request.headers as HeadersInit,
-          }));
+          };
+          if (request.method === 'POST' && request.headers['content-type'] === 'application/json') {
+            init.body = Readable.toWeb(request) as ReadableStream<Uint8Array>;
+            init.duplex = 'half';
+          }
+          result = await handle(new Request('http://' + host + target, init));
         }
       }
     } catch {
       result = failure('Linux host request failed', 500);
     }
+    request.resume();
     response.writeHead(result.status, Object.fromEntries(result.headers));
     response.end(Buffer.from(await result.arrayBuffer()));
   });

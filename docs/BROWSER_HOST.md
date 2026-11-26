@@ -1,6 +1,6 @@
-# Browser host prototype
+# Browser host
 
-Nimbalyst Desktop serves an opt-in browser workspace while the host app is running. Use it to list sessions, read transcripts with periodic refresh, interrupt an active turn, or open a workspace PDF in the PDF Viewer. Connect from another computer through an SSH tunnel to the host.
+Nimbalyst Desktop serves an opt-in browser workspace while the host app is running. Connect from another computer through an SSH tunnel to read transcripts, send prompts, interrupt turns, and answer tool permissions. The Extensions view shows installed extensions and opens a configured workspace file with PDF Viewer.
 
 Create a private configuration file on the Linux PC. Generate the access token with `openssl rand -hex 32` and set the file mode to `600`.
 
@@ -28,3 +28,7 @@ ssh -N -L 17864:127.0.0.1:17864 you@linux-pc
 ```
 
 The browser keeps the token in memory until you disconnect or close the page.
+
+## Schedule automations
+
+Keep the configured workspace open in Nimbalyst on Linux with the Automations extension enabled. In the browser, open **Extensions → Automations** to view schedules and create daily, weekly, or interval runs. Daily and weekly times use the Linux host's time zone. The existing extension stores schedules in the workspace and runs them while the host app is open, including when the browser is disconnected.

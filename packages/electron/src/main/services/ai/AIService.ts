@@ -79,6 +79,9 @@ import { registerQueuedPromptHandlers } from './ipc/registerQueuedPromptHandlers
 import { registerInteractivePromptHandlers } from './ipc/registerInteractivePromptHandlers';
 import { registerTurnControlHandlers } from './ipc/registerTurnControlHandlers';
 import type { BrowserHostServices } from '../../browserHost/browserHost';
+import { randomUUID } from 'node:crypto';
+import { handleExtensionTool } from '../../mcp/tools/extensionToolHandler';
+import { scanInstalledExtensions } from '../extensionInventory';
 import { registerSettingsHandlers } from './ipc/registerSettingsHandlers';
 import { registerModelHandlers } from './ipc/registerModelHandlers';
 import { registerProjectSettingsHandlers } from './ipc/registerProjectSettingsHandlers';
@@ -506,6 +509,12 @@ export class AIService {
    * Meta-agent interrupts leave it unset.
    */
   public getBrowserHostServices(workspacePath: string): BrowserHostServices {
+    const automation = async (action: 'list' | 'create', input: Record<string, unknown> = {}) => {
+      const name = `automations.${action}`;
+      const result = await handleExtensionTool(name, name, input, undefined, workspacePath);
+      if (result.isError) throw new Error(`Automations extension could not ${action}`);
+      return result.content.map(({ text }) => text).join('\n');
+    };
     return {
       listSessions: () => this.sessionManager.getSessionList(workspacePath),
       getSession: async (id) => {
@@ -515,6 +524,26 @@ export class AIService {
         return { ...session, messages };
       },
       interruptSession: (id) => this.interruptCurrentTurn(id),
+      queuePrompt: async (id, prompt) => {
+        await this.queuePromptForSession(id, prompt);
+        this.requestQueueDrive(id, workspacePath, 'browser-host');
+      },
+      respondToPermission: (sessionId, promptId, decision) => this.respondToInteractivePrompt({
+        sessionId, promptId, promptType: 'permission_request', response: { decision, scope: 'once' },
+      }),
+      listExtensions: async () => (await scanInstalledExtensions()).map(({ id, name, version, enabled }) => ({
+        id, name, version, enabled,
+      })),
+      listAutomations: () => automation('list'),
+      createAutomation: ({ title, prompt, schedule }) => automation('create', {
+        id: `browser-${randomUUID()}`,
+        title,
+        prompt,
+        enabled: true,
+        schedule_type: schedule.type,
+        ...(schedule.type === 'interval' ? { interval_minutes: schedule.minutes } : { time: schedule.time }),
+        ...(schedule.type === 'weekly' ? { days: schedule.days.join(',') } : {}),
+      }),
     };
   }
 

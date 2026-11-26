@@ -229,17 +229,23 @@ describe('OpenAICodexProvider app-server lifecycle retention', () => {
     const thirdTurnGate = new Promise<void>((resolve) => {
       releaseThirdTurn = resolve;
     });
-    let activeTurnsStarted = 0;
-    let markBothTurnsStarted!: () => void;
-    const bothTurnsStarted = new Promise<void>((resolve) => {
-      markBothTurnsStarted = resolve;
+    let markSecondTurnStarted!: () => void;
+    const secondTurnStarted = new Promise<void>((resolve) => {
+      markSecondTurnStarted = resolve;
+    });
+    let markThirdTurnStarted!: () => void;
+    const thirdTurnStarted = new Promise<void>((resolve) => {
+      markThirdTurnStarted = resolve;
     });
     const h = createHarness({
       beforeTurnCompletes: (turnCount) => {
         if (turnCount < 2) return undefined;
-        activeTurnsStarted++;
-        if (activeTurnsStarted === 2) markBothTurnsStarted();
-        return turnCount === 2 ? secondTurnGate : thirdTurnGate;
+        if (turnCount === 2) {
+          markSecondTurnStarted();
+          return secondTurnGate;
+        }
+        markThirdTurnStarted();
+        return thirdTurnGate;
       },
     });
     await h.provider.initialize({ apiKey: 'test-key', model: 'openai-codex:gpt-5' });
@@ -248,8 +254,11 @@ describe('OpenAICodexProvider app-server lifecycle retention', () => {
       await drainTurn(h.provider, 'establish cached child');
 
       const secondTurn = drainTurn(h.provider, 'overlap one');
+      // Hold the second turn in the protocol before starting the third. Their
+      // asynchronous setup can otherwise reach the protocol in either order.
+      await secondTurnStarted;
       const thirdTurn = drainTurn(h.provider, 'overlap two');
-      await bothTurnsStarted;
+      await thirdTurnStarted;
 
       releaseSecondTurn();
       await secondTurn;
@@ -263,6 +272,8 @@ describe('OpenAICodexProvider app-server lifecycle retention', () => {
       h.idleScheduler.advanceBy(1);
       expect(h.cleanupSession).toHaveBeenCalledTimes(1);
     } finally {
+      releaseSecondTurn();
+      releaseThirdTurn();
       h.provider.destroy();
     }
   });

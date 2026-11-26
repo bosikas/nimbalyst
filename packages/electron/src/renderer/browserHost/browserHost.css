@@ -90,3 +90,55 @@
   min-height: 0;
   overflow: hidden;
 }
+
+.browser-host-toolbar textarea {
+  flex: 1;
+}
+
+.browser-host-permission {
+  padding: .5rem 1rem;
+  max-height: 30vh;
+  overflow: auto;
+  border-bottom: 1px solid var(--nim-border);
+}
+
+.browser-host-permission pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.browser-host-automations {
+  padding: 1rem;
+  overflow-y: auto;
+}
+
+.browser-host-automations form {
+  display: grid;
+  justify-items: start;
+  gap: .75rem;
+  max-width: 32rem;
+}
+
+.browser-host-automations form > label {
+  display: grid;
+  gap: .25rem;
+  width: 100%;
+}
+
+.browser-host-automations fieldset label {
+  display: inline-block;
+  padding-right: .5rem;
+}
+
+.browser-host-automations pre {
+  white-space: pre-wrap;
+}
+
+.browser-host-automations input:not([type="checkbox"]),
+.browser-host-automations select,
+.browser-host-workspace textarea {
+  border: 1px solid var(--nim-border);
+  border-radius: 6px;
+  padding: .4rem .75rem;
+  background: var(--nim-bg-secondary);
+}
