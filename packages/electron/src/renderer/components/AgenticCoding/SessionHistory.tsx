@@ -227,7 +227,13 @@ function compareUnifiedItems(a: UnifiedListItem, b: UnifiedListItem) {
  * longer wired through this component (the chat surface lives elsewhere
  * now); we keep the constant for code paths that still branch on it.
  */
-const SessionHistoryComponent: React.FC = () => {
+interface SessionHistoryBrowserActions {
+  openSession(id: string): void;
+  createSession(): Promise<unknown>;
+  refresh(): void;
+}
+
+const SessionHistoryComponent: React.FC<{ browser?: SessionHistoryBrowserActions }> = ({ browser }) => {
   const workspacePath = useAtomValue(activeWorkspacePathAtom) ?? '';
   const activeSessionId = useAtomValue(globalActiveSessionIdAtom);
   const collapsedGroups = useAtomValue(collapsedGroupsAtom);
@@ -242,7 +248,7 @@ const SessionHistoryComponent: React.FC = () => {
   const onSortOrderChange = setSortOrderAction;
   // `undefined` until the probe resolves. Gate on an explicit `false` so a
   // not-yet-answered probe never reads as "not a git repository".
-  const isGitRepo = useGitRepoProbe(workspacePath);
+  const isGitRepo = useGitRepoProbe(browser ? undefined : workspacePath);
   const isNotGitRepo = isGitRepo === false;
   const isWorktreesFeatureAvailable = useAtomValue(worktreesFeatureAvailableAtom);
   // The repo a new worktree branches from -- the same one `createWorktreeSession`
@@ -287,13 +293,15 @@ const SessionHistoryComponent: React.FC = () => {
   // TypeScript would narrow these to "always defined" and flag every
   // existing guard as a tautology (TS2774).
   const onSessionSelect: ((sessionId: string) => void) | undefined = useCallback((sessionId: string) => {
+    if (browser) return browser.openSession(sessionId);
     void dispatchSelectSession(sessionId);
-  }, [dispatchSelectSession]);
+  }, [browser, dispatchSelectSession]);
   const onChildSessionSelect: ((childSessionId: string, parentId: string, parentType: 'workstream' | 'worktree') => void) | undefined = useCallback(
     (childSessionId: string, parentId: string, parentType: 'workstream' | 'worktree') => {
+      if (browser) return browser.openSession(childSessionId);
       void dispatchSelectChildSession({ childSessionId, parentId, parentType });
     },
-    [dispatchSelectChildSession],
+    [browser, dispatchSelectChildSession],
   );
   const onSessionDelete: ((sessionId: string) => void) | undefined = useCallback((sessionId: string) => {
     void dispatchDeleteSession(sessionId);
@@ -309,9 +317,13 @@ const SessionHistoryComponent: React.FC = () => {
     void dispatchBranchSession(sessionId);
   }, [dispatchBranchSession]);
   const onNewSession = useCallback(async (policy?: { generateSummary?: boolean; autoArchiveAfterMinutes?: number; instructionFile?: string; skipDefaultInstructions?: boolean }) => {
+    if (browser) {
+      await browser.createSession();
+      return;
+    }
     const id = await dispatchCreateNewSession({ ...policy, launchSource: 'session_history', intoSelectedWorkstream: true });
     if (!id && policy) throw new Error('Could not create the session. Check the instruction file and selected provider.');
-  }, [dispatchCreateNewSession]);
+  }, [browser, dispatchCreateNewSession]);
   const dispatchCreateWorkstream = useSetAtom(createWorkstreamAtom);
   const onNewWorkstream = useCallback(() => {
     if (!workspacePath) return;
@@ -667,6 +679,10 @@ const SessionHistoryComponent: React.FC = () => {
   // The atom handles IPC calls and state updates
   const loadAllSessions = useCallback(async () => {
     setError(null);
+    if (browser) {
+      browser.refresh();
+      return;
+    }
     try {
       await refreshSessions();
       // Restore scroll position after update
@@ -679,7 +695,7 @@ const SessionHistoryComponent: React.FC = () => {
       console.error('[SessionHistory] Failed to load sessions:', err);
       setError('Failed to load sessions');
     }
-  }, [refreshSessions]);
+  }, [browser, refreshSessions]);
 
   // Execute the actual search query
   const executeSearch = async (query: string, filters: SearchFilters = searchFilters) => {
@@ -730,7 +746,7 @@ const SessionHistoryComponent: React.FC = () => {
 
   // Search message content in database (heavy operation)
   // Checks if FTS index exists and prompts user to build if needed for large databases
-  const searchMessageContent = (query: string) => runWorkspaceGuardedRequest({
+  const searchMessageContent = (query: string) => browser ? executeSearch(query) : runWorkspaceGuardedRequest({
     isCurrent: trackWorkspaceRequest(),
     // Check FTS index status before searching
     request: () => window.electronAPI.ai.getFtsIndexStatus(workspacePath),
@@ -2511,7 +2527,7 @@ const SessionHistoryComponent: React.FC = () => {
 
   // Fetch blitz sessions (ai_sessions with session_type='blitz') for this workspace
   const fetchBlitzes = useCallback(async () => {
-    if (!workspacePath) return;
+    if (!workspacePath || browser) return;
     try {
       const result = await window.electronAPI.invoke('blitz:list', workspacePath);
       if (result.success && result.blitzes) {
@@ -2533,7 +2549,7 @@ const SessionHistoryComponent: React.FC = () => {
     } catch (err) {
       console.error('[SessionHistory] Failed to fetch blitzes:', err);
     }
-  }, [workspacePath]);
+  }, [browser, workspacePath]);
 
   // Initial fetch on workspace change.
   useEffect(() => {

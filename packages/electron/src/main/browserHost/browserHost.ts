@@ -6,7 +6,8 @@ import { basename, extname, isAbsolute, join, relative, resolve, sep } from 'nod
 import { Readable } from 'node:stream';
 import {
   pendingBrowserPermissions, type BrowserHostApproval, type BrowserHostAutomation,
-  type BrowserHostExtension, type BrowserHostInfo, type BrowserHostSession, type BrowserHostSessionSummary,
+  type BrowserHostExtension, type BrowserHostInfo, type BrowserHostSession,
+  type BrowserHostSessionHistory, type BrowserHostSessionSummary,
 } from '../../shared/browserHost';
 
 export interface BrowserHostConfig {
@@ -19,6 +20,8 @@ export interface BrowserHostConfig {
 export interface BrowserHostServices {
   getAppearance?: () => Promise<BrowserHostInfo['appearance']>;
   listSessions: () => Promise<BrowserHostSessionSummary[]>;
+  listSessionHistory?: () => Promise<BrowserHostSessionHistory>;
+  invokeSessionHistory?: (channel: string, args: unknown[]) => Promise<unknown>;
   getSession: (id: string) => Promise<BrowserHostSession | null>;
   interruptSession: (id: string) => Promise<{ success: boolean }>;
   queuePrompt: (id: string, prompt: string) => Promise<void>;
@@ -176,6 +179,20 @@ export function createBrowserHostHandler(config: BrowserHostConfig, services: Br
     if (request.method === 'GET' && pathname === '/api/sessions') {
       const sessions = await services.listSessions();
       return json(sessions.map(({ id, title }) => ({ id, title })));
+    }
+    if (request.method === 'GET' && pathname === '/api/session-history' && services.listSessionHistory) {
+      return json(await services.listSessionHistory());
+    }
+    if (request.method === 'POST' && pathname === '/api/session-history/command' && services.invokeSessionHistory) {
+      const input = await readBody(request);
+      if (typeof input?.channel !== 'string' || !Array.isArray(input.args) || input.args.length > 4) {
+        return failure('Invalid Sessions command', 400);
+      }
+      try {
+        return json({ result: await services.invokeSessionHistory(input.channel, input.args) });
+      } catch (error) {
+        return failure(error instanceof Error ? error.message : 'Sessions command failed', 400);
+      }
     }
     if (request.method === 'GET' && pathname === '/api/pdf') {
       return readPdf(config);

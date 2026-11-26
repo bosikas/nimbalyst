@@ -389,7 +389,7 @@ Companion app; pairs with a desktop over encrypted sync. Voice mode is not inclu
 
 ### Browser Host
 
-- Opt-in browser access to desktop workspaces over a private connection, with a separate port and token for each workspace. View session transcripts, send prompts, interrupt turns, and grant or deny tool permissions using the host's selected theme. The icon rail opens installed extension panels with host-stored preferences, supported session and worktree controls, and catalog-authorized session data reads scoped to the connected workspace. Open a configured workspace PDF and create recurring schedules in the host's Automations extension. See [Browser host setup](./BROWSER_HOST.md).
+- Opt-in browser access to desktop workspaces over a private connection, with a separate port and token for each workspace. Use the desktop session history tree, search, filters, and list options in the browser. View session transcripts, send prompts, interrupt turns, and grant or deny tool permissions using the host's selected theme. The icon rail opens installed extension panels with host-stored preferences, supported session and worktree controls, and catalog-authorized session data reads scoped to the connected workspace. Open a configured workspace PDF and create recurring schedules in the host's Automations extension. See [Browser host setup](./BROWSER_HOST.md).
 
 ### Web Console
 

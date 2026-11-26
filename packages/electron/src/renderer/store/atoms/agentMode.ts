@@ -354,6 +354,8 @@ function schedulePersist(workspacePath: string, layout: AgentModeLayout): void {
 /**
  * Update session history layout with partial values.
  */
+export const persistSessionHistoryLayoutAtom = atom(true);
+
 export const setSessionHistoryLayoutAtom = atom(
   null,
   (get, set, updates: Partial<SessionHistoryLayout>) => {
@@ -365,6 +367,8 @@ export const setSessionHistoryLayoutAtom = atom(
     };
 
     set(agentModeLayoutAtom, newLayout);
+
+    if (!get(persistSessionHistoryLayoutAtom)) return;
 
     if (!workspacePath) {
       console.warn('[agentMode] Cannot persist layout - no active workspace');

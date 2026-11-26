@@ -4,6 +4,8 @@ Nimbalyst Desktop serves opt-in browser workspaces while the host app is running
 
 Create a private configuration file on the Linux PC. Generate the access token with `openssl rand -hex 32` and set the file mode to `600`.
 
+The browser Sessions tab uses the desktop session history, including its tree, search, filters, and list options. The Linux host supplies the session list and handles supported commands such as creating, renaming, pinning, and archiving sessions. The browser refreshes session data automatically while the tab is visible.
+
 ```json
 {
   "workspacePath": "/home/you/projects/example",

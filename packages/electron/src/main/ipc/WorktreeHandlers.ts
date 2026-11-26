@@ -887,7 +887,7 @@ export function registerWorktreeHandlers(): void {
    * @param worktreeIds - Array of worktree IDs to fetch
    * @returns Map of worktree ID to worktree data with status
    */
-  ipcMain.handle('worktree:get-batch', async (_event, worktreeIds: string[]) => {
+  registerBrowserPanelCommand('worktree:get-batch', async (_event, worktreeIds: string[]) => {
     try {
       if (!worktreeIds || !Array.isArray(worktreeIds)) {
         throw new Error('worktreeIds must be an array');

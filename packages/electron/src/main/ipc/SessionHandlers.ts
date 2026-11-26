@@ -461,7 +461,7 @@ export async function registerSessionHandlers() {
     }
 
     // List child sessions for a parent session
-    safeHandle('sessions:list-children', async (
+    registerBrowserPanelCommand('sessions:list-children', async (
         event,
         parentSessionId: string,
         workspacePath: string,
@@ -678,7 +678,7 @@ export async function registerSessionHandlers() {
     });
 
     // Search sessions for workspace (full content search)
-    safeHandle('sessions:search', async (event, workspacePath: string, query: string, options?: {
+    registerBrowserPanelCommand('sessions:search', async (event, workspacePath: string, query: string, options?: {
         includeArchived?: boolean;
         timeRange?: '7d' | '30d' | '90d' | 'all';
         direction?: 'all' | 'input' | 'output';
@@ -746,7 +746,7 @@ export async function registerSessionHandlers() {
     });
 
     // Update session pinned status
-    safeHandle('sessions:update-pinned', async (_event, sessionId: string, isPinned: boolean) => {
+    registerBrowserPanelCommand('sessions:update-pinned', async (_event, sessionId: string, isPinned: boolean) => {
         try {
             await AISessionsRepository.updateMetadata(sessionId, { isPinned } as any);
             return { success: true };

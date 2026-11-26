@@ -1,6 +1,7 @@
 // @vitest-environment node
 import { beforeEach, expect, it, vi } from 'vitest';
 import { invokeBrowserPanel } from '../browserPanelBridge';
+import { invokeBrowserSessionHistory } from '../browserSessionHistory';
 
 const mocks = vi.hoisted(() => ({
   extension: vi.fn(),
@@ -40,6 +41,20 @@ vi.mock('@nimbalyst/runtime/storage/repositories/AISessionsRepository', () => ({
 }));
 
 const dispatch = (channel: string, args: unknown[]) => invokeBrowserPanel('/workspace', 'archive', channel, args);
+const sessionHistory = (channel: string, args: unknown[]) => invokeBrowserSessionHistory('/workspace', channel, args, 'codex');
+
+it('runs native Sessions operations only against the connected workspace', async () => {
+  mocks.getSession.mockResolvedValue({ workspacePath: '/other' });
+  await expect(sessionHistory('sessions:update-title', ['other', 'Renamed'])).rejects.toThrow('Session not found');
+  await expect(sessionHistory('sessions:search', ['/other', 'session'])).rejects.toThrow('Invalid session search');
+  await expect(sessionHistory('extension:exec', ['command'])).rejects.toThrow('unavailable');
+  expect(mocks.invoke).not.toHaveBeenCalled();
+
+  mocks.getSession.mockResolvedValue({ workspacePath: '/workspace' });
+  mocks.invoke.mockResolvedValue({ success: true });
+  await sessionHistory('sessions:update-metadata', ['local', { isArchived: true, workspaceId: '/other' }]);
+  expect(mocks.invoke).toHaveBeenCalledWith('sessions:update-metadata', mocks.sender, ['local', { isArchived: true }]);
+});
 
 beforeEach(() => {
   vi.resetAllMocks();

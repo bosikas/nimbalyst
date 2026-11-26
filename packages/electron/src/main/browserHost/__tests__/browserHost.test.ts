@@ -151,6 +151,20 @@ describe('browser host', () => {
     expect(await (await request('/api/pdf')).text()).toBe('%PDF-1.4');
   });
 
+  it('serves the native session list model only after authentication', async () => {
+    const { request, services } = setup();
+    const history = [{
+      id: 'local', title: 'Local session', provider: 'codex', sessionType: 'session',
+      workspaceId: '/example', worktreeId: null, parentSessionId: null,
+      childCount: 0, uncommittedCount: 0, createdAt: 1, updatedAt: 2,
+      messageCount: 0, isArchived: false, isPinned: true,
+    }];
+    Object.assign(services, { listSessionHistory: vi.fn(async () => history) });
+    expect((await request('/api/session-history', 'GET', false)).status).toBe(401);
+    expect(await (await request('/api/session-history')).json()).toEqual(history);
+    expect(services.listSessions).not.toHaveBeenCalled();
+  });
+
   it('checks workspace membership before sending an interrupt', async () => {
     const { request, services } = setup();
     expect((await request('/api/sessions/outside', 'GET')).status).toBe(404);

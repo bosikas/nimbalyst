@@ -79,6 +79,7 @@ import { registerQueuedPromptHandlers } from './ipc/registerQueuedPromptHandlers
 import { registerInteractivePromptHandlers } from './ipc/registerInteractivePromptHandlers';
 import { registerTurnControlHandlers } from './ipc/registerTurnControlHandlers';
 import type { BrowserHostServices } from '../../browserHost/browserHost';
+import { invokeBrowserSessionHistory } from '../../browserHost/browserSessionHistory';
 import { randomUUID } from 'node:crypto';
 import { handleExtensionTool } from '../../mcp/tools/extensionToolHandler';
 import { getBrowserAppearance } from '../../browserHost/browserAppearance';
@@ -520,6 +521,9 @@ export class AIService {
     return {
       getAppearance: getBrowserAppearance,
       listSessions: () => this.sessionManager.getSessionList(workspacePath),
+      listSessionHistory: () => AISessionsRepository.list(workspacePath, { includeArchived: true }),
+      invokeSessionHistory: (channel, args) =>
+        invokeBrowserSessionHistory(workspacePath, channel, args, this.getSettingsStore().get('defaultProvider', 'claude-code')),
       getSession: async (id) => {
         const session = await AISessionsRepository.get(id);
         if (session?.workspacePath !== workspacePath) return null;

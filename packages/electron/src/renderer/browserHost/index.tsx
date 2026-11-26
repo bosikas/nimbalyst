@@ -3,7 +3,7 @@ import type { PanelHostComponents, PanelSessionTranscriptProps } from '@nimbalys
 import { createRoot } from 'react-dom/client';
 import { AgentTranscriptPanel } from '@nimbalyst/runtime/ui/AgentTranscript/components/AgentTranscriptPanel';
 import { pendingBrowserPermissions } from '../../shared/browserHost';
-import type { BrowserHostInfo, BrowserHostSession, BrowserHostSessionSummary } from '../../shared/browserHost';
+import type { BrowserHostInfo, BrowserHostSession, BrowserHostSessionHistory } from '../../shared/browserHost';
 import { getTheme, registerThemeContribution } from '@nimbalyst/runtime';
 import { applyThemeToDOM } from '../hooks/useTheme';
 import { AIInput } from '../components/UnifiedAI/AIInput';
@@ -13,6 +13,7 @@ import '../styles/components.css';
 import './browserHost.css';
 
 const BrowserPdf = lazy(() => import('./BrowserPdf'));
+const BrowserSessionHistory = lazy(() => import('./BrowserSessionHistory'));
 
 async function request(token: string, path: string, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers);
@@ -160,18 +161,20 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
       void applyThemeToDOM('system');
     };
   }, [info.appearance]);
-  const [sessions, setSessions] = useState<BrowserHostSessionSummary[]>([]);
+  const [sessions, setSessions] = useState<BrowserHostSessionHistory>();
+  const [revision, setRevision] = useState(0);
+  const refreshHistory = React.useCallback(() => setRevision((value) => value + 1), []);
   const [selected, setSelected] = useState('');
   const panelComponents = React.useMemo<PanelHostComponents>(() => ({
     SessionTranscript({ sessionId, collapseTranscript, className }: PanelSessionTranscriptProps) {
       return <Session key={sessionId} token={token} id={sessionId} collapseTranscript={collapseTranscript} className={className} />;
     },
   }), [token]);
-  const loadSessions = React.useCallback(async (signal: AbortSignal) => (
-    await request(token, '/sessions', { signal })
-  ).json() as Promise<BrowserHostSessionSummary[]>, [token]);
+  const loadSessions = React.useMemo(() => async (signal: AbortSignal) => (
+    await request(token, '/session-history', { signal })
+  ).json() as Promise<BrowserHostSessionHistory>, [token, revision]);
   const error = useRefresh(loadSessions, setSessions, 6000);
-  const sessionId = sessions.find(({ id }) => id === selected)?.id ?? sessions[0]?.id;
+  const sessionId = selected || sessions?.find((session) => !session.isArchived)?.id;
   const loadPdf = React.useCallback(async () => (await request(token, '/pdf')).arrayBuffer(), [token]);
   const extensionRequest = React.useCallback((path: string, init?: RequestInit) => request(token, path, init), [token]);
 
@@ -188,14 +191,13 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
           </Suspense>
         ) : null}>
         <div className="browser-host-sessions">
-          <aside aria-label="Sessions">
+          <aside className="browser-host-session-history" aria-label="Sessions">
             {error && <p role="status">{error}</p>}
-            {sessions.length === 0 && !error && <p>No sessions</p>}
-            {sessions.map(({ id, title }) => (
-              <button type="button" key={id} aria-current={id === sessionId} onClick={() => setSelected(id)}>
-                {title || 'Untitled session'}
-              </button>
-            ))}
+            {!sessions && !error && <p role="status">Loading sessions…</p>}
+            {sessions && <Suspense fallback={<p role="status">Loading sessions…</p>}>
+              <BrowserSessionHistory workspacePath={info.workspacePath ?? ''} sessions={sessions}
+                selected={sessionId ?? null} openSession={setSelected} refresh={refreshHistory} request={extensionRequest} />
+            </Suspense>}
           </aside>
           {sessionId && <Session key={sessionId} token={token} id={sessionId} />}
         </div>

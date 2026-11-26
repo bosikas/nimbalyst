@@ -1,10 +1,13 @@
 import type { SessionData } from '@nimbalyst/runtime/ai/server/types';
+import type { SessionMeta } from '@nimbalyst/runtime/ai/adapters/sessionStore';
 import type { ThemeContribution } from '@nimbalyst/extension-sdk';
 
 export interface BrowserHostSessionSummary {
   id: string;
   title: string;
 }
+
+export type BrowserHostSessionHistory = SessionMeta[];
 
 export type BrowserHostSession = Pick<SessionData, 'id' | 'provider' | 'title' | 'messages' | 'createdAt' | 'updatedAt'>;
 
