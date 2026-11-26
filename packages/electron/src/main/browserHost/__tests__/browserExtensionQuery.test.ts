@@ -21,18 +21,21 @@ it('scopes worktree joins, graph session files and tracker bodies', () => {
       CREATE TABLE session_files(id TEXT, workspace_id TEXT);
       CREATE TABLE tracker_items(id TEXT, workspace TEXT);
       CREATE TABLE tracker_body_cache(item_id TEXT, content TEXT);
+      CREATE TABLE tracker_type_defs(type TEXT, workspace TEXT);
       INSERT INTO ai_sessions VALUES ('local', '/workspace', 'worktree'), ('other', '/other', 'worktree');
       INSERT INTO worktrees VALUES ('worktree', '/workspace', 'inside'), ('worktree', '/other', 'outside');
       INSERT INTO session_files VALUES ('file', '/workspace'), ('outside-file', '/other');
       INSERT INTO tracker_items VALUES ('local-issue', '/workspace'), ('outside-issue', '/other');
       INSERT INTO tracker_body_cache VALUES ('local-issue', 'local body'), ('outside-issue', 'other body');
+      INSERT INTO tracker_type_defs VALUES ('local type', '/workspace'), ('other type', '/other');
     `);
     const { sql, params } = scopeBrowserExtensionQuery(`
       SELECT w.path FROM ai_sessions s LEFT JOIN worktrees w ON w.id = s.worktree_id
       UNION ALL SELECT id FROM session_files
       UNION ALL SELECT content FROM tracker_body_cache
+      UNION ALL SELECT type FROM tracker_type_defs
     `, [], '/workspace', 'sqlite');
-    expect(db.prepare(sql).pluck().all({ 1: params[0] })).toEqual(['inside', 'file', 'local body']);
+    expect(db.prepare(sql).pluck().all({ 1: params[0] })).toEqual(['inside', 'file', 'local body', 'local type']);
   } finally {
     db.close();
   }

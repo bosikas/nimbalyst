@@ -1,4 +1,5 @@
 import React, { lazy, Suspense, useEffect, useState } from 'react';
+import type { PanelHostComponents, PanelSessionTranscriptProps } from '@nimbalyst/extension-sdk';
 import { createRoot } from 'react-dom/client';
 import { AgentTranscriptPanel } from '@nimbalyst/runtime/ui/AgentTranscript/components/AgentTranscriptPanel';
 import { pendingBrowserPermissions } from '../../shared/browserHost';
@@ -60,7 +61,9 @@ function useRefresh<T>(load: (signal: AbortSignal) => Promise<T>, apply: (data: 
   return error;
 }
 
-function Session({ token, id }: { token: string; id: string }) {
+function Session({ token, id, collapseTranscript, className }: {
+  token: string; id: string; collapseTranscript?: boolean; className?: string;
+}) {
   const [session, setSession] = useState<BrowserHostSession>();
   const [feedback, setFeedback] = useState('');
   const [busy, setBusy] = useState(false);
@@ -105,7 +108,7 @@ function Session({ token, id }: { token: string; id: string }) {
   if (!session) return <p role="status">{error || 'Loading session…'}</p>;
   const permissions = pendingBrowserPermissions(session.messages);
   return (
-    <section className="browser-host-session">
+    <section className={className ? `browser-host-session ${className}` : 'browser-host-session'}>
       <div className="browser-host-toolbar">
         <h2>{session.title ?? 'Untitled session'}</h2>
         <button type="button" disabled={busy}
@@ -126,9 +129,9 @@ function Session({ token, id }: { token: string; id: string }) {
           </details>
         </section>
       ))}
-      <div className="browser-host-transcript">
+      {!collapseTranscript && <div className="browser-host-transcript">
         <AgentTranscriptPanel sessionId={id} sessionData={session} hideSidebar />
-      </div>
+      </div>}
       <AIInput value={draft} onChange={setDraft} onSend={(value) => void queuePrompt(value)}
         placeholder="Send a prompt" disabled={busy} remoteSession enableSlashCommands={false}
         sessionHasMessages={session.messages.length > 0} />
@@ -159,6 +162,11 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
   }, [info.appearance]);
   const [sessions, setSessions] = useState<BrowserHostSessionSummary[]>([]);
   const [selected, setSelected] = useState('');
+  const panelComponents = React.useMemo<PanelHostComponents>(() => ({
+    SessionTranscript({ sessionId, collapseTranscript, className }: PanelSessionTranscriptProps) {
+      return <Session key={sessionId} token={token} id={sessionId} collapseTranscript={collapseTranscript} className={className} />;
+    },
+  }), [token]);
   const loadSessions = React.useCallback(async (signal: AbortSignal) => (
     await request(token, '/sessions', { signal })
   ).json() as Promise<BrowserHostSessionSummary[]>, [token]);
@@ -174,7 +182,7 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
         <button type="button" onClick={disconnect}>Disconnect</button>
       </header>
       <BrowserWorkspaceViews request={extensionRequest} pdfName={info.pdfName}
-        workspacePath={info.workspacePath ?? ''} openSession={setSelected} pdf={info.pdfName ? (
+        workspacePath={info.workspacePath ?? ''} openSession={setSelected} components={panelComponents} pdf={info.pdfName ? (
           <Suspense fallback={<p role="status">Loading PDF Viewer…</p>}>
             <BrowserPdf fileName={info.pdfName} loadPdf={loadPdf} />
           </Suspense>

@@ -4,7 +4,7 @@ import * as ReactDOMClient from 'react-dom/client';
 import * as JSXRuntime from 'react/jsx-runtime';
 import * as JSXDevRuntime from 'react/jsx-dev-runtime';
 import * as ExtensionSDK from '@nimbalyst/extension-sdk';
-import type { ExtensionStorage, PanelHost, PanelHostProps } from '@nimbalyst/extension-sdk';
+import type { ExtensionStorage, PanelHost, PanelHostComponents, PanelHostProps } from '@nimbalyst/extension-sdk';
 import { navigateToTrackerReference } from '@nimbalyst/runtime';
 import { MaterialSymbol } from '@nimbalyst/runtime/ui/icons/MaterialSymbol';
 import type { BrowserHostPanel } from '../../shared/browserHost';
@@ -99,9 +99,10 @@ class PanelBoundary extends React.Component<{ children: React.ReactNode }, { err
   }
 }
 
-export function BrowserPanel({ request, extensionId, panel, workspacePath, openPanel, close, openFile, openSession }:
+export function BrowserPanel({ request, extensionId, panel, workspacePath, openPanel, close, openFile, openSession, components }:
   { request: PanelRequest; extensionId: string; panel: BrowserHostPanel; workspacePath: string;
-    openPanel: (id: string) => void; close: () => void; openFile: (path: string) => void; openSession: (id: string) => void }) {
+    openPanel: (id: string) => void; close: () => void; openFile: (path: string) => void; openSession: (id: string) => void;
+    components?: PanelHostComponents }) {
   const [component, setComponent] = useState<PanelComponent | null>(null);
   const [storage, setStorage] = useState<ExtensionStorage>();
   const [error, setError] = useState('');
@@ -181,6 +182,7 @@ export function BrowserPanel({ request, extensionId, panel, workspacePath, openP
       openPanel,
       close,
       storage,
+      components,
       setGutterBadge: () => {},
       data: {
         query: async <T,>(sql: string, params?: unknown[]) => {
@@ -198,7 +200,7 @@ export function BrowserPanel({ request, extensionId, panel, workspacePath, openP
       },
     };
     return Object.assign(host, { sessions: { open: openSession } }) as PanelHost;
-  }, [close, extensionId, invoke, openFile, openPanel, openSession, panel.id, request, storage, workspacePath]);
+  }, [close, components, extensionId, invoke, openFile, openPanel, openSession, panel.id, request, storage, workspacePath]);
 
   if (error) return <p role="alert">{error}</p>;
   const Component = component;

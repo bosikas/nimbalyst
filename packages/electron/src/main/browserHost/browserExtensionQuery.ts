@@ -4,6 +4,7 @@ const workspaceColumns = new Map([
   ['worktrees', 'workspace_id'],
   ['session_files', 'workspace_id'],
   ['tracker_items', 'workspace'],
+  ['tracker_type_defs', 'workspace'],
 ]);
 const parentRelations = new Map([
   ['ai_agent_messages', { column: 'session_id', parent: 'ai_sessions' }],
