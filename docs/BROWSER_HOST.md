@@ -1,6 +1,6 @@
 # Browser host
 
-Nimbalyst Desktop serves an opt-in browser workspace while the host app is running. Connect from another computer through an SSH tunnel to read transcripts, send prompts, interrupt turns, and answer tool permissions. The Extensions view shows installed extensions and opens a configured workspace file with PDF Viewer.
+Nimbalyst Desktop serves an opt-in browser workspace while the host app is running. Connect from another computer through an SSH tunnel to read transcripts, send prompts, interrupt turns, and answer tool permissions in the host's selected theme. Open installed extension panels under **Extensions → Installed extensions** and a configured workspace file with PDF Viewer. Extension panels use their installed UI bundles and can call their own workspace backend tools. Controls that require desktop-only APIs may be unavailable in the browser.
 
 Create a private configuration file on the Linux PC. Generate the access token with `openssl rand -hex 32` and set the file mode to `600`.
 

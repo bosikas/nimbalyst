@@ -81,7 +81,8 @@ import { registerTurnControlHandlers } from './ipc/registerTurnControlHandlers';
 import type { BrowserHostServices } from '../../browserHost/browserHost';
 import { randomUUID } from 'node:crypto';
 import { handleExtensionTool } from '../../mcp/tools/extensionToolHandler';
-import { scanInstalledExtensions } from '../extensionInventory';
+import { getBrowserAppearance } from '../../browserHost/browserAppearance';
+import { callBrowserPanelTool, listBrowserExtensions, readBrowserPanelAssets } from '../../browserHost/browserPanels';
 import { registerSettingsHandlers } from './ipc/registerSettingsHandlers';
 import { registerModelHandlers } from './ipc/registerModelHandlers';
 import { registerProjectSettingsHandlers } from './ipc/registerProjectSettingsHandlers';
@@ -516,6 +517,7 @@ export class AIService {
       return result.content.map(({ text }) => text).join('\n');
     };
     return {
+      getAppearance: getBrowserAppearance,
       listSessions: () => this.sessionManager.getSessionList(workspacePath),
       getSession: async (id) => {
         const session = await AISessionsRepository.get(id);
@@ -531,9 +533,9 @@ export class AIService {
       respondToPermission: (sessionId, promptId, decision) => this.respondToInteractivePrompt({
         sessionId, promptId, promptType: 'permission_request', response: { decision, scope: 'once' },
       }),
-      listExtensions: async () => (await scanInstalledExtensions()).map(({ id, name, version, enabled }) => ({
-        id, name, version, enabled,
-      })),
+      listExtensions: listBrowserExtensions,
+      readPanelAssets: readBrowserPanelAssets,
+      callPanelTool: (extensionId, name, args) => callBrowserPanelTool(workspacePath, extensionId, name, args),
       listAutomations: () => automation('list'),
       createAutomation: ({ title, prompt, schedule }) => automation('create', {
         id: `browser-${randomUUID()}`,

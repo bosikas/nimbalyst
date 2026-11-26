@@ -12,7 +12,10 @@
 
 .browser-host-sign-in input,
 .browser-host-sign-in button,
-.browser-host-workspace button {
+.browser-host-toolbar button,
+.browser-host-sessions aside button,
+.browser-host-automations button,
+.browser-host-permission button {
   border: 1px solid var(--nim-border);
   border-radius: 6px;
   padding: .4rem .75rem;
@@ -67,7 +70,7 @@
 }
 
 .browser-host-workspace button[aria-current="true"],
-.browser-host-workspace button[aria-pressed="true"] {
+.browser-host-toolbar button[aria-pressed="true"] {
   border-color: var(--nim-text-primary);
 }
 
@@ -79,8 +82,16 @@
   flex: 1;
 }
 
-.browser-host-extension h2 {
+.browser-host-extension > h2 {
   padding: .75rem 1rem;
+}
+
+.browser-host-native-panel {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  overflow: auto;
 }
 
 .browser-host-transcript,
@@ -89,10 +100,6 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
-}
-
-.browser-host-toolbar textarea {
-  flex: 1;
 }
 
 .browser-host-permission {
@@ -136,7 +143,7 @@
 
 .browser-host-automations input:not([type="checkbox"]),
 .browser-host-automations select,
-.browser-host-workspace textarea {
+.browser-host-automations textarea {
   border: 1px solid var(--nim-border);
   border-radius: 6px;
   padding: .4rem .75rem;

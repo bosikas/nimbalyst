@@ -1,4 +1,4 @@
-import { timingSafeEqual } from 'node:crypto';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { constants } from 'node:fs';
 import { open, readFile, realpath, stat } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -17,12 +17,15 @@ export interface BrowserHostConfig {
 }
 
 export interface BrowserHostServices {
+  getAppearance?: () => Promise<BrowserHostInfo['appearance']>;
   listSessions: () => Promise<BrowserHostSessionSummary[]>;
   getSession: (id: string) => Promise<BrowserHostSession | null>;
   interruptSession: (id: string) => Promise<{ success: boolean }>;
   queuePrompt: (id: string, prompt: string) => Promise<void>;
   respondToPermission: (id: string, requestId: string, decision: BrowserHostApproval) => Promise<{ success: boolean }>;
   listExtensions: () => Promise<BrowserHostExtension[]>;
+  readPanelAssets?: (extensionId: string) => Promise<{ source: string; css: string } | null>;
+  callPanelTool?: (extensionId: string, toolName: string, args: Record<string, unknown>) => Promise<unknown>;
   listAutomations: () => Promise<string>;
   createAutomation: (automation: BrowserHostAutomation) => Promise<string>;
 }
@@ -141,6 +144,15 @@ export function createBrowserHostHandler(config: BrowserHostConfig, services: Br
 
       const data = await readFile(filePath).catch(() => null);
       if (!data) return failure('Browser build asset unavailable', 404);
+      if (pathname === '/') {
+        const nonce = randomBytes(18).toString('base64');
+        const policy = securityHeaders['Content-Security-Policy'].replace(
+          "script-src 'self'", `script-src 'self' blob: 'nonce-${nonce}'`,
+        );
+        return new Response(data.toString('utf8').replace('<head>', `<head><meta name="extension-import-map" content="${nonce}">`), {
+          headers: { ...securityHeaders, 'Content-Type': type, 'Content-Security-Policy': policy },
+        });
+      }
       return new Response(new Uint8Array(data), {
         headers: { ...securityHeaders, 'Content-Type': type },
       });
@@ -154,6 +166,8 @@ export function createBrowserHostHandler(config: BrowserHostConfig, services: Br
     if (request.method === 'GET' && pathname === '/api') {
       const info: BrowserHostInfo = {
         workspaceName: basename(config.workspacePath),
+        workspacePath: config.workspacePath,
+        appearance: await services.getAppearance?.(),
         pdfName: config.pdfPath ? basename(config.pdfPath) : null,
       };
       return json(info);
@@ -167,6 +181,27 @@ export function createBrowserHostHandler(config: BrowserHostConfig, services: Br
     }
     if (request.method === 'GET' && pathname === '/api/extensions') {
       return json(await services.listExtensions());
+    }
+    const extension = /^\/api\/extensions\/([\w.-]{1,160})\/(panel|tool)$/.exec(pathname);
+    if (extension) {
+      const [, id, action] = extension;
+      if (action === 'panel' && request.method === 'GET') {
+        const assets = await services.readPanelAssets?.(id);
+        return assets ? json(assets) : failure('Extension panel unavailable', 404);
+      }
+      if (action === 'tool' && request.method === 'POST' && services.callPanelTool) {
+        const input = await readBody(request);
+        if (typeof input?.toolName !== 'string' || !/^[\w.-]{1,160}$/.test(input.toolName) ||
+            !input.args || typeof input.args !== 'object' || Array.isArray(input.args)) {
+          return failure('Invalid extension tool request', 400);
+        }
+        try {
+          return json({ result: await services.callPanelTool(id, input.toolName, input.args as Record<string, unknown>) });
+        } catch (error) {
+          return failure(error instanceof Error ? error.message : 'Extension tool failed', 400);
+        }
+      }
+      return failure('Method denied', 405);
     }
     if (pathname === '/api/automations') {
       if (request.method !== 'GET' && request.method !== 'POST') return failure('Method denied', 405);

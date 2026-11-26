@@ -18,7 +18,7 @@ beforeEach(async () => {
   await mkdir(workspacePath);
   workspacePath = await realpath(workspacePath);
   await mkdir(rendererPath);
-  await writeFile(join(rendererPath, 'browser-host.html'), '<main>Sessions</main>');
+  await writeFile(join(rendererPath, 'browser-host.html'), '<head></head><main>Sessions</main>');
   await writeFile(join(workspacePath, 'example.pdf'), '%PDF-1.4');
 });
 
@@ -28,6 +28,7 @@ afterEach(async () => {
 
 function setup() {
   const services = {
+    getAppearance: vi.fn(async () => ({ theme: 'dark' })),
     listSessions: vi.fn(async () => [{ id: 'local', title: 'Local session' }]),
     getSession: vi.fn(async (id: string): Promise<BrowserHostSession | null> => id === 'local'
       ? {
@@ -46,6 +47,8 @@ function setup() {
     queuePrompt: vi.fn(async () => {}),
     respondToPermission: vi.fn(async () => ({ success: true })),
     listExtensions: vi.fn(async () => [{ id: 'pdf-viewer', name: 'PDF Viewer', version: '1.0.0', enabled: true }]),
+    readPanelAssets: vi.fn(async (id: string) => id === 'example.extension' ? { source: 'export const panels = {};', css: '' } : null),
+    callPanelTool: vi.fn(async () => ({ ready: true })),
     listAutomations: vi.fn(async () => 'No automations'),
     createAutomation: vi.fn(async () => 'Automation scheduled'),
   };
@@ -63,6 +66,27 @@ function setup() {
 }
 
 describe('browser host', () => {
+  it('authenticates appearance, extension assets and extension tool calls', async () => {
+    const { request, post, services } = setup();
+    expect((await request('/api', 'GET', false)).status).toBe(401);
+    expect((await (await request('/api')).json()).appearance).toEqual({ theme: 'dark' });
+    const page = await request('/', 'GET', false);
+    const html = await page.text();
+    const nonce = /name="extension-import-map" content="([^"]+)"/.exec(html)?.[1];
+    expect(nonce).toBeTruthy();
+    expect(page.headers.get('Content-Security-Policy')).toContain(`'nonce-${nonce}'`);
+    expect((await request('/api/extensions/example.extension/panel', 'GET', false)).status).toBe(401);
+    expect(services.readPanelAssets).not.toHaveBeenCalled();
+    expect((await request('/api/extensions/unknown/panel')).status).toBe(404);
+    expect((await (await request('/api/extensions/example.extension/panel')).json()).source).toContain('export');
+    expect((await request('/api/extensions/example.extension/tool', 'POST', false)).status).toBe(401);
+    expect((await post('/api/extensions/example.extension/tool', { toolName: 'example.status', args: [] })).status).toBe(400);
+    expect(services.callPanelTool).not.toHaveBeenCalled();
+    expect(await (await post('/api/extensions/example.extension/tool', {
+      toolName: 'example.status', args: { verbose: true },
+    })).json()).toEqual({ result: { ready: true } });
+    expect(services.callPanelTool).toHaveBeenCalledWith('example.extension', 'example.status', { verbose: true });
+  });
   it('reports invalid configuration without including its contents', async () => {
     const configPath = join(root, 'config.json');
     await writeFile(configPath, `{"token": "${token}" invalid}`);
@@ -72,7 +96,7 @@ describe('browser host', () => {
 
   it('serves the browser entry and requires authentication for session and file data', async () => {
     const { request, services } = setup();
-    expect(await (await request('/', 'GET', false)).text()).toBe('<main>Sessions</main>');
+    expect(await (await request('/', 'GET', false)).text()).toContain('<main>Sessions</main>');
     expect((await request('/api/sessions', 'GET', false)).status).toBe(401);
     expect((await request('/api/pdf', 'GET', false)).status).toBe(401);
     expect(services.listSessions).not.toHaveBeenCalled();

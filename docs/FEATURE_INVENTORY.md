@@ -389,7 +389,7 @@ Companion app; pairs with a desktop over encrypted sync. Voice mode is not inclu
 
 ### Browser Host
 
-- Opt-in browser access to one desktop workspace over a private connection. View session transcripts, send prompts, interrupt turns, and grant or deny tool permissions. Check installed extension status, open a configured workspace PDF, and create recurring schedules that run in the host's Automations extension. See [Browser host setup](./BROWSER_HOST.md).
+- Opt-in browser access to one desktop workspace over a private connection. View session transcripts, send prompts, interrupt turns, and grant or deny tool permissions using the host's selected theme. Open installed extension panels with browser-compatible host APIs, open a configured workspace PDF, and create recurring schedules that run in the host's Automations extension. See [Browser host setup](./BROWSER_HOST.md).
 
 ### Web Console
 

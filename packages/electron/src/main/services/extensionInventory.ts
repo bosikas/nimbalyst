@@ -26,6 +26,7 @@ import { fetchRegistry, type RegistryExtension } from '../ipc/ExtensionMarketpla
 import { getExtensionEnabled } from '../utils/store';
 import { logger } from '../utils/logger';
 import { mergeInventory, type ExtensionInventory, type InstalledExtensionInfo } from './extensionInventoryMerge';
+import type { ExtensionManifest } from '@nimbalyst/runtime/extensions';
 
 export type {
   AvailableExtensionInfo,
@@ -35,8 +36,7 @@ export type {
 export { mergeInventory, projectRegistryExtension } from './extensionInventoryMerge';
 
 /** Scan the user and built-in extension directories for installed manifests. */
-export async function scanInstalledExtensions(): Promise<InstalledExtensionInfo[]> {
-  const out: InstalledExtensionInfo[] = [];
+export async function* scanInstalledExtensionManifests() {
   const seen = new Set<string>();
   const dirs = await getAllExtensionDirectories();
 
@@ -65,32 +65,33 @@ export async function scanInstalledExtensions(): Promise<InstalledExtensionInfo[
       try {
         const manifest = JSON.parse(
           await fs.readFile(path.join(extensionsDir, subdir.name, 'manifest.json'), 'utf-8'),
-        ) as {
-          id?: string;
-          name?: string;
-          version?: string;
-          description?: string;
-          contributions?: { claudePlugin?: { enabledByDefault?: boolean } };
-        };
+        ) as Partial<ExtensionManifest>;
 
         const id = manifest.id || subdir.name;
         if (seen.has(id)) continue;
         seen.add(id);
 
-        out.push({
-          id,
-          name: manifest.name || id,
-          version: manifest.version || 'unknown',
-          description: manifest.description || '',
-          isBuiltin: isBuiltinDir,
-          enabled: getExtensionEnabled(id),
-        });
+        yield { id, manifest, extensionPath: path.join(extensionsDir, subdir.name), isBuiltin: isBuiltinDir };
       } catch {
         // Directory without a readable manifest -- not an extension.
       }
     }
   }
 
+}
+
+export async function scanInstalledExtensions(): Promise<InstalledExtensionInfo[]> {
+  const out: InstalledExtensionInfo[] = [];
+  for await (const { id, manifest, isBuiltin } of scanInstalledExtensionManifests()) {
+    out.push({
+      id,
+      name: manifest.name || id,
+      version: manifest.version || 'unknown',
+      description: manifest.description || '',
+      isBuiltin,
+      enabled: getExtensionEnabled(id),
+    });
+  }
   return out;
 }
 

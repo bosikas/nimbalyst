@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client';
 import { AgentTranscriptPanel } from '@nimbalyst/runtime/ui/AgentTranscript/components/AgentTranscriptPanel';
 import { pendingBrowserPermissions } from '../../shared/browserHost';
 import type { BrowserHostInfo, BrowserHostSession, BrowserHostSessionSummary } from '../../shared/browserHost';
+import { getTheme, registerThemeContribution } from '@nimbalyst/runtime';
+import { applyThemeToDOM } from '../hooks/useTheme';
+import { AIInput } from '../components/UnifiedAI/AIInput';
 import { BrowserExtensions } from './BrowserExtensions';
 import '../index.css';
 import '../styles/components.css';
@@ -87,9 +90,16 @@ function Session({ token, id }: { token: string; id: string }) {
     }
   }
 
-  async function queuePrompt(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    if (await mutate('prompt', postJson({ prompt: draft }), 'Prompt queued')) setDraft('');
+  async function queuePrompt(value = draft) {
+    const prompt = value.trim();
+    if (!prompt || busy) return;
+    if (prompt.length > 32000) {
+      setFeedback('Prompts can be up to 32,000 characters');
+      return;
+    }
+    if (await mutate('prompt', postJson({ prompt }), 'Prompt queued')) {
+      setDraft((current) => current === value ? '' : current);
+    }
   }
 
   if (!session) return <p role="status">{error || 'Loading session…'}</p>;
@@ -119,16 +129,30 @@ function Session({ token, id }: { token: string; id: string }) {
       <div className="browser-host-transcript">
         <AgentTranscriptPanel sessionId={id} sessionData={session} hideSidebar />
       </div>
-      <form className="browser-host-toolbar" onSubmit={(event) => void queuePrompt(event)}>
-        <textarea aria-label="Prompt" placeholder="Send a prompt" value={draft} required maxLength={32000}
-          onChange={(event) => setDraft(event.target.value)} />
-        <button type="submit" disabled={busy || !draft.trim()}>Send</button>
-      </form>
+      <AIInput value={draft} onChange={setDraft} onSend={(value) => void queuePrompt(value)}
+        placeholder="Send a prompt" disabled={busy} remoteSession enableSlashCommands={false}
+        sessionHasMessages={session.messages.length > 0} />
     </section>
   );
 }
 
 function Workspace({ token, info, disconnect }: { token: string; info: BrowserHostInfo; disconnect: () => void }) {
+  useEffect(() => {
+    const appearance = info.appearance;
+    const theme = appearance?.theme ?? 'system';
+    const contribution = appearance?.contribution;
+    if (contribution && !getTheme(theme)) {
+      registerThemeContribution(contribution.extensionId, contribution.theme);
+    }
+    const preference = window.matchMedia('(prefers-color-scheme: dark)');
+    const apply = () => void applyThemeToDOM(theme);
+    apply();
+    if (theme === 'system' || theme === 'auto') preference.addEventListener('change', apply);
+    return () => {
+      preference.removeEventListener('change', apply);
+      void applyThemeToDOM('system');
+    };
+  }, [info.appearance]);
   const [sessions, setSessions] = useState<BrowserHostSessionSummary[]>([]);
   const [selected, setSelected] = useState('');
   const [view, setView] = useState<'sessions' | 'extensions'>('sessions');
@@ -139,6 +163,10 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
   const sessionId = sessions.find(({ id }) => id === selected)?.id ?? sessions[0]?.id;
   const loadPdf = React.useCallback(async () => (await request(token, '/pdf')).arrayBuffer(), [token]);
   const extensionRequest = React.useCallback((path: string, init?: RequestInit) => request(token, path, init), [token]);
+  const openSession = React.useCallback((id: string) => {
+    setSelected(id);
+    setView('sessions');
+  }, []);
 
   return (
     <main className="browser-host-workspace">
@@ -164,7 +192,8 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
           {sessionId && <Session key={sessionId} token={token} id={sessionId} />}
         </div>
       ) : (
-        <BrowserExtensions request={extensionRequest} pdf={info.pdfName ? (
+        <BrowserExtensions request={extensionRequest} pdfName={info.pdfName}
+          workspacePath={info.workspacePath ?? ''} openSession={openSession} pdf={info.pdfName ? (
             <Suspense fallback={<p role="status">Loading PDF Viewer…</p>}>
               <BrowserPdf fileName={info.pdfName} loadPdf={loadPdf} />
             </Suspense>

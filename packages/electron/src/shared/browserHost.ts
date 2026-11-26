@@ -1,4 +1,5 @@
 import type { SessionData } from '@nimbalyst/runtime/ai/server/types';
+import type { ThemeContribution } from '@nimbalyst/extension-sdk';
 
 export interface BrowserHostSessionSummary {
   id: string;
@@ -9,7 +10,12 @@ export type BrowserHostSession = Pick<SessionData, 'id' | 'provider' | 'title' |
 
 export interface BrowserHostInfo {
   workspaceName: string;
+  workspacePath?: string;
   pdfName: string | null;
+  appearance?: {
+    theme: string;
+    contribution?: { extensionId: string; theme: ThemeContribution };
+  };
 }
 
 export interface BrowserHostExtension {
@@ -17,6 +23,13 @@ export interface BrowserHostExtension {
   name: string;
   version: string;
   enabled: boolean;
+  panels?: BrowserHostPanel[];
+}
+
+export interface BrowserHostPanel {
+  id: string;
+  title: string;
+  icon: string;
 }
 
 export type BrowserHostSchedule =

@@ -1,5 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import type { BrowserHostExtension, BrowserHostSchedule } from '../../shared/browserHost';
+import { BrowserPanel } from './BrowserPanel';
 
 type Request = (path: string, init?: RequestInit) => Promise<Response>;
 const week = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
@@ -83,10 +84,12 @@ function Automations({ request }: { request: Request }) {
   );
 }
 
-export function BrowserExtensions({ request, pdf }: { request: Request; pdf: React.ReactNode }) {
+export function BrowserExtensions({ request, pdf, pdfName, workspacePath, openSession }:
+  { request: Request; pdf: React.ReactNode; pdfName: string | null; workspacePath: string; openSession: (id: string) => void }) {
   const [view, setView] = useState(pdf ? 'pdf' : 'automations');
   const [installed, setInstalled] = useState<BrowserHostExtension[]>([]);
   const [error, setError] = useState('');
+  const [navigationError, setNavigationError] = useState('');
   useEffect(() => {
     const controller = new AbortController();
     void request('/extensions', { signal: controller.signal })
@@ -96,6 +99,22 @@ export function BrowserExtensions({ request, pdf }: { request: Request; pdf: Rea
     return () => controller.abort();
   }, [request]);
 
+  const active = installed.flatMap((extension) =>
+    (extension.panels ?? []).map((panel) => ({ extensionId: extension.id, panel })),
+  ).find(({ extensionId, panel }) => view === `${extensionId}/${panel.id}`);
+  const openPanel = useCallback((id: string) => {
+    const extension = installed.find((entry) => entry.panels?.some((panel) => panel.id === id));
+    if (extension) setView(`${extension.id}/${id}`);
+    else setNavigationError('Extension panel is unavailable');
+  }, [installed]);
+  const openFile = useCallback((path: string) => {
+    if (path.startsWith('session://')) openSession(path.slice('session://'.length).split('/')[0]);
+    else if (pdfName && path === `${workspacePath}/${pdfName}`) setView('pdf');
+    else setNavigationError('This file cannot be opened in the browser');
+  }, [openSession, pdfName, workspacePath]);
+  const close = useCallback(() => setView('installed'), []);
+  useEffect(() => setNavigationError(''), [view]);
+
   return (
     <section className="browser-host-extension">
       <div className="browser-host-toolbar">
@@ -103,15 +122,27 @@ export function BrowserExtensions({ request, pdf }: { request: Request; pdf: Rea
           {pdf && <button type="button" aria-pressed={view === 'pdf'} onClick={() => setView('pdf')}>PDF Viewer</button>}
           <button type="button" aria-pressed={view === 'automations'} onClick={() => setView('automations')}>Automations</button>
           <button type="button" aria-pressed={view === 'installed'} onClick={() => setView('installed')}>Installed extensions</button>
+          {active && <button type="button" aria-pressed="true" onClick={close}>{active.panel.title}</button>}
         </nav>
       </div>
       {view === 'pdf' && pdf}
       {view === 'automations' && <Automations request={request} />}
+      {navigationError && <p role="alert">{navigationError}</p>}
+      {active && <BrowserPanel key={view} request={request} extensionId={active.extensionId}
+        panel={active.panel} workspacePath={workspacePath} openPanel={openPanel}
+        close={close} openFile={openFile} openSession={openSession} />}
       {view === 'installed' && (
         <section className="browser-host-automations" aria-label="Installed extensions">
           {error && <p role="status">{error}</p>}
           <ul>{installed.map((extension) => (
-            <li key={extension.id}>{extension.name} {extension.version} · {extension.enabled ? 'Enabled' : 'Disabled'}</li>
+            <li key={extension.id}>
+              {extension.name} {extension.version} · {extension.enabled ? 'Enabled' : 'Disabled'}
+              {extension.panels?.map((panel) => (
+                <button key={panel.id} type="button" onClick={() => setView(`${extension.id}/${panel.id}`)}>
+                  Open {panel.title}
+                </button>
+              ))}
+            </li>
           ))}</ul>
         </section>
       )}
