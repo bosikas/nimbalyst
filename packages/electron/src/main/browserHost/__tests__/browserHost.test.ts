@@ -51,6 +51,7 @@ function setup() {
     listExtensions: vi.fn(async () => [{ id: 'pdf-viewer', name: 'PDF Viewer', version: '1.0.0', enabled: true }]),
     readPanelAssets: vi.fn(async (id: string) => id === 'example.extension' ? { source: 'export const panels = {};', css: '' } : null),
     callPanelTool: vi.fn(async () => ({ ready: true })),
+    invokePanel: vi.fn(async () => ({ success: true })),
     listAutomations: vi.fn(async () => 'No automations'),
     createAutomation: vi.fn(async () => 'Automation scheduled'),
   };
@@ -90,6 +91,13 @@ describe('browser host', () => {
       toolName: 'example.status', args: { verbose: true },
     })).json()).toEqual({ result: { ready: true } });
     expect(services.callPanelTool).toHaveBeenCalledWith('example.extension', 'example.status', { verbose: true });
+    expect((await request('/api/extensions/example.extension/invoke', 'POST', false)).status).toBe(401);
+    expect((await post('/api/extensions/example.extension/invoke', { channel: 'sessions:list', args: {} })).status).toBe(400);
+    expect(services.invokePanel).not.toHaveBeenCalled();
+    expect(await (await post('/api/extensions/example.extension/invoke', {
+      channel: 'sessions:list', args: [workspacePath],
+    })).json()).toEqual({ result: { success: true } });
+    expect(services.invokePanel).toHaveBeenCalledWith('example.extension', 'sessions:list', [workspacePath]);
   });
   it('reports invalid configuration without including its contents', async () => {
     const configPath = join(root, 'config.json');

@@ -26,6 +26,7 @@ export interface BrowserHostServices {
   listExtensions: () => Promise<BrowserHostExtension[]>;
   readPanelAssets?: (extensionId: string) => Promise<{ source: string; css: string } | null>;
   callPanelTool?: (extensionId: string, toolName: string, args: Record<string, unknown>) => Promise<unknown>;
+  invokePanel?: (extensionId: string, channel: string, args: unknown[]) => Promise<unknown>;
   listAutomations: () => Promise<string>;
   createAutomation: (automation: BrowserHostAutomation) => Promise<string>;
 }
@@ -182,12 +183,23 @@ export function createBrowserHostHandler(config: BrowserHostConfig, services: Br
     if (request.method === 'GET' && pathname === '/api/extensions') {
       return json(await services.listExtensions());
     }
-    const extension = /^\/api\/extensions\/([\w.-]{1,160})\/(panel|tool)$/.exec(pathname);
+    const extension = /^\/api\/extensions\/([\w.-]{1,160})\/(panel|tool|invoke)$/.exec(pathname);
     if (extension) {
       const [, id, action] = extension;
       if (action === 'panel' && request.method === 'GET') {
         const assets = await services.readPanelAssets?.(id);
         return assets ? json(assets) : failure('Extension panel unavailable', 404);
+      }
+      if (action === 'invoke' && request.method === 'POST' && services.invokePanel) {
+        const input = await readBody(request);
+        if (typeof input?.channel !== 'string' || !/^[\w:-]{1,160}$/.test(input.channel) || !Array.isArray(input.args)) {
+          return failure('Invalid extension command request', 400);
+        }
+        try {
+          return json({ result: await services.invokePanel(id, input.channel, input.args) });
+        } catch (error) {
+          return failure(error instanceof Error ? error.message : 'Extension command failed', 400);
+        }
       }
       if (action === 'tool' && request.method === 'POST' && services.callPanelTool) {
         const input = await readBody(request);

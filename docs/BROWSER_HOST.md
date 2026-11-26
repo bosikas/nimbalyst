@@ -1,6 +1,6 @@
 # Browser host
 
-Nimbalyst Desktop serves opt-in browser workspaces while the host app is running. Connect from another computer through an SSH tunnel to read transcripts, send prompts, interrupt turns, and answer tool permissions in the host's selected theme. Use the left rail to open extension panels, Automations, or a configured workspace file in PDF Viewer. Extension panels use their installed UI bundles and can call their own workspace backend tools. Controls that require desktop-only APIs may be unavailable in the browser.
+Nimbalyst Desktop serves opt-in browser workspaces while the host app is running. Connect from another computer through an SSH tunnel to read transcripts, send prompts, interrupt turns, and answer tool permissions in the host's selected theme. Use the left rail to open extension panels, Automations, or a configured workspace file in PDF Viewer. Extension panels use their installed UI bundles, host-stored preferences, and their own backend tools. Supported session and worktree controls and catalog-authorized session data reads are scoped to the connected workspace. Other desktop APIs may be unavailable in the browser.
 
 Create a private configuration file on the Linux PC. Generate the access token with `openssl rand -hex 32` and set the file mode to `600`.
 

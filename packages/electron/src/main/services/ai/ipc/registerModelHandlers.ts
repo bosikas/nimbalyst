@@ -1,3 +1,4 @@
+import { registerBrowserPanelCommand } from '../../../browserHost/browserPanelCommands';
 import { getProviderCredentials } from '../../credentials/providerCredentials';
 import { getAgentProviderRegistry } from '../../../extensions/AgentProviderRegistry';
 import { safeHandle } from '../../../utils/ipcRegistry';
@@ -160,7 +161,7 @@ export function registerModelHandlers(ctx: AIServiceContext): void {
   });
 
   // Get ENABLED models for actual use
-  safeHandle('ai:getModels', async (event) => {
+  registerBrowserPanelCommand('ai:getModels', async (event) => {
     // console.log('[AIService] ai:getModels called - fetching enabled models');
     // OpenCode resolves its provider set from project config, so this listing
     // is workspace-scoped even though every other provider is global. Resolve

@@ -1,3 +1,4 @@
+import { registerBrowserPanelCommand } from '../browserHost/browserPanelCommands';
 import { registerSessionPromptResponseHandler } from './sessionPromptResponseHandler';
 import { readSessionWorkSummary } from '@nimbalyst/runtime/ai/sessionWorkSummary';
 import { remoteSessions } from '../services/ai/remoteSessions';
@@ -133,7 +134,7 @@ export async function registerSessionHandlers() {
     });
 
     // Create session (new format for agentic coding)
-    safeHandle('sessions:create', async (event, payload: {
+    registerBrowserPanelCommand('sessions:create', async (event, payload: {
         session: any;
         workspaceId: string;
         // Optional so an un-updated caller degrades to `unknown` rather than
@@ -219,7 +220,7 @@ export async function registerSessionHandlers() {
     });
 
     // Update session title
-    safeHandle('sessions:update-title', async (event, sessionId: string, title: string) => {
+    registerBrowserPanelCommand('sessions:update-title', async (event, sessionId: string, title: string) => {
         await sessionManager.updateSessionTitle(sessionId, title, {
             force: true,
             markAsNamed: true,
@@ -242,7 +243,7 @@ export async function registerSessionHandlers() {
     });
 
     // Update session metadata (including mode, isArchived, etc.)
-    safeHandle('sessions:update-metadata', async (event, sessionId: string, updates: UpdateSessionMetadataPayload) => {
+    registerBrowserPanelCommand('sessions:update-metadata', async (event, sessionId: string, updates: UpdateSessionMetadataPayload) => {
         try {
             const currentSession = await AISessionsRepository.get(sessionId);
             if (!currentSession) {
@@ -411,7 +412,7 @@ export async function registerSessionHandlers() {
     // Get a single session by id (lightweight — does not load the message log).
     // Used by GitOperationsPanel to read a session's provider (smart-commit
     // routing) and parentSessionId (post-merge blitz detection).
-    safeHandle('sessions:get', async (event, sessionId: string) => {
+    registerBrowserPanelCommand('sessions:get', async (event, sessionId: string) => {
         try {
             const session = await AISessionsRepository.get(sessionId);
             return { success: true, session };
@@ -422,7 +423,7 @@ export async function registerSessionHandlers() {
     });
 
     // List sessions for workspace
-    safeHandle('sessions:list', (event, workspacePath: string, options?: { includeArchived?: boolean }) =>
+    registerBrowserPanelCommand('sessions:list', (event, workspacePath: string, options?: { includeArchived?: boolean }) =>
         sessionListFlight(`${workspacePath}\u0000${options?.includeArchived ? 1 : 0}`, () => listSessions(workspacePath, options)));
 
     async function listSessions(workspacePath: string, options?: { includeArchived?: boolean }) {

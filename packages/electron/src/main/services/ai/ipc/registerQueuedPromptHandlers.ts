@@ -1,3 +1,4 @@
+import { registerBrowserPanelCommand } from '../../../browserHost/browserPanelCommands';
 import { safeHandle } from '../../../utils/ipcRegistry';
 import { logger } from '../../../utils/logger';
 import { getTerminalSessionManager } from '../../TerminalSessionManager';
@@ -86,7 +87,7 @@ export function registerQueuedPromptHandlers(ctx: AIServiceContext): void {
   });
 
   // List pending prompts for a session
-  safeHandle('ai:listPendingPrompts', async (
+  registerBrowserPanelCommand('ai:listPendingPrompts', async (
     event,
     sessionId: string
   ) => {
@@ -103,7 +104,7 @@ export function registerQueuedPromptHandlers(ctx: AIServiceContext): void {
   });
 
   // Create a new queued prompt (for local queuing)
-  safeHandle('ai:createQueuedPrompt', async (
+  registerBrowserPanelCommand('ai:createQueuedPrompt', async (
     event,
     sessionId: string,
     prompt: string,
@@ -237,7 +238,7 @@ export function registerQueuedPromptHandlers(ctx: AIServiceContext): void {
   });
 
   // Trigger queue processing for a session (e.g., when voice command queued while AI is idle)
-  safeHandle('ai:triggerQueueProcessing', async (
+  registerBrowserPanelCommand('ai:triggerQueueProcessing', async (
     event,
     sessionId: string,
     workspacePath: string,

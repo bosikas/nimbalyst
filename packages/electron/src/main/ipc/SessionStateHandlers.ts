@@ -1,3 +1,4 @@
+import { registerBrowserPanelCommand } from '../browserHost/browserPanelCommands';
 import { warnIfUnpublished } from '@nimbalyst/runtime/sync/pushOutcome';
 /**
  * IPC Handlers for Session State Management
@@ -244,7 +245,7 @@ export async function registerSessionStateHandlers() {
 
   // Get session IDs whose turn is actually in progress (running / streaming).
   // This is the canonical "is it running?" query (NIM-846).
-  safeHandle('ai-session-state:get-running', async (_event) => {
+  registerBrowserPanelCommand('ai-session-state:get-running', async (_event) => {
     try {
       const sessionIds = stateManager.getRunningSessionIds();
       return { success: true, sessionIds };
@@ -255,7 +256,7 @@ export async function registerSessionStateHandlers() {
   });
 
   // Get state for a specific session
-  safeHandle('ai-session-state:get-state', async (_event, sessionId: string) => {
+  registerBrowserPanelCommand('ai-session-state:get-state', async (_event, sessionId: string) => {
     try {
       const state = stateManager.getSessionState(sessionId);
       return { success: true, state };

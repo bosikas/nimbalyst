@@ -5,6 +5,7 @@
  * Worktrees are stored in the database and managed via GitWorktreeService.
  */
 
+import { registerBrowserPanelCommand } from '../browserHost/browserPanelCommands';
 import { ipcMain, BrowserWindow } from 'electron';
 import log from 'electron-log/main';
 import { createGit } from '../services/gitClient';
@@ -355,7 +356,7 @@ export function registerWorktreeHandlers(): void {
    * @param name - Optional custom name for the worktree
    * @returns Worktree data including id, path, branch, etc.
    */
-  ipcMain.handle('worktree:create', async (
+  registerBrowserPanelCommand('worktree:create', async (
     _event,
     workspacePath: string,
     options?: { name?: string; baseBranch?: string; sourceFolderPath?: string }
@@ -740,7 +741,7 @@ export function registerWorktreeHandlers(): void {
    * @param workspacePath - Path to the workspace/project
    * @returns Array of worktrees
    */
-  ipcMain.handle('worktree:list', async (_event, workspacePath: string) => {
+  registerBrowserPanelCommand('worktree:list', async (_event, workspacePath: string) => {
     try {
       if (!workspacePath) {
         throw new Error('workspacePath is required');
@@ -1382,7 +1383,7 @@ export function registerWorktreeHandlers(): void {
    * @param workspacePath - Path to the main git repository
    * @returns Success status (for immediate database operations)
    */
-  ipcMain.handle('worktree:archive', async (_event, worktreeId: string, workspacePath: string) => {
+  registerBrowserPanelCommand('worktree:archive', async (_event, worktreeId: string, workspacePath: string) => {
     return archiveWorktree(worktreeId, workspacePath);
   });
 

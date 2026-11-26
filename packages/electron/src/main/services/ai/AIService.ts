@@ -83,6 +83,7 @@ import { randomUUID } from 'node:crypto';
 import { handleExtensionTool } from '../../mcp/tools/extensionToolHandler';
 import { getBrowserAppearance } from '../../browserHost/browserAppearance';
 import { callBrowserPanelTool, listBrowserExtensions, readBrowserPanelAssets } from '../../browserHost/browserPanels';
+import { invokeBrowserPanel } from '../../browserHost/browserPanelBridge';
 import { registerSettingsHandlers } from './ipc/registerSettingsHandlers';
 import { registerModelHandlers } from './ipc/registerModelHandlers';
 import { registerProjectSettingsHandlers } from './ipc/registerProjectSettingsHandlers';
@@ -536,6 +537,7 @@ export class AIService {
       listExtensions: listBrowserExtensions,
       readPanelAssets: readBrowserPanelAssets,
       callPanelTool: (extensionId, name, args) => callBrowserPanelTool(workspacePath, extensionId, name, args),
+      invokePanel: (extensionId, channel, args) => invokeBrowserPanel(workspacePath, extensionId, channel, args),
       listAutomations: () => automation('list'),
       createAutomation: ({ title, prompt, schedule }) => automation('create', {
         id: `browser-${randomUUID()}`,

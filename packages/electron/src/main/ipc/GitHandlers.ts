@@ -19,6 +19,7 @@
  * and `git:file-diff` (resolves the owning repo of the file it is given).
  */
 
+import { registerBrowserPanelCommand } from '../browserHost/browserPanelCommands';
 import { runCommitProposalOnce, commitProposalIdentity } from '../services/ai/CommitProposalExecution';
 import { resolveGitCommitProposalPromptId } from '../services/ai/gitCommitProposalPromptUtils';
 import { assertProposalIdentityPair, explainProposalCommitFailure, resolveProposalCommitPaths } from '../services/ai/proposalCommitTarget';
@@ -399,7 +400,7 @@ export function registerGitHandlers(): void {
   /**
    * Get git status for a workspace or worktree
    */
-  ipcMain.handle('git:status', async (_event, repoPath: string): Promise<GitStatusResult> => {
+  registerBrowserPanelCommand('git:status', async (_event, repoPath: string): Promise<GitStatusResult> => {
     if (!repoPath) {
       throw new Error('repoPath is required');
     }
@@ -419,7 +420,7 @@ export function registerGitHandlers(): void {
   /**
    * Get recent commits with optional filters
    */
-  ipcMain.handle(
+  registerBrowserPanelCommand(
     'git:log',
     async (
       _event,
@@ -505,7 +506,7 @@ export function registerGitHandlers(): void {
   /**
    * List branches
    */
-  safeHandle('git:branches', async (_event, repoPath: string): Promise<{ branches: string[]; current: string }> => {
+  registerBrowserPanelCommand('git:branches', async (_event, repoPath: string): Promise<{ branches: string[]; current: string }> => {
     if (!repoPath) throw new Error('repoPath is required');
     if (!isGitRepository(repoPath)) return { branches: [], current: '' };
 
@@ -809,7 +810,7 @@ export function registerGitHandlers(): void {
   /**
    * Get detailed info for a single commit (full message, per-file stats)
    */
-  safeHandle(
+  registerBrowserPanelCommand(
     'git:commit-detail',
     async (_event, repoPath: string, hash: string): Promise<{
       body: string;
@@ -872,7 +873,7 @@ export function registerGitHandlers(): void {
   /**
    * Get working tree changes (staged, unstaged, untracked files)
    */
-  safeHandle(
+  registerBrowserPanelCommand(
     'git:working-changes',
     async (_event, repoPath: string): Promise<{
       staged: Array<{ path: string; status: string }>;
@@ -1019,7 +1020,7 @@ export function registerGitHandlers(): void {
    * files. This is what tools like the git commit proposal widget want when they
    * need to show "what's about to be committed" without knowing the file's group.
    */
-  safeHandle(
+  registerBrowserPanelCommand(
     'git:file-diff',
     async (
       _event,
@@ -1297,7 +1298,7 @@ export function registerGitHandlers(): void {
     },
   });
 
-  safeHandle('git:list-branches-detailed', async (_event, repoPath: string) => {
+  registerBrowserPanelCommand('git:list-branches-detailed', async (_event, repoPath: string) => {
     validateGitCwd(repoPath, 'repoPath');
     if (!isGitRepository(repoPath)) throw new Error('Not a git repository');
     return listBranchesDetailed(repoPath, branchSwitchDeps());

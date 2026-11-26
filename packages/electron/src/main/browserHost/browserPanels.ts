@@ -22,7 +22,7 @@ export async function listBrowserExtensions(): Promise<BrowserHostExtension[]> {
   return extensions;
 }
 
-async function findPanelExtension(id: string) {
+export async function findPanelExtension(id: string) {
   if (!getExtensionEnabled(id)) return null;
   for await (const extension of scanInstalledExtensionManifests()) {
     if (extension.id === id && extension.manifest.contributions?.panels?.length) return extension;

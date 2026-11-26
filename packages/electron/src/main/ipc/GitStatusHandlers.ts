@@ -1,3 +1,4 @@
+import { registerBrowserPanelCommand } from '../browserHost/browserPanelCommands';
 import type { ShellCoverageSummary } from '@nimbalyst/runtime/ai/shellTrackingCoverage';
 import { getShellTrackingCoverage } from '../services/ai/codexShellTrackingHost';
 import { resolve, relative, isAbsolute } from 'path';
@@ -17,7 +18,7 @@ export function registerGitStatusHandlers(): void {
    * a repo answers with exactly one entry -- which is what keeps every repo
    * picker hidden and every git call targeted at the same path as before.
    */
-  safeHandle('git:list-workspace-repos', async (_event, workspacePath: string) => {
+  registerBrowserPanelCommand('git:list-workspace-repos', async (_event, workspacePath: string) => {
     if (!workspacePath) throw new Error('workspacePath is required');
     try {
       return { success: true, repos: listWorkspaceRepos(workspacePath) };
