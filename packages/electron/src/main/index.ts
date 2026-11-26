@@ -260,6 +260,7 @@ import { AISessionsRepository } from '@nimbalyst/runtime/storage/repositories/AI
 import { isMCPServerEnabledForProvider, MCP_PROVIDER_IDS, type MCPProviderId } from '@nimbalyst/runtime/types/MCPServerConfig';
 import type { MCPServerConfig } from '@nimbalyst/runtime/types/MCPServerConfig';
 import { logger, overrideConsole } from './utils/logger';
+import { startBrowserHost } from './browserHost/browserHost';
 import { startPerformanceMonitoring, stopPerformanceMonitoring } from './utils/performanceMonitor';
 import { setupForceQuit } from './utils/forceQuit';
 import { stopAllFileWatchers } from './file/FileWatcher';
@@ -2661,6 +2662,21 @@ app.whenReady().then(async () => {
     }
     aiService = new AIService(runtimeSessionStore);
     markEnd('ai-service-init');
+
+    const browserHostConfig = process.env.NIMBALYST_BROWSER_HOST_CONFIG;
+    if (browserHostConfig) {
+        const ai = aiService;
+        void startBrowserHost(browserHostConfig, join(__dirname, '../renderer'), (workspacePath) =>
+            ai.getBrowserHostServices(workspacePath)
+        ).then((host) => {
+            if (isAppQuitting) {
+                host.close();
+                return;
+            }
+            app.once('will-quit', host.close);
+            logger.main.info(`[BrowserHost] Listening on 127.0.0.1:${host.port}`);
+        }).catch((error) => logger.main.error('[BrowserHost] Could not start:', error));
+    }
 
     // Recovery sweep: any queued_prompts row that was 'executing' when the
     // app shut down is now invisible to listPending. sweepExecutingOnBoot

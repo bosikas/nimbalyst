@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 <!-- New features go here -->
+- An opt-in browser host lets you check a workspace’s sessions, interrupt a turn, and view a PDF from another computer.
 - Mistral Vibe is available as an agent provider for users signed in to the Vibe CLI.
 - Session summaries can include a short outcome, a write-up linked to source messages, and durable next actions for Work Overview.
 - Workspaces can define a PR reviewer preset that starts a Codex review from just a diff and brief, with its own model, instructions, permissions and starting skills, kept separate from global and repository instructions.

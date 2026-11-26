@@ -387,6 +387,10 @@ Companion app; pairs with a desktop over encrypted sync. Voice mode is not inclu
 - Feedback artifact and mockup previews, including side-by-side option choices, full-size previews, publish-destination selection, and a link back to the composing session
 - Document questions can collect private teammate answers, record a human-settled outcome, and resume the waiting agent; sent questions appear in Feedback with response progress and links back to the document
 
+### Browser Host
+
+- Opt-in browser access to one desktop workspace over a private connection, including session transcripts, turn interruption, and the PDF Viewer extension for a configured workspace file. See [Browser host setup](./BROWSER_HOST.md).
+
 ### Web Console
 
 - Browser access to team documents, shared folders, and trackers, with live collaboration with desktop clients

@@ -554,6 +554,7 @@ const config = {
         input: {
           index: resolve(__dirname, 'src/renderer/index.html'),
           island: resolve(__dirname, 'src/renderer/island.html'),
+          'browser-host': resolve(__dirname, 'src/renderer/browser-host.html'),
         }
       }
     },

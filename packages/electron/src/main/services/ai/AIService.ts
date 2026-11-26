@@ -78,12 +78,14 @@ import { registerSessionHandlers } from './ipc/registerSessionHandlers';
 import { registerQueuedPromptHandlers } from './ipc/registerQueuedPromptHandlers';
 import { registerInteractivePromptHandlers } from './ipc/registerInteractivePromptHandlers';
 import { registerTurnControlHandlers } from './ipc/registerTurnControlHandlers';
+import type { BrowserHostServices } from '../../browserHost/browserHost';
 import { registerSettingsHandlers } from './ipc/registerSettingsHandlers';
 import { registerModelHandlers } from './ipc/registerModelHandlers';
 import { registerProjectSettingsHandlers } from './ipc/registerProjectSettingsHandlers';
 import { registerExtensionChatHandlers } from './ipc/registerExtensionChatHandlers';
 import { SessionProcessingGuard, tryClaimAndDispatchNextQueuedPrompt } from './queuedPromptDispatcher';
 import { AISessionsRepository } from '@nimbalyst/runtime/storage/repositories/AISessionsRepository';
+import { TranscriptMigrationRepository } from '@nimbalyst/runtime/storage/repositories/TranscriptMigrationRepository';
 import {
   QueueDriveService,
   type DriveOutcome,
@@ -503,6 +505,19 @@ export class AIService {
    * proposal still waiting on them instead of waiting for it (NIM-7642).
    * Meta-agent interrupts leave it unset.
    */
+  public getBrowserHostServices(workspacePath: string): BrowserHostServices {
+    return {
+      listSessions: () => this.sessionManager.getSessionList(workspacePath),
+      getSession: async (id) => {
+        const session = await AISessionsRepository.get(id);
+        if (session?.workspacePath !== workspacePath) return null;
+        const messages = await TranscriptMigrationRepository.getService().getViewMessages(id, session.provider);
+        return { ...session, messages };
+      },
+      interruptSession: (id) => this.interruptCurrentTurn(id),
+    };
+  }
+
   public async interruptCurrentTurn(
     sessionId: string,
     options: { userSendNow?: boolean } = {},
