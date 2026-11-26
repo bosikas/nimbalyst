@@ -14,6 +14,7 @@ import { BrowserWindow } from 'electron';
 import { getActionPromptService } from '../services/ActionPromptService';
 import { findWindowByWorkspace } from '../window/WindowManager';
 import { safeHandle } from '../utils/ipcRegistry';
+import { registerBrowserPanelCommand } from '../browserHost/browserPanelCommands';
 import { MetaAgentService } from '../services/MetaAgentService';
 import { database } from '../database/PGLiteDatabaseWorker';
 import { findSessionTreeRoot } from '../services/sessionHierarchy';
@@ -42,7 +43,7 @@ function ensureChangeBroadcast(workspacePath: string) {
 }
 
 export function registerActionPromptHandlers() {
-  safeHandle('action-prompts:list', async (_event, payload: { workspacePath: string }) => {
+  registerBrowserPanelCommand('action-prompts:list', async (_event, payload: { workspacePath: string }) => {
     const workspacePath = payload?.workspacePath;
     if (!workspacePath) {
       throw new Error('action-prompts:list requires workspacePath');

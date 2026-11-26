@@ -222,7 +222,7 @@ export function registerQueuedPromptHandlers(ctx: AIServiceContext): void {
   });
 
   // Delete a queued prompt (for user cancellation)
-  safeHandle('ai:deleteQueuedPrompt', async (
+  registerBrowserPanelCommand('ai:deleteQueuedPrompt', async (
     event,
     promptId: string
   ) => {

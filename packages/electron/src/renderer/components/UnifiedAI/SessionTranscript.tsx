@@ -243,6 +243,12 @@ export interface SessionTranscriptProps {
   // Whether to collapse the transcript (hide messages, show only input and dialogs)
   // Used when editor is maximized but we still want to show the AI input
   collapseTranscript?: boolean;
+  browserSession?: {
+    submit: (prompt: string) => Promise<void>;
+    interrupt: () => Promise<void>;
+    persistDraft: (draft: string) => Promise<void>;
+    error: string;
+  };
 
   // Click handlers
   /** `location` is set when the clicked link carried a `:line[:col]` suffix. */
@@ -366,6 +372,7 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
   mode,
   hideSidebar = false,
   collapseTranscript = false,
+  browserSession,
   onFileClick,
   onTodoClick,
   onCloseAndArchive,
@@ -594,11 +601,11 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
   // App start time for restart indicator (dev mode only)
   const [appStartTime, setAppStartTime] = useState<number | null>(null);
   useEffect(() => {
-    if (!isDevelopment) return;
+    if (!isDevelopment || browserSession) return;
     window.electronAPI.extensionDevTools.getProcessInfo()
       .then(info => setAppStartTime(info.startTime))
       .catch(() => {}); // Silently ignore if not available
-  }, [isDevelopment]);
+  }, [isDevelopment, browserSession]);
 
   // File action atoms
   const hasExternalEditor = useAtomValue(hasExternalEditorAtom);
@@ -787,7 +794,7 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
   useEffect(() => (sessionId ? sessionViewRetention.acquire(sessionId) : undefined), [sessionId]);
 
   useEffect(() => {
-    if (!sessionId || !workspacePath) return;
+    if (browserSession || !sessionId || !workspacePath) return;
     if (!hasSessionData) {
       loadSessionData({ sessionId, workspacePath });
     } else if (!isProcessing) {
@@ -796,16 +803,16 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
       // (e.g., the user navigated away during streaming and came back after completion)
       reloadSessionData({ sessionId, workspacePath });
     }
-  }, [sessionId, workspacePath, hasSessionData, isProcessing, loadSessionData, reloadSessionData]);
+  }, [browserSession, sessionId, workspacePath, hasSessionData, isProcessing, loadSessionData, reloadSessionData]);
 
   // Ensure centralized file/pending atoms are initialized for this session in Files mode.
   useEffect(() => {
-    if (!sessionId || !workspacePath) return;
+    if (browserSession || !sessionId || !workspacePath) return;
     registerSessionWorkspace(sessionId, workspacePath);
     loadInitialSessionFileState(sessionId, workspacePath).catch((error) => {
       console.error('[SessionTranscript] Failed to load initial session file state:', error);
     });
-  }, [sessionId, workspacePath]);
+  }, [browserSession, sessionId, workspacePath]);
 
   // Edited files for the transcript's Files sidebar. The atom above is kept
   // current by fileStateListeners; the panel takes this as a prop rather than
@@ -943,7 +950,7 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
   // install notice and skip mounting the terminal strip (which would otherwise
   // spawn a bare `claude` → cryptic `command not found`).
   useEffect(() => {
-    if (provider !== 'claude-code-cli') {
+    if (browserSession || provider !== 'claude-code-cli') {
       setClaudeCliInstalled(null);
       return;
     }
@@ -966,7 +973,7 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
     return () => {
       cancelled = true;
     };
-  }, [provider, cliSessionCommitted]);
+  }, [browserSession, provider, cliSessionCommitted]);
 
   // ============================================================
   // Confirmation dialogs (ExitPlanMode, AskUserQuestion, ToolPermission)
@@ -996,19 +1003,19 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
   // ============================================================
   // Load initial queued prompts when session loads
   useEffect(() => {
-    if (sessionId) {
+    if (!browserSession && sessionId) {
       loadInitialQueuedPrompts(sessionId);
     }
-  }, [sessionId]);
+  }, [browserSession, sessionId]);
 
   // Reload queued prompts when AI finishes processing (in case any were added)
   const prevIsLoadingRef = useRef(isLoading);
   useEffect(() => {
-    if (prevIsLoadingRef.current && !isLoading) {
+    if (!browserSession && prevIsLoadingRef.current && !isLoading) {
       loadInitialQueuedPrompts(sessionId);
     }
     prevIsLoadingRef.current = isLoading;
-  }, [isLoading, sessionId]);
+  }, [browserSession, isLoading, sessionId]);
 
   // Trigger queue processing when queuedPrompts change and AI is idle.
   // claude-code-cli is excluded: its queue is flushed to the PTY by the
@@ -1016,6 +1023,7 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
   // (ai:triggerQueueProcessing → ai:sendMessage, which throws for the CLI).
   useEffect(() => {
     if (
+      !browserSession &&
       queuedPrompts.length > 0 &&
       !isLoading &&
       workspacePath &&
@@ -1026,7 +1034,7 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
           console.error('[SessionTranscript] Failed to trigger queue processing:', error);
         });
     }
-  }, [queuedPrompts.length, isLoading, sessionId, workspacePath, provider]);
+  }, [browserSession, queuedPrompts.length, isLoading, sessionId, workspacePath, provider]);
 
   // ============================================================
   // Expose ref methods
@@ -1055,29 +1063,33 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
     setIsQueueing(true);
 
     try {
-      // Get fresh document context at queue time (reads from disk)
-      const effectiveContext = await getEffectiveDocumentContext();
-      const serializableContext = serializeDocumentContext(effectiveContext);
+      if (browserSession) {
+        await browserSession.submit(message.trim());
+      } else {
+        // Get fresh document context at queue time (reads from disk)
+        const effectiveContext = await getEffectiveDocumentContext();
+        const serializableContext = serializeDocumentContext(effectiveContext);
 
-      // Read attachments imperatively — we don't subscribe to keep typing
-      // from re-rendering the entire transcript.
-      const currentAttachments = store.get(sessionDraftAttachmentsAtom(sessionId)) ?? [];
+        // Read attachments imperatively — we don't subscribe to keep typing
+        // from re-rendering the entire transcript.
+        const currentAttachments = store.get(sessionDraftAttachmentsAtom(sessionId)) ?? [];
 
-      // Keep each submission's authorship/context and stable queue position.
-      // Delete-and-recreate merging can race a claim or absorb an agent report.
-      const result = await window.electronAPI.invoke(
-        'ai:createQueuedPrompt',
-        sessionId,
-        message.trim(),
-        currentAttachments,
-        serializableContext
-      ) as { id: string; prompt: string; timestamp: number };
+        // Keep each submission's authorship/context and stable queue position.
+        // Delete-and-recreate merging can race a claim or absorb an agent report.
+        const result = await window.electronAPI.invoke(
+          'ai:createQueuedPrompt',
+          sessionId,
+          message.trim(),
+          currentAttachments,
+          serializableContext
+        ) as { id: string; prompt: string; timestamp: number };
 
-      setQueuedPrompts(prev => [...prev.filter(p => p.id !== result.id), {
-        ...result,
-        documentContext: serializableContext,
-        attachments: currentAttachments
-      }]);
+        setQueuedPrompts(prev => [...prev.filter(p => p.id !== result.id), {
+          ...result,
+          documentContext: serializableContext,
+          attachments: currentAttachments
+        }]);
+      }
 
       setLastSubmitAt(Date.now());
       setDraftInput('');
@@ -1088,7 +1100,7 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
     } finally {
       setIsQueueing(false);
     }
-  }, [sessionId, getEffectiveDocumentContext, setDraftInput, setDraftAttachments, setLastSubmitAt, isQueueing, clearAIInputHistory]);
+  }, [browserSession, sessionId, getEffectiveDocumentContext, setDraftInput, setDraftAttachments, setLastSubmitAt, isQueueing, clearAIInputHistory]);
 
   // What the composer looked like when this session opened. Once per session,
   // not per render: we are trying to explain why people do not act on a screen,
@@ -1118,6 +1130,10 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
     // Read draft state imperatively — we deliberately don't subscribe to
     // these atoms in SessionTranscript (see SessionAIInput).
     const currentDraftInput = store.get(sessionDraftInputAtom(sessionId)) ?? '';
+    if (browserSession) {
+      await handleQueue(currentDraftInput);
+      return;
+    }
 
     // The send wall: this event is the denominator, so it fires before every
     // guard below, including the CLI branch that returns without ever reaching
@@ -1381,7 +1397,7 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
       }
       setIsProcessing(false);
     }
-  }, [sessionId, sessionData, isLoading, getEffectiveDocumentContext, aiMode, workspacePath, setDraftInput, setDraftAttachments, setLastSubmitAt, resetHistory, updateSessionStore, handleQueue, setIsProcessing, messages, sessionHasMessages, startedCliSessionId, mode, onClearSession, onClearAgentSession, clearAIInputHistory, provider, recordClaudeActivity]);
+  }, [browserSession, handleQueue, sessionId, sessionData, isLoading, getEffectiveDocumentContext, aiMode, workspacePath, setDraftInput, setDraftAttachments, setLastSubmitAt, resetHistory, updateSessionStore, handleQueue, setIsProcessing, messages, sessionHasMessages, startedCliSessionId, mode, onClearSession, onClearAgentSession, clearAIInputHistory, provider, recordClaudeActivity]);
 
   // Launch a sibling session from a `launch: new-session` action prompt.
   // Builds the originating-session mention prefix here (in the renderer) so the
@@ -1434,6 +1450,10 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
 
   const handleCancel = useCallback(async () => {
     try {
+      if (browserSession) {
+        await browserSession.interrupt();
+        return;
+      }
       if (isClaudeCliTerminalSession(provider)) {
         // Escalating stop (NIM-814): Ctrl-C → Ctrl-C → SIGINT in the main
         // process. Fire-and-forget — escalation can take a few seconds and the
@@ -1451,7 +1471,7 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
     } catch (error) {
       console.error('[SessionTranscript] Failed to cancel request:', error);
     }
-  }, [provider, sessionId, setIsProcessing, recordClaudeActivity]);
+  }, [browserSession, provider, sessionId, setIsProcessing, recordClaudeActivity]);
 
   const handleFileClick = useCallback((filePath: string, location?: TranscriptFileLocation) => {
     const baseDir = sessionWorktreePath ?? workspacePath;
@@ -1513,6 +1533,10 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
     // reaches the model as literal prompt text and does nothing, which is why
     // the affordance is hidden entirely rather than offered as a no-op.
     const message = '/compact';
+    if (browserSession) {
+      await browserSession.submit(message).catch(() => {});
+      return;
+    }
     const userMessage = makeOptimisticUserMessage(
       message,
       aiMode as 'agent' | 'planning' | undefined,
@@ -1537,7 +1561,7 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
     } catch (error) {
       console.error('[SessionTranscript] Failed to send /compact command:', error);
     }
-  }, [sessionId, getEffectiveDocumentContext, aiMode, workspacePath, updateSessionStore, compactionSupport]);
+  }, [browserSession, sessionId, getEffectiveDocumentContext, aiMode, workspacePath, updateSessionStore, compactionSupport]);
 
   const handleTodoClick = useCallback((todo: TodoItem) => {
     onTodoClick?.(todo);
@@ -2649,7 +2673,7 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
           NOT gated on collapseTranscript (NIM-824): Files layout mode collapses
           the transcript but must keep the terminal reachable — previously the
           whole drawer unmounted and there was no way to get to the TUI. */}
-      {provider === 'claude-code-cli' && cliSessionCommitted && claudeCliInstalled === false && (
+      {!browserSession && provider === 'claude-code-cli' && cliSessionCommitted && claudeCliInstalled === false && (
         // NIM-852: not installed — render the panel notice in place of the drawer
         // so the terminal strip never mounts (no spawn / `command not found`).
         <div
@@ -2665,7 +2689,7 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
           <ClaudeCliNotInstalledNotice variant="panel" />
         </div>
       )}
-      {provider === 'claude-code-cli' && cliSessionCommitted && claudeCliInstalled !== false && (
+      {!browserSession && provider === 'claude-code-cli' && cliSessionCommitted && claudeCliInstalled !== false && (
         <div
           ref={cliTerminalDrawerRef}
           className="claude-cli-terminal-drawer"
@@ -2770,6 +2794,8 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
         />
       )}
 
+      {browserSession?.error && <p role="alert" className="px-4 py-2 text-[var(--nim-error)]">{browserSession.error}</p>}
+
       {/* Queue display */}
       <PromptQueueList
         queue={queuedPrompts}
@@ -2790,10 +2816,13 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
         isLoading={isLoading}
         workspacePath={workspacePath}
         sessionId={sessionId}
-        enableAttachments={enableAttachments}
+        enableAttachments={!browserSession && enableAttachments}
+        remoteSession={!!browserSession}
+        persistDraft={browserSession?.persistDraft}
+        disabled={!!browserSession && isQueueing}
         onAttachmentAdd={handleAttachmentAdd}
         onAttachmentRemove={handleAttachmentRemove}
-        enableSlashCommands={enableSlashCommands}
+        enableSlashCommands={!browserSession && enableSlashCommands}
         onNavigateHistory={enableHistoryNavigation ? handleNavigateHistory : undefined}
         placeholder={
           mode === 'chat'
@@ -2816,7 +2845,7 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
         // CLI has no effort flag). ModeTag is already gated to `claude-code` in
         // AIInput.
         onModelChange={handleModelChange}
-        readOnlyModel={isClaudeCliTerminalSession(provider) && cliSessionCommitted && isLoading}
+        readOnlyModel={isClaudeCliTerminalSession(provider) && cliSessionCommitted && (isLoading || !!browserSession)}
         readOnlyModelTitle="Wait for the current turn to finish before switching models"
         sessionHasMessages={sessionHasMessages}
         currentProvider={provider ?? null}
@@ -2834,7 +2863,7 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
         queueCount={queuedPrompts.length}
         currentFilePath={currentFilePath}
         currentFileName={documentContext?.fileName}
-        onLaunchActionInNewSession={handleLaunchActionInNewSession}
+        onLaunchActionInNewSession={browserSession ? undefined : handleLaunchActionInNewSession}
       />
     </div>
   );

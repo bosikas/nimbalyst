@@ -1,5 +1,6 @@
 import { sessionInbox } from '../sessionInboxService';
 import { safeHandle } from '../../../utils/ipcRegistry';
+import { registerBrowserPanelCommand } from '../../../browserHost/browserPanelCommands';
 import { logger } from '../../../utils/logger';
 import { getTerminalSessionManager } from '../../TerminalSessionManager';
 import {
@@ -129,7 +130,7 @@ export function registerTurnControlHandlers(ctx: AIServiceContext): void {
   // the literal string "/compact" as a user turn, which only ever worked for
   // providers whose SDK happens to interpret slash commands -- for Codex it
   // reached the model as prompt text and silently did nothing.
-  safeHandle('ai:compactSession', async (event, sessionId: string) => {
+  registerBrowserPanelCommand('ai:compactSession', async (event, sessionId: string) => {
     if (!sessionId) {
       throw new Error('ai:compactSession requires a sessionId');
     }

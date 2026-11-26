@@ -47,6 +47,7 @@ function setup() {
       : null),
     interruptSession: vi.fn(async () => ({ success: true })),
     queuePrompt: vi.fn(async () => {}),
+    saveDraft: vi.fn(async () => true),
     respondToPermission: vi.fn(async () => ({ success: true })),
     listExtensions: vi.fn(async () => [{ id: 'pdf-viewer', name: 'PDF Viewer', version: '1.0.0', enabled: true }]),
     readPanelAssets: vi.fn(async (id: string) => id === 'example.extension' ? { source: 'export const panels = {};', css: '' } : null),
@@ -173,6 +174,26 @@ describe('browser host', () => {
     expect((await request('/api/sessions/local')).status).toBe(200);
     expect((await request('/api/sessions/local/interrupt', 'POST')).status).toBe(200);
     expect(services.interruptSession).toHaveBeenCalledWith('local');
+  });
+
+  it('serves session panel state and keeps model metadata and drafts scoped', async () => {
+    const { request, post, services } = setup();
+    const existing = await services.getSession('local');
+    const metadata = { effortLevel: 'high', unrelatedHostData: 'private' };
+    services.getSession.mockResolvedValueOnce({
+      ...existing!, model: 'openai-codex:gpt-5.4', mode: 'agent', processing: true, metadata,
+    });
+    const snapshot = await (await request('/api/sessions/local')).json();
+    expect(snapshot).toMatchObject({
+      model: 'openai-codex:gpt-5.4', mode: 'agent', processing: true, metadata: { effortLevel: 'high' },
+    });
+    expect(snapshot.metadata).not.toHaveProperty('unrelatedHostData');
+    expect((await request('/api/sessions/local/draft', 'POST', false)).status).toBe(401);
+    expect((await post('/api/sessions/outside/draft', { draft: 'outside' })).status).toBe(404);
+    expect((await post('/api/sessions/local/draft', { draft: 42 })).status).toBe(400);
+    expect(services.saveDraft).not.toHaveBeenCalled();
+    expect((await post('/api/sessions/local/draft', { draft: '' })).status).toBe(200);
+    expect(services.saveDraft).toHaveBeenCalledWith('local', '');
   });
 
   it('queues only valid prompts for sessions in the selected workspace', async () => {

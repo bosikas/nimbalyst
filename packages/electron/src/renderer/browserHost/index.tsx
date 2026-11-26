@@ -1,12 +1,15 @@
-import React, { lazy, Suspense, useEffect, useState } from 'react';
+import React, { lazy, Suspense, useEffect, useLayoutEffect, useState } from 'react';
 import type { PanelHostComponents, PanelSessionTranscriptProps } from '@nimbalyst/extension-sdk';
 import { createRoot } from 'react-dom/client';
-import { AgentTranscriptPanel } from '@nimbalyst/runtime/ui/AgentTranscript/components/AgentTranscriptPanel';
-import { pendingBrowserPermissions } from '../../shared/browserHost';
+import { Provider } from 'jotai';
+import { store } from '@nimbalyst/runtime/store';
+import { AgentSessionPanel } from '../components/AgentMode/AgentSessionPanel';
+import { DialogProvider } from '../contexts/DialogContext';
+import { sessionDraftHydratedAtom, sessionDraftInputAtom, sessionProcessingAtom, sessionStoreAtom } from '../store/atoms/sessions';
+import { sessionQueuedPromptsAtom } from '../store/atoms/sessionTranscript';
 import type { BrowserHostInfo, BrowserHostSession, BrowserHostSessionHistory } from '../../shared/browserHost';
 import { getTheme, registerThemeContribution } from '@nimbalyst/runtime';
 import { applyThemeToDOM } from '../hooks/useTheme';
-import { AIInput } from '../components/UnifiedAI/AIInput';
 import { BrowserWorkspaceViews } from './BrowserExtensions';
 import '../index.css';
 import '../styles/components.css';
@@ -33,7 +36,7 @@ function postJson(input: unknown): RequestInit {
   return { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) };
 }
 
-function useRefresh<T>(load: (signal: AbortSignal) => Promise<T>, apply: (data: T) => void, interval: number) {
+function useRefresh<T>(load: (signal: AbortSignal) => Promise<T>, apply: (data: T) => void, interval: number, revision = 0) {
   const [error, setError] = useState('');
   useEffect(() => {
     const controller = new AbortController();
@@ -58,84 +61,60 @@ function useRefresh<T>(load: (signal: AbortSignal) => Promise<T>, apply: (data: 
       controller.abort();
       window.clearTimeout(timer);
     };
-  }, [load, apply, interval]);
+  }, [load, apply, interval, revision]);
   return error;
 }
 
-function Session({ token, id, collapseTranscript, className }: {
-  token: string; id: string; collapseTranscript?: boolean; className?: string;
+function Session({ token, id, workspacePath, collapseTranscript, className }: {
+  token: string; id: string; workspacePath: string; collapseTranscript?: boolean; className?: string;
 }) {
-  const [session, setSession] = useState<BrowserHostSession>();
+  const [loaded, setLoaded] = useState(false);
   const [feedback, setFeedback] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [draft, setDraft] = useState('');
+  const [refresh, setRefresh] = useState(0);
+  const path = '/sessions/' + encodeURIComponent(id);
   const loadSession = React.useCallback(async (signal: AbortSignal) => {
-    const response = await request(token, '/sessions/' + encodeURIComponent(id), { signal });
+    const response = await request(token, path, { signal });
     const data = await response.json() as BrowserHostSession;
     return {
       ...data,
+      workspacePath,
       messages: data.messages.map((message) => ({ ...message, createdAt: new Date(message.createdAt) })),
     };
-  }, [token, id]);
-  const error = useRefresh(loadSession, setSession, 3000);
+  }, [token, path, workspacePath]);
+  const updateSnapshot = React.useCallback((snapshot: Awaited<ReturnType<typeof loadSession>>) => {
+    if (!store.get(sessionDraftHydratedAtom(id))) {
+      store.set(sessionDraftInputAtom(id), snapshot.draftInput ?? '');
+      store.set(sessionDraftHydratedAtom(id), true);
+    }
+    store.set(sessionStoreAtom(id), snapshot);
+    store.set(sessionQueuedPromptsAtom(id), snapshot.queuedPrompts ?? []);
+    const processing = snapshot.processing === true;
+    if (store.get(sessionProcessingAtom(id)) !== processing) store.set(sessionProcessingAtom(id), processing);
+    setLoaded(true);
+  }, [id]);
+  const error = useRefresh(loadSession, updateSnapshot, 3000, refresh);
 
-  async function mutate(action: string, init: RequestInit, message: string) {
-    setBusy(true);
-    setFeedback('');
+  async function mutate(action: string, input?: unknown) {
     try {
-      await request(token, '/sessions/' + encodeURIComponent(id) + '/' + action, init);
-      setFeedback(message);
-      return true;
+      await request(token, path + '/' + action, postJson(input ?? {}));
+      setFeedback('');
+      if (action !== 'draft') setRefresh((previous) => previous + 1);
     } catch (err) {
       setFeedback(err instanceof Error ? err.message : 'Session request failed');
-      return false;
-    } finally {
-      setBusy(false);
+      throw err;
     }
   }
 
-  async function queuePrompt(value = draft) {
-    const prompt = value.trim();
-    if (!prompt || busy) return;
-    if (prompt.length > 32000) {
-      setFeedback('Prompts can be up to 32,000 characters');
-      return;
-    }
-    if (await mutate('prompt', postJson({ prompt }), 'Prompt queued')) {
-      setDraft((current) => current === value ? '' : current);
-    }
-  }
-
-  if (!session) return <p role="status">{error || 'Loading session…'}</p>;
-  const permissions = pendingBrowserPermissions(session.messages);
+  if (!loaded) return <p role="status">{error || 'Loading session…'}</p>;
   return (
     <section className={className ? `browser-host-session ${className}` : 'browser-host-session'}>
-      <div className="browser-host-toolbar">
-        <h2>{session.title ?? 'Untitled session'}</h2>
-        <button type="button" disabled={busy}
-          onClick={() => void mutate('interrupt', { method: 'POST' }, 'Interrupt sent')}>Interrupt</button>
-        {feedback && <span role="status">{feedback}</span>}
-      </div>
-      {error && <p role="status">{error}</p>}
-      {permissions.map(({ requestId, toolName, rawCommand, patternDisplayName, warnings }) => (
-        <section className="browser-host-permission" key={requestId} aria-label={`Permission for ${toolName}`}>
-          <details>
-            <summary>Permission requested for {toolName}</summary>
-            <pre>{rawCommand || patternDisplayName}</pre>
-            {warnings?.map((warning) => <p key={warning}>{warning}</p>)}
-            <button type="button" disabled={busy} onClick={() => void mutate('permission',
-              postJson({ requestId, decision: 'allow' }), 'Permission granted for this request')}>Allow once</button>
-            <button type="button" disabled={busy} onClick={() => void mutate('permission',
-              postJson({ requestId, decision: 'deny' }), 'Permission denied')}>Deny</button>
-          </details>
-        </section>
-      ))}
-      {!collapseTranscript && <div className="browser-host-transcript">
-        <AgentTranscriptPanel sessionId={id} sessionData={session} hideSidebar />
-      </div>}
-      <AIInput value={draft} onChange={setDraft} onSend={(value) => void queuePrompt(value)}
-        placeholder="Send a prompt" disabled={busy} remoteSession enableSlashCommands={false}
-        sessionHasMessages={session.messages.length > 0} />
+      <AgentSessionPanel sessionId={id} workspacePath={workspacePath} collapseTranscript={collapseTranscript}
+        browserSession={{
+          submit: (prompt) => mutate('prompt', { prompt }),
+          interrupt: () => mutate('interrupt'),
+          persistDraft: (draft) => mutate('draft', { draft }),
+          error: feedback || error,
+        }} />
     </section>
   );
 }
@@ -167,9 +146,9 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
   const [selected, setSelected] = useState('');
   const panelComponents = React.useMemo<PanelHostComponents>(() => ({
     SessionTranscript({ sessionId, collapseTranscript, className }: PanelSessionTranscriptProps) {
-      return <Session key={sessionId} token={token} id={sessionId} collapseTranscript={collapseTranscript} className={className} />;
+      return <Session key={sessionId} token={token} id={sessionId} workspacePath={info.workspacePath ?? ''} collapseTranscript={collapseTranscript} className={className} />;
     },
-  }), [token]);
+  }), [token, info.workspacePath]);
   const loadSessions = React.useMemo(() => async (signal: AbortSignal) => (
     await request(token, '/session-history', { signal })
   ).json() as Promise<BrowserHostSessionHistory>, [token, revision]);
@@ -177,6 +156,41 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
   const sessionId = selected || sessions?.find((session) => !session.isArchived)?.id;
   const loadPdf = React.useCallback(async () => (await request(token, '/pdf')).arrayBuffer(), [token]);
   const extensionRequest = React.useCallback((path: string, init?: RequestInit) => request(token, path, init), [token]);
+  useLayoutEffect(() => {
+    const previous = window.electronAPI;
+    const bridge = {
+      ...previous,
+      aiGetModels() {
+        return bridge.invoke('ai:getModels');
+      },
+      async invoke(channel: string, ...args: unknown[]) {
+        if (channel === 'workspace:get-state') return {};
+        if (channel === 'workspace:update-state') return { success: true };
+        if (channel === 'claude-code:answer-tool-permission' || channel === 'messages:respond-to-prompt') {
+          const response = args[0] as {
+            sessionId: string; promptId?: string; requestId?: string; promptType?: string; response: { decision: string };
+          };
+          if (channel === 'messages:respond-to-prompt' && response?.promptType !== 'permission_request') {
+            throw new Error('This interactive prompt is unavailable in the browser');
+          }
+          return (await extensionRequest('/sessions/' + encodeURIComponent(response.sessionId) + '/permission',
+            postJson({ requestId: response.requestId ?? response.promptId, decision: response.response.decision }))).json();
+        }
+        if (!channel.startsWith('sessions:') && ![
+          'worktree:get-batch', 'ai:getModels', 'ai:compactSession', 'ai:deleteQueuedPrompt', 'action-prompts:list',
+        ].includes(channel)) {
+          throw new Error('This desktop action is unavailable in the browser');
+        }
+        const { result } = await (await extensionRequest('/session-history/command', postJson({ channel, args }))).json();
+        if (result?.success === false) throw new Error(result.error ?? 'Session action failed');
+        if (channel.startsWith('sessions:update-')) refreshHistory();
+        return result;
+      },
+    } as typeof window.electronAPI;
+    window.electronAPI = bridge;
+    return () => { if (window.electronAPI === bridge) window.electronAPI = previous; };
+  }, [extensionRequest, refreshHistory]);
+
 
   return (
     <main className="browser-host-workspace">
@@ -199,7 +213,7 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
                 selected={sessionId ?? null} openSession={setSelected} refresh={refreshHistory} request={extensionRequest} />
             </Suspense>}
           </aside>
-          {sessionId && <Session key={sessionId} token={token} id={sessionId} />}
+          {sessionId && <Session key={sessionId} token={token} id={sessionId} workspacePath={info.workspacePath ?? ''} />}
         </div>
       </BrowserWorkspaceViews>
     </main>
@@ -225,10 +239,14 @@ function App() {
     }
   }
 
-  if (info) return <Workspace token={token} info={info} disconnect={() => {
-    setInfo(undefined);
-    setToken('');
-  }} />;
+  if (info) return <Provider store={store}>
+    <DialogProvider workspacePath={info.workspacePath}>
+      <Workspace token={token} info={info} disconnect={() => {
+        setInfo(undefined);
+        setToken('');
+      }} />
+    </DialogProvider>
+  </Provider>;
 
   return (
     <main className="browser-host-sign-in">

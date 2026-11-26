@@ -6,6 +6,8 @@ export type BrowserPanelCommand =
   | 'sessions:update-title' | 'sessions:update-metadata' | 'sessions:update-pinned'
   | 'ai-session-state:get-running' | 'ai-session-state:get-state'
   | 'ai:getModels' | 'ai:listPendingPrompts' | 'ai:createQueuedPrompt' | 'ai:triggerQueueProcessing'
+  | 'ai:compactSession' | 'ai:deleteQueuedPrompt'
+  | 'action-prompts:list'
   | 'worktree:list' | 'worktree:create' | 'worktree:archive' | 'worktree:get-batch'
   | 'git:list-workspace-repos' | 'git:status' | 'git:branches' | 'git:log'
   | 'git:list-branches-detailed' | 'git:working-changes' | 'git:commit-detail' | 'git:file-diff';

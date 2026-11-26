@@ -527,10 +527,19 @@ export class AIService {
       getSession: async (id) => {
         const session = await AISessionsRepository.get(id);
         if (session?.workspacePath !== workspacePath) return null;
-        const messages = await TranscriptMigrationRepository.getService().getViewMessages(id, session.provider);
-        return { ...session, messages };
+        const { getQueuedPromptsStore } = await import('../RepositoryManager');
+        const [messages, pending] = await Promise.all([
+          TranscriptMigrationRepository.getService().getViewMessages(id, session.provider),
+          getQueuedPromptsStore().listPending(id),
+        ]);
+        const state = getSessionStateManager().getSessionState(id);
+        return {
+          ...session, messages, processing: state?.status === 'running',
+          queuedPrompts: pending.map(({ id, prompt, createdAt }) => ({ id, prompt, timestamp: createdAt })),
+        };
       },
       interruptSession: (id) => this.interruptCurrentTurn(id),
+      saveDraft: (id, draft) => this.sessionManager.saveDraftInput(id, draft, workspacePath),
       queuePrompt: async (id, prompt) => {
         await this.queuePromptForSession(id, prompt);
         this.requestQueueDrive(id, workspacePath, 'browser-host');

@@ -3,6 +3,7 @@ import { AISessionsRepository } from '@nimbalyst/runtime/storage/repositories/AI
 import { database } from '../database/PGLiteDatabaseWorker';
 import { createWorktreeStore } from '../services/WorktreeStore';
 import { findWindowByWorkspace } from '../window/WindowManager';
+import { getQueuedPromptsStore } from '../services/RepositoryManager';
 import { invokeBrowserPanelCommand, type BrowserPanelCommand } from './browserPanelCommands';
 
 export async function invokeBrowserSessionHistory(
@@ -23,6 +24,19 @@ export async function invokeBrowserSessionHistory(
   }
 
   switch (channel) {
+    case 'ai:getModels':
+      return invoke(channel);
+    case 'action-prompts:list':
+      if ((first as { workspacePath?: unknown } | undefined)?.workspacePath !== workspacePath) throw new Error('Invalid workspace');
+      return invoke(channel, { workspacePath });
+    case 'ai:compactSession':
+      return invoke(channel, await requireSession(first));
+    case 'ai:deleteQueuedPrompt': {
+      if (typeof first !== 'string' || first.length > 128) throw new Error('Invalid queued prompt');
+      const prompt = await getQueuedPromptsStore().get(first);
+      await requireSession(prompt?.sessionId);
+      return invoke(channel, first);
+    }
     case 'sessions:search': {
       if (first !== workspacePath || typeof second !== 'string' || !second.trim() || second.length > 1000) {
         throw new Error('Invalid session search');
@@ -50,9 +64,17 @@ export async function invokeBrowserSessionHistory(
       if (typeof second !== 'boolean') throw new Error('Invalid pin change');
       return invoke(channel, await requireSession(first), second);
     case 'sessions:update-metadata': {
-      const archived = (second as { isArchived?: unknown } | undefined)?.isArchived;
-      if (typeof archived !== 'boolean') throw new Error('Invalid archive change');
-      return invoke(channel, await requireSession(first), { isArchived: archived });
+      const input = second as { isArchived?: unknown; mode?: unknown; model?: unknown; metadata?: Record<string, unknown> } | undefined;
+      const updates: Record<string, unknown> = {};
+      if (typeof input?.isArchived === 'boolean') updates.isArchived = input.isArchived;
+      if (input?.mode === 'agent' || input?.mode === 'planning') updates.mode = input.mode;
+      if (typeof input?.model === 'string' && /^[\w.-]+:[\w.:/-]{1,180}$/.test(input.model)) updates.model = input.model;
+      const fields = Object.entries(input?.metadata ?? {}).filter(([key, value]) =>
+        ['effortLevel', 'thinkingMode', 'opencodeAgent'].includes(key) &&
+        (value === null || (typeof value === 'string' && value.length <= 80)));
+      if (fields.length) updates.metadata = Object.fromEntries(fields);
+      if (!Object.keys(updates).length) throw new Error('Invalid session change');
+      return invoke(channel, await requireSession(first), updates);
     }
     case 'sessions:list-children':
       if (second !== workspacePath) throw new Error('Invalid workspace');

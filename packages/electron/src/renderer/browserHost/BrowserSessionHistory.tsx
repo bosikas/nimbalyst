@@ -52,13 +52,6 @@ export default function BrowserSessionHistory({ workspacePath, sessions, selecte
     }
   }, [refresh, request]);
 
-  useLayoutEffect(() => {
-    const previous = window.electronAPI;
-    const bridge = { ...previous, invoke } as typeof window.electronAPI;
-    window.electronAPI = bridge;
-    return () => { if (window.electronAPI === bridge) window.electronAPI = previous; };
-  }, [invoke]);
-
   const browser = useMemo(() => ({
     openSession,
     refresh,

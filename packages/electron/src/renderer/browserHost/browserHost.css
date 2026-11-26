@@ -13,8 +13,7 @@
 .browser-host-sign-in input,
 .browser-host-sign-in button,
 .browser-host-toolbar button,
-.browser-host-automations button,
-.browser-host-permission button {
+.browser-host-automations button {
   border: 1px solid var(--nim-border);
   border-radius: 6px;
   padding: .4rem .75rem;
@@ -132,24 +131,11 @@
   overflow: auto;
 }
 
-.browser-host-transcript,
 .browser-host-pdf {
   position: relative;
   flex: 1;
   min-height: 0;
   overflow: hidden;
-}
-
-.browser-host-permission {
-  padding: .5rem 1rem;
-  max-height: 30vh;
-  overflow: auto;
-  border-bottom: 1px solid var(--nim-border);
-}
-
-.browser-host-permission pre {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
 }
 
 .browser-host-automations {

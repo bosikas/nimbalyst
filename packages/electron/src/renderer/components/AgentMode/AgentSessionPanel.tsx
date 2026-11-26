@@ -13,7 +13,7 @@
  */
 
 import React, { memo, useRef, useCallback, forwardRef, useImperativeHandle } from 'react';
-import { SessionTranscript, SessionTranscriptRef } from '../UnifiedAI/SessionTranscript';
+import { SessionTranscript, type SessionTranscriptProps, type SessionTranscriptRef } from '../UnifiedAI/SessionTranscript';
 import type { SerializableDocumentContext } from '../../hooks/useDocumentContext';
 
 export interface AgentSessionPanelRef {
@@ -32,6 +32,7 @@ export interface AgentSessionPanelProps {
   getDocumentContext?: () => Promise<SerializableDocumentContext>;
   /** When true, collapse the transcript but keep input and dialogs visible */
   collapseTranscript?: boolean;
+  browserSession?: SessionTranscriptProps['browserSession'];
 }
 
 /**
@@ -50,6 +51,7 @@ const AgentSessionPanelComponent = forwardRef<AgentSessionPanelRef, AgentSession
   documentContext,
   getDocumentContext,
   collapseTranscript = false,
+  browserSession,
 }, ref) => {
   const transcriptRef = useRef<SessionTranscriptRef>(null);
 
@@ -78,6 +80,7 @@ const AgentSessionPanelComponent = forwardRef<AgentSessionPanelRef, AgentSession
         mode="agent"
         hideSidebar={true}
         collapseTranscript={collapseTranscript}
+        browserSession={browserSession}
         onFileClick={handleFileClick}
         onClearAgentSession={onClearAgentSession}
         onCreateWorktreeSession={onCreateWorktreeSession}

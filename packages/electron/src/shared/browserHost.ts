@@ -9,7 +9,14 @@ export interface BrowserHostSessionSummary {
 
 export type BrowserHostSessionHistory = SessionMeta[];
 
-export type BrowserHostSession = Pick<SessionData, 'id' | 'provider' | 'title' | 'messages' | 'createdAt' | 'updatedAt'>;
+export type BrowserHostSession = Pick<SessionData,
+  'id' | 'provider' | 'title' | 'messages' | 'createdAt' | 'updatedAt' | 'model' | 'mode' |
+  'isArchived' | 'parentSessionId' | 'worktreeId' | 'worktreePath' | 'tokenUsage' | 'draftInput'
+> & {
+  processing?: boolean;
+  queuedPrompts?: { id: string; prompt: string; timestamp: number }[];
+  metadata?: Partial<Pick<NonNullable<SessionData['metadata']>, 'effortLevel' | 'thinkingMode' | 'sessionStatus' | 'currentTodos'>>;
+};
 
 export interface BrowserHostInfo {
   workspaceName: string;

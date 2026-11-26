@@ -25,6 +25,7 @@ export interface BrowserHostServices {
   getSession: (id: string) => Promise<BrowserHostSession | null>;
   interruptSession: (id: string) => Promise<{ success: boolean }>;
   queuePrompt: (id: string, prompt: string) => Promise<void>;
+  saveDraft?: (id: string, draft: string) => Promise<boolean>;
   respondToPermission: (id: string, requestId: string, decision: BrowserHostApproval) => Promise<{ success: boolean }>;
   listExtensions: () => Promise<BrowserHostExtension[]>;
   readPanelAssets?: (extensionId: string) => Promise<{ source: string; css: string } | null>;
@@ -246,7 +247,7 @@ export function createBrowserHostHandler(config: BrowserHostConfig, services: Br
       }
     }
 
-    const match = /^\/api\/sessions\/([\w-]{1,128})(?:\/(interrupt|prompt|permission))?$/.exec(pathname);
+    const match = /^\/api\/sessions\/([\w-]{1,128})(?:\/(interrupt|prompt|permission|draft))?$/.exec(pathname);
     if (!match) return failure('Not found', 404);
     const [, id, action] = match;
     if (request.method !== (action ? 'POST' : 'GET')) return failure('Method denied', 405);
@@ -263,6 +264,12 @@ export function createBrowserHostHandler(config: BrowserHostConfig, services: Br
       await services.queuePrompt(id, prompt);
       return json({ success: true }, 202);
     }
+    if (action === 'draft' && services.saveDraft) {
+      const input = await readBody(request);
+      if (typeof input?.draft !== 'string' || input.draft.length > 32_000) return failure('Invalid draft', 400);
+      return await services.saveDraft(id, input.draft) ? json({ success: true }) : failure('Draft could not be saved', 409);
+    }
+    if (action === 'draft') return failure('Session drafts are unavailable', 404);
     if (action === 'permission') {
       const input = await readBody(request);
       const requestId = input?.requestId;
@@ -277,8 +284,20 @@ export function createBrowserHostHandler(config: BrowserHostConfig, services: Br
       return result.success ? json({ success: true }) : failure('Permission response could not be delivered', 409);
     }
 
-    const { title, provider, messages, createdAt, updatedAt } = session;
-    return json({ id, title, provider, messages, createdAt, updatedAt });
+    const {
+      title, provider, messages, createdAt, updatedAt, model, mode, isArchived,
+      parentSessionId, worktreeId, worktreePath, tokenUsage, draftInput, processing, queuedPrompts, metadata,
+    } = session;
+    return json({
+      id, title, provider, messages, createdAt, updatedAt, model, mode, isArchived,
+      parentSessionId, worktreeId, worktreePath, tokenUsage, draftInput, processing, queuedPrompts,
+      metadata: metadata && {
+        effortLevel: metadata.effortLevel,
+        thinkingMode: metadata.thinkingMode,
+        sessionStatus: metadata.sessionStatus,
+        currentTodos: metadata.currentTodos,
+      },
+    } satisfies BrowserHostSession);
   };
 }
 
