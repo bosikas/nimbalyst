@@ -6,6 +6,7 @@ import { readCodexRecordedStartup } from './codexRolloutStartup';
 import { sameWorkspaceIdentity } from '../utils/workspaceIdentity';
 import { getToolBudgetSnapshot } from './toolBudgetService';
 import { readClaudeContextInspection } from './claudeContextInspection';
+import { readVibeContextInspection, recordedVibeStartup } from './vibeContextInspection';
 
 const CLAUDE_PROVIDERS = new Set(['claude-code', 'claude-code-cli']);
 
@@ -17,10 +18,22 @@ export async function getSessionContextInspection(
   const session = await AISessionsRepository.get(sessionId);
   if (!session?.workspacePath || !sameWorkspaceIdentity(session.workspacePath, workspacePath)) throw new Error('Session is not in this workspace.');
   const metadata = typeof session.metadata === 'string' ? JSON.parse(session.metadata) : session.metadata;
+  const nativeUsage = {
+    source: 'Stored provider-reported usage. Current context and cumulative spend are different quantities.',
+    value: session.tokenUsage ?? metadata?.tokenUsage ?? null,
+  };
+  if (session.provider === 'mistral-vibe') {
+    return {
+      sessionId,
+      nativeUsage,
+      vibe: await readVibeContextInspection(sessionId, session.providerSessionId, includeRecordedStartup),
+      ...(includeRecordedStartup ? { recordedStartup: await recordedVibeStartup(session.providerSessionId, RECORDED_TEXT_LIMIT) } : {}),
+    };
+  }
   if (session.provider && CLAUDE_PROVIDERS.has(session.provider)) {
     return {
       sessionId,
-      nativeUsage: { source: 'Stored provider-reported usage; not a local byte estimate. Current context and cumulative spend are different quantities.', value: session.tokenUsage ?? metadata?.tokenUsage ?? null },
+      nativeUsage,
       // Prompt and appended system prompt text are raw user content; only the local inspector opts in.
       claude: await readClaudeContextInspection({ id: sessionId, provider: session.provider }, { includeText: includeRecordedStartup }),
       unavailable: "Claude's built-in system prompt text is never exposed; only its section names and token counts are.",
@@ -28,7 +41,7 @@ export async function getSessionContextInspection(
   }
   return {
     sessionId,
-    nativeUsage: { source: 'Stored provider-reported usage; not a local byte estimate. Current context and cumulative spend are different quantities.', value: session.tokenUsage ?? metadata?.tokenUsage ?? null },
+    nativeUsage,
     preparedRequest: readCodexContext(sessionId),
     nativeEvidence: readCodexContextEvidence(sessionId),
     unavailable: 'No prepared-request snapshot until a Codex turn runs in this app process. Native context categories and active loaded-tool set are unavailable. Original transcript bytes are not current model context.',

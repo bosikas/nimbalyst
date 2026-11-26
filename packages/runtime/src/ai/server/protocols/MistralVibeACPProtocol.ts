@@ -1,13 +1,72 @@
-import type { SessionConfigOption } from '@agentclientprotocol/sdk';
+import { RequestError, type ClientSideConnection, type SessionConfigOption } from '@agentclientprotocol/sdk';
+import { execFile } from 'node:child_process';
+import { realpath } from 'node:fs/promises';
+import { promisify } from 'node:util';
 import path from 'path';
 import { EFFORT_LEVELS, parseEffortLevel, selectSupportedEffortLevel } from '../effortLevels';
 import type { AIModel } from '../types';
 import { AcpStdioAgentProtocol, type GrokACPProtocolDeps } from './GrokACPProtocol';
+import type { ProtocolSession, SessionOptions } from './ProtocolInterface';
 import { mapVibeSessionUpdate, readVibeUsage } from './headless/MistralVibeRecordMapper';
 
 export const MISTRAL_VIBE_EXECUTABLE = process.platform === 'win32' ? 'vibe-acp.exe' : 'vibe-acp';
 export const MISTRAL_VIBE_INSTALL_PATHS = ['.local/bin/' + MISTRAL_VIBE_EXECUTABLE];
 const MODEL_PREFIX = 'mistral-vibe:';
+const execFileAsync = promisify(execFile);
+
+interface VibeTrustStatus {
+  trust_status?: string;
+  details?: {
+    cwd?: string;
+    repoExplicitlyUntrusted?: boolean;
+    availableDecisions?: string[];
+  } | null;
+}
+
+async function findRegisteredWorktree(workspacePath: string, projectPath: unknown) {
+  if (typeof projectPath !== 'string' || projectPath === workspacePath) return;
+  try {
+    const [cwd, primaryCheckout] = await Promise.all([realpath(workspacePath), realpath(projectPath)]);
+    if (cwd === primaryCheckout) return;
+    // Read registrations from the source repo, whose path comes from the host session.
+    const { stdout } = await execFileAsync('git', [
+      '-C', primaryCheckout, 'worktree', 'list', '--porcelain', '-z',
+    ]);
+    const entries = stdout.split('\0');
+    if (entries[0] === `worktree ${primaryCheckout}` && entries.includes(`worktree ${cwd}`)) {
+      return { cwd, primaryCheckout };
+    }
+  } catch {
+    // Git may be unavailable, or this may be a workspace outside a repository.
+  }
+}
+
+async function inheritWorktreeTrust(connection: ClientSideConnection, cwd: string, primaryCheckout: string) {
+  let source: VibeTrustStatus;
+  try {
+    source = await connection.extMethod('_trust/status', { cwd: primaryCheckout }) as VibeTrustStatus;
+  } catch (error) {
+    if (error instanceof RequestError && error.code === -32601) return false;
+    throw error;
+  }
+  if (source.trust_status !== 'trusted') return false;
+
+  const target = await connection.extMethod('_trust/status', { cwd }) as VibeTrustStatus;
+  const details = target.details;
+  if (target.trust_status !== 'untrusted' || details?.cwd !== cwd
+    || details.repoExplicitlyUntrusted !== false || !details.availableDecisions?.includes('trust_cwd')) {
+    return false;
+  }
+
+  // Vibe pins the trust decision to an existing session's cwd. Use a session
+  // with no turns or host tools so the real session can start with native hooks.
+  const { sessionId } = await connection.newSession({ cwd, mcpServers: [] });
+  const decision = await connection.extMethod('_trust/decision', { sessionId, cwd, decision: 'trust_cwd' }) as VibeTrustStatus;
+  if (decision.trust_status !== 'trusted') {
+    throw new Error(`Mistral Vibe could not activate project configuration for ${cwd}.`);
+  }
+  return true;
+}
 
 export class MistralVibeACPProtocol extends AcpStdioAgentProtocol {
   constructor(deps?: GrokACPProtocolDeps) {
@@ -68,6 +127,28 @@ export class MistralVibeACPProtocol extends AcpStdioAgentProtocol {
   }
 
   /** Query the CLI's workspace catalog without starting a model turn. */
+  override async createSession(options: SessionOptions): Promise<ProtocolSession> {
+    await this.prepareWorktree(options);
+    return super.createSession(options);
+  }
+
+  override async resumeSession(sessionId: string, options: SessionOptions): Promise<ProtocolSession> {
+    await this.prepareWorktree(options);
+    return super.resumeSession(sessionId, options);
+  }
+
+  private async prepareWorktree(options: SessionOptions): Promise<void> {
+    const worktree = await findRegisteredWorktree(options.workspacePath, options.raw?.permissionsPath);
+    if (!worktree) return;
+
+    const connection = await this.getConnection();
+    if (await inheritWorktreeTrust(connection, worktree.cwd, worktree.primaryCheckout)) {
+      // A previously loaded session can retain the untrusted hook registry.
+      // Reconnect before starting or loading the real session.
+      this.destroy();
+    }
+  }
+
   async discoverModels(workspacePath: string): Promise<AIModel[]> {
     const connection = await this.getConnection();
     const session = await connection.newSession({ cwd: workspacePath, mcpServers: [] });

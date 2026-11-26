@@ -66,7 +66,7 @@ export function ContextUsageDisplay({
   currentContext
 }: ContextUsageDisplayProps) {
   const { open: openDialog } = useDialog();
-  const canInspect = sessionId && (provider === 'openai-codex' || provider === 'claude-code' || provider === 'claude-code-cli');
+  const canInspect = sessionId && (provider === 'openai-codex' || provider === 'claude-code' || provider === 'claude-code-cli' || provider === 'mistral-vibe');
   const contextReporting = agentCapabilitiesForProviderType(provider).contextReporting;
   // For context window display, prefer currentContext (from /context command)
   // Fall back to legacy fields for backward compatibility

@@ -1,6 +1,10 @@
 // @vitest-environment node
 
 import { fileURLToPath } from 'node:url';
+import { execFileSync } from 'node:child_process';
+import { mkdtemp, readFile, realpath, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { MistralVibeACPProtocol } from '../MistralVibeACPProtocol';
 import { mapVibeSessionUpdate } from '../headless/MistralVibeRecordMapper';
@@ -24,6 +28,50 @@ const options = {
 };
 
 describe('Mistral Vibe ACP', () => {
+  it.each(['grant', 'create', 'declined', 'untrusted-source', 'unrelated', 'older-cli'])(
+    'inherits native trust only for an eligible checkout (%s)', async (trustCase) => {
+      const root = await realpath(await mkdtemp(path.join(tmpdir(), 'vibe-worktree-trust-')));
+      const primary = path.join(root, 'primary');
+      const worktree = path.join(root, 'worktree');
+      const log = path.join(root, 'trust-log');
+      const git = (...args: string[]) => execFileSync('git', args, { stdio: 'ignore' });
+      const protocol = new MistralVibeACPProtocol({
+        command: process.execPath,
+        args: [fixture],
+        env: { VIBE_TRUST_CASE: trustCase, VIBE_TRUST_LOG: log, VIBE_TRUST_PRIMARY: primary },
+      });
+      try {
+        git('init', primary);
+        git('-C', primary, '-c', 'user.name=Test', '-c', 'user.email=test@example.com', 'commit', '--allow-empty', '-m', 'Initial');
+        if (trustCase === 'unrelated') git('init', worktree);
+        else git('-C', primary, 'worktree', 'add', '--detach', worktree);
+
+        const sessionOptions = {
+          ...options, workspacePath: worktree, raw: { permissionsPath: primary },
+        };
+        if (trustCase === 'create') await protocol.createSession(sessionOptions);
+        else await protocol.resumeSession('vibe-session', sessionOptions);
+
+        const calls = (await readFile(log, 'utf8')).trim().split('\n').map((line) => JSON.parse(line));
+        const expected = [];
+        if (trustCase !== 'unrelated') expected.push(['_trust/status', { cwd: primary }]);
+        if (trustCase === 'grant' || trustCase === 'create' || trustCase === 'declined') {
+          expected.push(['_trust/status', { cwd: worktree }]);
+        }
+        if (trustCase === 'grant' || trustCase === 'create') {
+          expected.push(['session/new', { cwd: worktree, hasServers: false }]);
+          expected.push(['_trust/decision', { sessionId: 'vibe-session', cwd: worktree, decision: 'trust_cwd' }]);
+        }
+        expected.push([trustCase === 'create' ? 'session/new' : 'session/load', { cwd: worktree, hasServers: true }]);
+        expected.push(['session/set_config_option', { sessionId: 'vibe-session', configId: 'mode', value: 'ask' }]);
+        expect(calls).toEqual(expected);
+      } finally {
+        protocol.destroy();
+        await rm(root, { force: true, recursive: true });
+      }
+    },
+  );
+
   it('discovers grouped models and the effort options for each model', async () => {
     const protocol = new MistralVibeACPProtocol({ command: process.execPath, args: [fixture] });
     try {

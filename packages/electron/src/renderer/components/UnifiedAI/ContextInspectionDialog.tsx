@@ -11,7 +11,7 @@ import { ClaudeContextInspectionDetails } from './ClaudeContextInspectionDetails
 
 export interface ContextInspectionDialogData {
   sessionId: string;
-  provider: 'openai-codex' | 'claude-code' | 'claude-code-cli';
+  provider: 'openai-codex' | 'claude-code' | 'claude-code-cli' | 'mistral-vibe';
   currentContext?: { tokens: number; contextWindow: number; categories?: TokenUsageCategory[] };
 }
 
@@ -25,6 +25,7 @@ export function registerContextInspectionDialog() {
 
 const providerNames = {
   'openai-codex': 'Codex',
+  'mistral-vibe': 'Mistral Vibe',
   'claude-code': 'Claude Agent',
   'claude-code-cli': 'Claude Code CLI',
 };
@@ -86,8 +87,9 @@ export function ContextInspectionDialog({ isOpen, onClose, data }: DialogCompone
                 </li>)}
               </ul>}
             </section>}
-            {provider === 'openai-codex' ? <ContextInspectionDetails key={sessionId} sessionId={sessionId} />
-              : <ClaudeContextDetails sessionId={sessionId} provider={provider} />}
+            {provider === 'claude-code' || provider === 'claude-code-cli'
+              ? <ClaudeContextDetails sessionId={sessionId} provider={provider} />
+              : <ContextInspectionDetails key={sessionId} sessionId={sessionId} />}
           </div>
         </section>
       </FloatingFocusManager>

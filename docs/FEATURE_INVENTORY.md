@@ -68,7 +68,7 @@ Twelve built-in provider lanes, plus any agent an extension contributes. Every l
 - OpenAI Codex over ACP
 - GitHub Copilot CLI (ACP)
 - Grok Build (ACP)
-- Mistral Vibe (ACP, with CLI subscription sign-in, workspace model discovery, per-model thinking and effort controls, live context and session tokens, context compaction, workspace MCP tools, and permission prompts)
+- Mistral Vibe (ACP, with CLI subscription sign-in, workspace model discovery, per-model thinking and effort controls, live context and session tokens, context inspection with recorded startup inputs, context compaction, workspace MCP tools, and permission prompts)
 - Cursor Agent
 - Gemini via Google Antigravity (Connect-RPC over the user's Antigravity login; reports no usage numbers, so context and cost display as unavailable rather than guessed)
 - OpenCode, with slash commands, Compact, agent roles, and a model picker populated from the user's connected accounts
@@ -179,7 +179,7 @@ Twelve built-in provider lanes, plus any agent an extension contributes. Every l
 ## Git Worktrees
 
 - Create isolated worktrees for AI coding sessions (Cmd+Alt+W)
-- Automatically use an isolated worktree for Mistral Vibe sessions in Git projects, including resumed sessions
+- Automatically use an isolated worktree for Mistral Vibe sessions in Git projects, including resumed sessions. When Vibe already trusts the primary checkout, it can load `AGENTS.md`, project skills and hooks natively in its registered worktree.
 - Per-project default base branch for new worktrees (Project Settings > Worktrees): the remote default branch, the main checkout's current branch, or a specific branch; used by the new-worktree dialog and by agent, mobile and loop worktrees
 - Multiple sessions per worktree
 - Merge worktree into base branch

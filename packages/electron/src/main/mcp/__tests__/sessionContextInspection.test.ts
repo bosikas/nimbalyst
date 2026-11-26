@@ -8,7 +8,8 @@ vi.mock('../../utils/workspaceIdentity', () => ({ sameWorkspaceIdentity: (a: str
 vi.mock('../toolBudgetService', () => ({ getToolBudgetSnapshot: async () => ({ groups: [{ schemaBytes: 1234, estTokens: 300, inclusionReason: 'Configured discovery' }] }) }));
 import { getSessionContextInspection } from '../sessionContextInspection';
 import { captureClaudeContextReport } from '../claudeContextReport';
-import { existsSync, mkdtempSync } from 'fs';
+import { captureVibeInstructions } from '../vibeContextInspection';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
 beforeEach(() => {
@@ -18,6 +19,73 @@ beforeEach(() => {
   state.reads = [];
 });
 describe('context inspection boundary', () => {
+  it('returns Vibe character counts and keeps prepared text scoped to the inspector', async () => {
+    const providerSessionId = 'c9187458-2f50-619d-9659-3e378bc79028';
+    state.session = { ...state.session, provider: 'mistral-vibe', providerSessionId };
+    const vibeHome = mkdtempSync(join(tmpdir(), 'vibe-context-'));
+    vi.stubEnv('VIBE_HOME', vibeHome);
+    captureVibeInstructions('vibe', 'Private prompt instructions');
+    try {
+      const directory = join(vibeHome, 'logs', 'session', 'unified', providerSessionId);
+      mkdirSync(directory, { recursive: true });
+      writeFileSync(join(directory, 'context-breakdown.json'), JSON.stringify({
+        system: 1200, tools: 34, skills: 0, conversation: 8100, unrelated: 'ignored',
+      }));
+      const generation = join(directory, 'generations', '0000000000000187');
+      const chunks = join(directory, 'chunks');
+      mkdirSync(generation, { recursive: true });
+      mkdirSync(chunks, { recursive: true });
+      const digest = 'a'.repeat(64);
+      writeFileSync(join(generation, 'manifest.json'), JSON.stringify({
+        session_id: providerSessionId, checkpoint: { chunks: [digest] },
+      }));
+      writeFileSync(join(generation, 'runtime-state.json'), JSON.stringify({
+        session_id: providerSessionId, core_system_instructions: 'Vibe defaults\nAGENTS.md: keep é as written.',
+      }));
+      writeFileSync(join(chunks, digest + '.json'), JSON.stringify([
+        { turn_index: 0, source: 'instructions', message: { role: 'developer',
+          content: [{ type: 'text', text: 'Recorded project instructions\n' }] } },
+        { turn_index: 0, source: 'history', message: { role: 'user', content: [
+          { type: 'text', text: 'Find easy GP tasks' },
+          { type: 'resource', resource: { uri: 'nimbalyst://system-instructions', text: 'Original Nimbalyst instructions\n' } },
+        ] } },
+        { turn_index: 1, source: 'history', message: { role: 'user',
+          content: [{ type: 'text', text: 'Later prompt' }] } },
+      ]));
+      const local = await getSessionContextInspection('vibe', '/project', { includeRecordedStartup: true });
+      expect(local).toMatchObject({
+        nativeUsage: { value: { currentContext: { tokens: 7123 } } },
+        vibe: {
+          groups: [
+            { name: 'System instructions', characters: 1200 },
+            { name: 'Tool definitions', characters: 34 },
+            { name: 'Skills', characters: 0 },
+            { name: 'Conversation', characters: 8100 },
+          ],
+          instructions: 'Private prompt instructions',
+        },
+        recordedStartup: { report: {
+          provider: 'mistral-vibe',
+          boundaryLine: 2,
+          messages: [
+            { role: 'developer', text: 'Recorded project instructions\n' },
+            { role: 'user', text: 'Find easy GP tasks\nOriginal Nimbalyst instructions\n',
+              kinds: ['user.text', 'Nimbalyst instructions (ACP resource)'] },
+          ],
+          snapshots: [{ name: 'Saved Vibe system instructions', text: 'Vibe defaults\nAGENTS.md: keep é as written.' }],
+        } },
+      });
+      const agentReport = await getSessionContextInspection('vibe', '/project');
+      expect(agentReport).not.toHaveProperty('recordedStartup');
+      expect(JSON.stringify(agentReport)).not.toContain('Private prompt instructions');
+      await expect(getSessionContextInspection('vibe', '/other')).rejects.toThrow('not in this workspace');
+    } finally {
+      captureVibeInstructions('vibe', null);
+      vi.unstubAllEnvs();
+      rmSync(vibeHome, { recursive: true, force: true });
+    }
+  });
+
   it('keeps recorded startup text out of the agent-facing provenance report', async () => {
     state.session = { ...state.session, provider: 'openai-codex', providerSessionId: 'native-thread' };
     state.recorded = { messages: [{ text: 'Private startup text' }] };

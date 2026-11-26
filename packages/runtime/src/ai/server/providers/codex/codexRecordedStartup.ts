@@ -22,9 +22,12 @@ export interface CodexAuditSnapshot {
   sha256?: string;
   /** The snapshot text is identical to this recorded message: one instruction body, not two. */
   sameTextAsMessageLine?: number;
+  text?: string;
+  textTruncated?: boolean;
 }
 
 export interface CodexRecordedStartup {
+  provider?: 'mistral-vibe';
   source?: string;
   session: { id?: string; role: 'agent' | 'automatic-approval-reviewer'; model?: string; runtimeVersion?: string; approvalsReviewer?: string };
   /** Recorded in the rollout log. Not proof of what was transmitted to the model. */
@@ -54,7 +57,7 @@ const kindsOf = (payload: any): string[] => payload?.internal_chat_message_metad
 export const isCodexOpeningInput = (record: CodexRolloutRecord) => record.type === 'response_item'
   && (kindsOf(record.payload).includes('user.text') || record.payload?.type === 'function_call_output');
 
-function capText(text: string, maxBytes: number): { text: string; truncated: boolean } {
+export function capRecordedStartupText(text: string, maxBytes: number): { text: string; truncated: boolean } {
   if (bytes(text) <= maxBytes) return { text, truncated: false };
   let used = 0;
   let end = 0;
@@ -109,7 +112,7 @@ export function inspectCodexStartupRecords(records: Iterable<CodexRolloutRecord>
       // Display separators are not recorded text bytes. Key on the raw content so
       // content boundaries and non-text attachments stay distinct.
       const raw = JSON.stringify(isOutput ? payload.output ?? null : payload.content ?? []);
-      const capped = capText(textParts.join('\n'), maxTextBytes);
+      const capped = capRecordedStartupText(textParts.join('\n'), maxTextBytes);
       const entry: CodexRecordedMessage = {
         line,
         role: payload.role ?? 'tool',

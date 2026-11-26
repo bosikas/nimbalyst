@@ -1,4 +1,5 @@
 import { createInterface } from 'node:readline';
+import { appendFileSync } from 'node:fs';
 
 const input = createInterface({ input: process.stdin });
 const write = (body) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...body }) + '\n');
@@ -29,12 +30,32 @@ const update = (body) => write({ method: 'session/update', params: { sessionId, 
 for await (const line of input) {
   const { id, method, params, result } = JSON.parse(line);
   switch (method) {
+    case '_trust/status': {
+      appendFileSync(process.env.VIBE_TRUST_LOG, JSON.stringify([method, params]) + '\n');
+      if (process.env.VIBE_TRUST_CASE === 'older-cli') {
+        write({ id, error: { code: -32601, message: 'Method not found' } });
+        break;
+      }
+      const result = params.cwd !== process.env.VIBE_TRUST_PRIMARY
+        ? { trust_status: 'untrusted', details: { cwd: params.cwd, repoExplicitlyUntrusted: process.env.VIBE_TRUST_CASE === 'declined', availableDecisions: ['trust_cwd'] } }
+        : { trust_status: process.env.VIBE_TRUST_CASE === 'untrusted-source' ? 'untrusted' : 'trusted' };
+      write({ id, result });
+      break;
+    }
+    case '_trust/decision':
+      appendFileSync(process.env.VIBE_TRUST_LOG, JSON.stringify([method, params]) + '\n');
+      mode = 'accept-edits';
+      write({ id, result: { trust_status: 'trusted' } });
+      break;
     case 'initialize':
       write({ id, result: { protocolVersion: 1, agentCapabilities: { loadSession: true }, authMethods: [] } });
       break;
     case 'session/new':
     case 'session/load': {
       const servers = params.mcpServers ?? [];
+      if (process.env.VIBE_TRUST_LOG) {
+        appendFileSync(process.env.VIBE_TRUST_LOG, JSON.stringify([method, { cwd: params.cwd, hasServers: servers.length > 0 }]) + '\n');
+      }
       const host = servers.find((server) => server.name === 'nimbalyst');
       if (servers.length && (host?.type !== 'http' || host.url !== 'http://localhost:7000/mcp/core'
         || !host.headers?.some(({ name, value }) => name === 'Authorization' && value === 'Bearer test-token'))) {
@@ -45,6 +66,9 @@ for await (const line of input) {
       break;
     }
     case 'session/set_config_option':
+      if (process.env.VIBE_TRUST_LOG && params.configId === 'mode') {
+        appendFileSync(process.env.VIBE_TRUST_LOG, JSON.stringify([method, params]) + '\n');
+      }
       if (params.configId === 'mode') mode = params.value;
       if (params.configId === 'model') {
         model = params.value;

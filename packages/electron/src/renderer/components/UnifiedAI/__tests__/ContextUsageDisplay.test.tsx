@@ -28,6 +28,34 @@ afterEach(() => cleanup());
 
 registerContextInspectionDialog();
 
+it('opens Vibe context inspection with separate native token and character counts', async () => {
+  Object.defineProperty(window, 'electronAPI', { configurable: true, value: {
+    invoke: vi.fn(async () => ({
+      vibe: {
+        groups: [{ name: 'Skills', characters: 0 }],
+        instructions: 'Nimbalyst prepared instructions.',
+      },
+      recordedStartup: {
+        status: 'Vibe saved startup.',
+        report: {
+          provider: 'mistral-vibe', session: { role: 'agent' },
+          messages: [{ line: 1, role: 'user', bytes: 14, text: 'Opening prompt', kinds: ['user.text'] }],
+          snapshots: [{ line: 0, name: 'Saved Vibe system instructions', bytes: 12, text: 'System rules' }],
+          toolRecords: [], repeatedMessages: [], boundaryLine: 1, recordedMessageBytes: 14,
+        },
+      },
+    })),
+  } });
+  renderMeter(<ContextUsageDisplay {...props} provider="mistral-vibe" sessionId="vibe-session" />);
+  openInspector();
+
+  expect(await screen.findByText('0 characters')).toBeTruthy();
+  expect(screen.getByText('132,000 / 200,000 tokens')).toBeTruthy();
+  expect(screen.getByText('Nimbalyst prepared instructions.').tagName).toBe('PRE');
+  expect(screen.getByText('System rules').tagName).toBe('PRE');
+  expect(screen.getByText('Opening prompt').tagName).toBe('PRE');
+});
+
 function renderMeter(element: React.ReactElement, store = createStore()) {
   return render(<Provider store={store}><DialogProvider>{element}</DialogProvider></Provider>);
 }

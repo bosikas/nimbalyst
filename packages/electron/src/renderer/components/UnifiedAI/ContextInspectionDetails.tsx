@@ -3,8 +3,9 @@ import type { CodexContextInspection, CodexContextEvidence } from '@nimbalyst/ru
 import { RecordedStartupDetails, type RecordedStartup } from './RecordedStartupDetails';
 
 interface Inspection {
-  preparedRequest: CodexContextInspection | null;
-  unavailable: string;
+  preparedRequest?: CodexContextInspection | null;
+  unavailable?: string;
+  vibe?: { groups: Array<{ name: string; characters: number }>; instructions?: string };
   nativeEvidence?: CodexContextEvidence;
   recordedStartup?: RecordedStartup;
   toolDefinitions?: { groups: Array<{ configKey: string; displayName: string; enabled: boolean; loadPolicy: string; toolCount: number }> };
@@ -38,7 +39,24 @@ export function ContextInspectionDetails({ sessionId }: { sessionId: string }) {
       <p className="mt-2">{inspection.preparedRequest.configuredMcpServers} configured MCP servers; {inspection.preparedRequest.attachments} attachments. Attachment encoding and native tool-schema costs are unavailable.</p>
       <p className="mt-2">{inspection.preparedRequest.nativeContext}</p>
     </>}
-    {inspection && !inspection.preparedRequest && <p className="mt-2">{inspection.unavailable}</p>}
+    {inspection?.unavailable && !inspection.preparedRequest && <p className="mt-2">{inspection.unavailable}</p>}
+    {inspection?.vibe && <section className="mt-3">
+      <h3 className="font-semibold">Recorded input size</h3>
+      {inspection.vibe.groups.length > 0
+        ? <dl className="mt-2">
+          {inspection.vibe.groups.map(({ name, characters }) => <div key={name} className="flex justify-between gap-4">
+            <dt>{name}</dt><dd>{characters.toLocaleString()} characters</dd>
+          </div>)}
+        </dl>
+        : <p className="mt-2">Vibe has no saved context breakdown for this session.</p>}
+      <h3 className="mt-4 font-semibold">Nimbalyst prompt instructions</h3>
+      {inspection.vibe.instructions
+        ? <details className="mt-2">
+          <summary>View instructions prepared for the latest prompt</summary>
+          <pre className="mt-2 whitespace-pre-wrap break-words">{inspection.vibe.instructions}</pre>
+        </details>
+        : <p className="mt-2">Available for prompts prepared since the app started.</p>}
+    </section>}
     {inspection?.recordedStartup && <RecordedStartupDetails recorded={inspection.recordedStartup} />}
     {inspection && <details className="context-tool-visibility mt-3">
       <summary className="cursor-pointer">Tools: configured, deferred &amp; observed</summary>
