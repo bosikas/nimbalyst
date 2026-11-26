@@ -107,6 +107,25 @@ describe('browser host', () => {
       .rejects.toThrow(/^Browser host configuration is not valid JSON$/);
   });
 
+  it('signs in from the loopback page with an automatically generated workspace credential', async () => {
+    const { services } = setup();
+    const handle = createBrowserHostHandler({ auth: 'loopback', workspacePath, rendererPath }, services);
+    const url = 'http://127.0.0.1:17865';
+    const page = await handle(new Request(url));
+    const key = /name="browser-host-loopback-token" content="([a-f0-9]{64})"/.exec(await page.text())?.[1];
+    expect(key).toHaveLength(64);
+    expect(page.headers.get('Cross-Origin-Resource-Policy')).toBe('same-origin');
+    expect((await handle(new Request(url, { headers: { origin: 'https://other.test' } }))).status).toBe(403);
+    expect((await handle(new Request('http://192.168.1.84:17865/'))).status).toBe(403);
+    expect((await handle(new Request(url + '/api/sessions'))).status).toBe(401);
+    expect(services.listSessions).not.toHaveBeenCalled();
+    const headers = { authorization: `Bearer ${key}` };
+    const sessions = await handle(new Request(url + '/api/sessions', { headers }));
+    expect(await sessions.json()).toEqual([{ id: 'local', title: 'Local session' }]);
+    const other = createBrowserHostHandler({ auth: 'loopback', workspacePath, rendererPath }, services);
+    expect((await other(new Request(url + '/api/sessions', { headers }))).status).toBe(401);
+  });
+
   it('binds each configured workspace to its own loopback port and token', async () => {
     const secondWorkspace = join(root, 'nimbalyst');
     await mkdir(secondWorkspace);

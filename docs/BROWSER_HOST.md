@@ -4,7 +4,7 @@ Nimbalyst Desktop serves opt-in browser workspaces while the host app is running
 
 Create a private configuration file on the Linux PC. Generate the access token with `openssl rand -hex 32` and set the file mode to `600`.
 
-The browser Sessions tab uses the desktop session history, including its tree, search, filters, and list options. The Linux host supplies the session list and handles supported commands such as creating, renaming, pinning, and archiving sessions. The browser refreshes session data automatically while the tab is visible.
+The browser Sessions tab uses the desktop session history, workstream header, and session tabs. Open a tab in a workstream or use its **+** button to create a child session on the host. The Linux host also handles supported session commands such as renaming, tagging, pinning, and archiving sessions. The browser refreshes session data automatically while the tab is visible.
 
 Browser extension panels receive workspace folder and Git status updates from the connected host. Extensions with AI permission can embed the same browser agent session panel used by Sessions.
 
@@ -19,7 +19,9 @@ Browser extension panels receive workspace folder and Git status updates from th
 
 Use the workspace path as shown in Nimbalyst. The optional PDF path is relative to the workspace and the file limit is 32 MB. The port defaults to 17864.
 
-To serve more than one workspace from the same desktop app, make the configuration a JSON array of these objects. Set a distinct port and token for each workspace and forward each port through SSH. Open the workspaces in separate desktop windows so their extension backends can run. On the client, open each forwarded address in its own tab or window and use that workspace's token.
+To serve more than one workspace from the same desktop app, make the configuration a JSON array of these objects. Assign distinct ports and forward each port through SSH. Open the workspaces in separate desktop windows so their extension backends can run. On the client, open each forwarded address in its own tab or window.
+
+Set `"auth": "loopback"` in place of `"token"` for a workspace that should open automatically through its forwarded address. This mode trusts local users on the host and anyone who can reach the forwarded loopback port. Workspaces that use `"token"` each need their own value.
 
 Launch a built Nimbalyst desktop app that includes this change with the configuration file path.
 

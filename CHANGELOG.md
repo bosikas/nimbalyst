@@ -10,7 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 <!-- New features go here -->
-- The browser host opens workspaces in separate windows, uses the desktop session history and agent session panel, and puts extension panels, PDF Viewer, and Automations in an icon rail with workspace-scoped data for supported panels.
+- The browser host uses the desktop session header and tabs, offers automatic sign-in through a trusted local tunnel, and puts extension panels, PDF Viewer, and Automations in an icon rail.
 - Mistral Vibe uses your signed-in CLI's model catalog in the session picker and offers the thinking controls each model supports.
 - Session summaries can include a short outcome, a write-up linked to source messages, and durable next actions for Work Overview.
 - Workspaces can define a PR reviewer preset that starts a Codex review from just a diff and brief, with its own model, instructions, permissions and starting skills, kept separate from global and repository instructions.

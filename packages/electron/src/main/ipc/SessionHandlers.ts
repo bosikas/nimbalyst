@@ -337,7 +337,7 @@ export async function registerSessionHandlers() {
     });
 
     // Update session metadata with extended fields
-    safeHandle('sessions:update-session-metadata', async (event, sessionId: string, updates: any) => {
+    registerBrowserPanelCommand('sessions:update-session-metadata', async (event, sessionId: string, updates: any) => {
         try {
             // Extract sessionType and metadata from updates
             const { sessionType, ...rawMetadataFields } = updates;
@@ -564,7 +564,7 @@ export async function registerSessionHandlers() {
     });
 
     // Create a child session under a parent
-    safeHandle('sessions:create-child', async (event, payload: {
+    registerBrowserPanelCommand('sessions:create-child', async (event, payload: {
         parentSessionId: string;
         workspacePath: string;
         worktreeId?: string;

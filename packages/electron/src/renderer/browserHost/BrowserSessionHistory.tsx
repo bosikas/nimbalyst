@@ -1,37 +1,20 @@
 import React, { useCallback, useLayoutEffect, useMemo, useState } from 'react';
 import { Provider } from 'jotai';
 import { store } from '@nimbalyst/runtime/store';
-import type { BrowserHostSessionHistory } from '../../shared/browserHost';
 import { SessionHistory } from '../components/AgenticCoding/SessionHistory';
 import { persistSessionHistoryLayoutAtom } from '../store/atoms/agentMode';
-import { activeWorkspacePathAtom } from '../store/atoms/openProjects';
-import {
-  activeSessionIdAtom, sessionHasPendingInteractivePromptAtom, sessionListWorkspaceAtom, sessionRegistryAtom,
-} from '../store/atoms/sessions';
 
 interface Props {
-  workspacePath: string;
-  sessions: BrowserHostSessionHistory;
-  selected: string | null;
   openSession: (id: string) => void;
   refresh: () => void;
   request: (path: string, init?: RequestInit) => Promise<Response>;
 }
 
-export default function BrowserSessionHistory({ workspacePath, sessions, selected, openSession, refresh, request }: Props) {
+export default function BrowserSessionHistory({ openSession, refresh, request }: Props) {
   const [error, setError] = useState('');
   useLayoutEffect(() => {
     store.set(persistSessionHistoryLayoutAtom, false);
-    store.set(activeWorkspacePathAtom, workspacePath);
-    store.set(sessionListWorkspaceAtom, workspacePath);
-    store.set(sessionRegistryAtom, new Map(sessions.map((session) => [session.id, session])));
-    for (const session of sessions) {
-      store.set(sessionHasPendingInteractivePromptAtom(session.id), session.hasPendingInteractivePrompt === true);
-    }
-  }, [sessions, workspacePath]);
-  useLayoutEffect(() => {
-    store.set(activeSessionIdAtom, selected);
-  }, [selected]);
+  }, []);
 
   const invoke = useCallback(async (channel: string, ...args: unknown[]) => {
     try {

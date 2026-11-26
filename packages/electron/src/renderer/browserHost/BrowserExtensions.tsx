@@ -86,10 +86,10 @@ function Automations({ request }: { request: Request }) {
   );
 }
 
-export function BrowserWorkspaceViews({ request, pdf, pdfName, workspacePath, openSession, components, registerPanelBridge, children }:
+export function BrowserWorkspaceViews({ request, pdf, pdfName, workspacePath, openSession, components, registerPanelBridge, connectionControl, children }:
   { request: Request; pdf: React.ReactNode; pdfName: string | null; workspacePath: string;
     openSession: (id: string) => void; components?: PanelHostComponents; registerPanelBridge?: RegisterBrowserPanelBridge;
-    children: React.ReactNode }) {
+    connectionControl?: React.ReactNode; children: React.ReactNode }) {
   const [view, setView] = useState('sessions');
   const [installed, setInstalled] = useState<BrowserHostExtension[]>([]);
   const [error, setError] = useState('');
@@ -142,6 +142,7 @@ export function BrowserWorkspaceViews({ request, pdf, pdfName, workspacePath, op
         {pdf && railButton('pdf', 'PDF Viewer', 'picture_as_pdf')}
         {railButton('automations', 'Automations', 'schedule')}
         {railButton('installed', 'Installed extensions', 'extension')}
+        {connectionControl}
       </nav>
       <section className="browser-host-extension">
         {view === 'sessions' && children}

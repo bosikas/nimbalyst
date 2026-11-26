@@ -962,7 +962,7 @@ export function registerWorktreeHandlers(): void {
    * @param isPinned - Whether the worktree should be pinned
    * @returns Success status
    */
-  ipcMain.handle('worktree:update-pinned', async (_event, worktreeId: string, isPinned: boolean) => {
+  registerBrowserPanelCommand('worktree:update-pinned', async (_event, worktreeId: string, isPinned: boolean) => {
     try {
       if (!worktreeId) {
         throw new Error('worktreeId is required');

@@ -173,15 +173,16 @@ SessionTab.displayName = 'SessionTab';
  * For single sessions, shows the session tab (so user can see what's selected).
  * For multi-session workstreams, shows all tabs.
  */
-const SessionTabBar: React.FC<{
+export const SessionTabBar: React.FC<{
   sessions: string[];
   activeSessionId: string | null;
   onSessionSelect: (sessionId: string) => void;
   onNewSession: () => void;
+  creatingSession?: boolean;
   onSessionArchive?: (sessionId: string) => void;
   onSessionUnarchive?: (sessionId: string) => void;
   onSessionRename?: (sessionId: string, newName: string) => void;
-}> = React.memo(({ sessions, activeSessionId, onSessionSelect, onNewSession, onSessionArchive, onSessionUnarchive, onSessionRename }) => {
+}> = React.memo(({ sessions, activeSessionId, onSessionSelect, onNewSession, creatingSession, onSessionArchive, onSessionUnarchive, onSessionRename }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [scrollEdges, setScrollEdges] = useState({ left: false, right: false });
   const updateScrollEdges = useCallback(() => {
@@ -259,6 +260,7 @@ const SessionTabBar: React.FC<{
       <button
         className="session-tab-new nim-btn-icon-sm shrink-0 text-[var(--nim-text-faint)] hover:text-[var(--nim-text-muted)] active:bg-[var(--nim-bg-tertiary)]"
         onClick={onNewSession}
+        disabled={creatingSession}
         title="New session in workstream"
       >
         <MaterialSymbol icon="add" size={16} />

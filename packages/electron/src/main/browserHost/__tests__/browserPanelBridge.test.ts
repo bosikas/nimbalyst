@@ -67,8 +67,34 @@ it('runs native Sessions operations only against the connected workspace', async
 
   mocks.getSession.mockResolvedValue({ workspacePath: '/workspace' });
   mocks.invoke.mockResolvedValue({ success: true });
-  await sessionHistory('sessions:update-metadata', ['local', { isArchived: true, workspaceId: '/other' }]);
-  expect(mocks.invoke).toHaveBeenCalledWith('sessions:update-metadata', mocks.sender, ['local', { isArchived: true }]);
+  await sessionHistory('sessions:update-metadata', ['local', { title: '  Renamed  ', isArchived: true, workspaceId: '/other' }]);
+  expect(mocks.invoke).toHaveBeenCalledWith('sessions:update-metadata', mocks.sender, ['local', { title: 'Renamed', isArchived: true }]);
+});
+
+it('creates a child with the host defaults only for a parent in the connected workspace', async () => {
+  mocks.getSession.mockResolvedValueOnce({ workspacePath: '/other' });
+  await expect(sessionHistory('sessions:create-child', ['parent'])).rejects.toThrow('Session not found');
+  expect(mocks.invoke).not.toHaveBeenCalled();
+
+  mocks.getSession.mockResolvedValue({ workspacePath: '/workspace' });
+  await sessionHistory('sessions:create-child', ['parent', { workspacePath: '/other', provider: 'claude-code' }]);
+  expect(mocks.invoke).toHaveBeenCalledWith('sessions:create-child', mocks.sender, [{
+    parentSessionId: 'parent', workspacePath: '/workspace', provider: 'codex',
+  }]);
+});
+
+it('forwards validated header tag and worktree pin changes only inside the workspace', async () => {
+  mocks.getSession.mockResolvedValue({ workspacePath: '/workspace' });
+  await expect(sessionHistory('sessions:update-session-metadata', ['local', { tags: [42] }]))
+    .rejects.toThrow('Invalid session tags');
+  await sessionHistory('sessions:update-session-metadata', ['local', { tags: ['parity'], phase: 'complete' }]);
+  expect(mocks.invoke).toHaveBeenCalledWith('sessions:update-session-metadata', mocks.sender, ['local', { tags: ['parity'] }]);
+
+  mocks.getWorktree.mockResolvedValueOnce({ projectPath: '/other' });
+  await expect(sessionHistory('worktree:update-pinned', ['worktree', true])).rejects.toThrow('Worktree not found');
+  mocks.getWorktree.mockResolvedValueOnce({ projectPath: '/workspace' });
+  await sessionHistory('worktree:update-pinned', ['worktree', true]);
+  expect(mocks.invoke).toHaveBeenCalledWith('worktree:update-pinned', mocks.sender, ['worktree', true]);
 });
 
 beforeEach(() => {

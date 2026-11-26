@@ -4,10 +4,16 @@ import { createRoot } from 'react-dom/client';
 import { Provider } from 'jotai';
 import { store } from '@nimbalyst/runtime/store';
 import { AgentSessionPanel } from '../components/AgentMode/AgentSessionPanel';
+import { sessionSelectionRootId } from '../components/AgenticCoding/sessionTreeModel';
 import { registerContextInspectionDialog } from '../components/UnifiedAI/ContextInspectionDialog';
 import { DialogProvider } from '../contexts/DialogContext';
 import { createPanelHostComponents } from '../extensions/panels/panelHostComponents';
-import { sessionDraftHydratedAtom, sessionDraftInputAtom, sessionProcessingAtom, sessionStoreAtom } from '../store/atoms/sessions';
+import { MaterialSymbol } from '@nimbalyst/runtime/ui/icons/MaterialSymbol';
+import { activeWorkspacePathAtom } from '../store/atoms/openProjects';
+import {
+  sessionDraftHydratedAtom, sessionDraftInputAtom, sessionHasPendingInteractivePromptAtom, sessionListWorkspaceAtom,
+  sessionProcessingAtom, sessionRegistryAtom, sessionStoreAtom,
+} from '../store/atoms/sessions';
 import { sessionQueuedPromptsAtom } from '../store/atoms/sessionTranscript';
 import type { BrowserHostInfo, BrowserHostSession, BrowserHostSessionHistory } from '../../shared/browserHost';
 import { getTheme, registerThemeContribution } from '@nimbalyst/runtime';
@@ -21,6 +27,7 @@ import './browserHost.css';
 
 const BrowserPdf = lazy(() => import('./BrowserPdf'));
 const BrowserSessionHistory = lazy(() => import('./BrowserSessionHistory'));
+const BrowserWorkstream = lazy(() => import('./BrowserWorkstream'));
 
 async function request(token: string, path: string, init?: RequestInit): Promise<Response> {
   const headers = new Headers(init?.headers);
@@ -106,6 +113,7 @@ const sessionComponentCommands = new Set([
 ]);
 
 function Workspace({ token, info, disconnect }: { token: string; info: BrowserHostInfo; disconnect: () => void }) {
+  const workspacePath = info.workspacePath ?? '';
   useEffect(() => {
     document.title = `${info.workspaceName} – Nimbalyst`;
     return () => { document.title = 'Nimbalyst'; };
@@ -131,15 +139,31 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
   const refreshHistory = React.useCallback(() => setRevision((value) => value + 1), []);
   const [selected, setSelected] = useState('');
   const panelComponents = React.useMemo(() => createPanelHostComponents(PanelSession, {
-    token, workspacePath: info.workspacePath ?? '',
-  }), [token, info.workspacePath]);
+    token, workspacePath,
+  }), [token, workspacePath]);
   const loadSessions = React.useMemo(() => async (signal: AbortSignal) => (
     await request(token, '/session-history', { signal })
   ).json() as Promise<BrowserHostSessionHistory>, [token, revision]);
-  const error = useBrowserRefresh(loadSessions, setSessions, 6000);
+  const applyHistory = React.useCallback((snapshot: BrowserHostSessionHistory) => {
+    store.set(activeWorkspacePathAtom, workspacePath);
+    store.set(sessionListWorkspaceAtom, workspacePath);
+    store.set(sessionRegistryAtom, new Map(snapshot.map((session) => [session.id, session])));
+    for (const session of snapshot) {
+      store.set(sessionHasPendingInteractivePromptAtom(session.id), session.hasPendingInteractivePrompt === true);
+    }
+    setSessions(snapshot);
+  }, [workspacePath]);
+  const error = useBrowserRefresh(loadSessions, applyHistory, 6000);
   const sessionId = selected || sessions?.find((session) => !session.isArchived)?.id;
+  const workstreamId = sessionId ? sessionSelectionRootId(sessionId, store.get(sessionRegistryAtom)) : undefined;
   const loadPdf = React.useCallback(async () => (await request(token, '/pdf')).arrayBuffer(), [token]);
   const extensionRequest = React.useCallback((path: string, init?: RequestInit) => request(token, path, init), [token]);
+  const workspaceCommand = React.useCallback(async (channel: string, ...args: unknown[]) => {
+    const { result } = await (await extensionRequest('/session-history/command', postJson({ channel, args }))).json();
+    if (result?.success === false) throw new Error(result.error ?? 'Session action failed');
+    if (channel === 'sessions:create-child' || channel.startsWith('sessions:update-')) refreshHistory();
+    return result;
+  }, [extensionRequest, refreshHistory]);
   const activePanelBridge = React.useRef<BrowserPanelBridge | undefined>(undefined);
   const registerPanelBridge = React.useCallback<RegisterBrowserPanelBridge>((panelBridge) => {
     activePanelBridge.current = panelBridge;
@@ -173,29 +197,28 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
         }
         if (!channel.startsWith('sessions:') && ![
           'worktree:get-batch', 'ai:getModels', 'ai:compactSession', 'ai:deleteQueuedPrompt', 'action-prompts:list',
-          'mcp-config:get-context-inspection',
+          'mcp-config:get-context-inspection', 'worktree:update-pinned',
         ].includes(channel)) {
           throw new Error('This desktop action is unavailable in the browser');
         }
-        const { result } = await (await extensionRequest('/session-history/command', postJson({ channel, args }))).json();
-        if (result?.success === false) throw new Error(result.error ?? 'Session action failed');
-        if (channel.startsWith('sessions:update-')) refreshHistory();
-        return result;
+        return workspaceCommand(channel, ...args);
       },
     } as typeof window.electronAPI;
     window.electronAPI = bridge;
     return () => { if (window.electronAPI === bridge) window.electronAPI = previous; };
-  }, [extensionRequest, refreshHistory]);
+  }, [extensionRequest, workspaceCommand]);
 
 
   return (
     <main className="browser-host-workspace">
-      <header className="browser-host-toolbar">
-        <h1>{info.workspaceName}</h1>
-        <button type="button" onClick={disconnect}>Disconnect</button>
-      </header>
       <BrowserWorkspaceViews request={extensionRequest} pdfName={info.pdfName}
-        workspacePath={info.workspacePath ?? ''} openSession={setSelected} components={panelComponents}
+        workspacePath={workspacePath} openSession={setSelected} components={panelComponents}
+        connectionControl={
+          <button className="browser-host-disconnect" type="button" onClick={disconnect}
+            title={`Disconnect from ${info.workspaceName}`} aria-label={`Disconnect from ${info.workspaceName}`}>
+            <MaterialSymbol icon="link_off" size={20} />
+          </button>
+        }
         registerPanelBridge={registerPanelBridge} pdf={info.pdfName ? (
           <Suspense fallback={<p role="status">Loading PDF Viewer…</p>}>
             <BrowserPdf fileName={info.pdfName} loadPdf={loadPdf} />
@@ -206,11 +229,16 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
             {error && <p role="status">{error}</p>}
             {!sessions && !error && <p role="status">Loading sessions…</p>}
             {sessions && <Suspense fallback={<p role="status">Loading sessions…</p>}>
-              <BrowserSessionHistory workspacePath={info.workspacePath ?? ''} sessions={sessions}
-                selected={sessionId ?? null} openSession={setSelected} refresh={refreshHistory} request={extensionRequest} />
+              <BrowserSessionHistory openSession={setSelected} refresh={refreshHistory} request={extensionRequest} />
             </Suspense>}
           </aside>
-          {sessionId && <Session key={sessionId} token={token} id={sessionId} workspacePath={info.workspacePath ?? ''} />}
+          {sessionId && workstreamId && (
+            <Suspense fallback={<p role="status">Loading session…</p>}>
+              <BrowserWorkstream key={workstreamId} workstreamId={workstreamId}
+                selected={sessionId} onSelect={setSelected} onCommand={workspaceCommand}
+                renderSession={(id) => <Session key={id} token={token} id={id} workspacePath={workspacePath} />} />
+            </Suspense>
+          )}
         </div>
       </BrowserWorkspaceViews>
     </main>
@@ -218,27 +246,35 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
 }
 
 function App() {
+  const loopbackToken = document.querySelector<HTMLMetaElement>('meta[name="browser-host-loopback-token"]')?.content;
   const [token, setToken] = useState('');
   const [info, setInfo] = useState<BrowserHostInfo>();
   const [error, setError] = useState('');
-  const [connecting, setConnecting] = useState(false);
+  const [connecting, setConnecting] = useState(Boolean(loopbackToken));
 
-  async function connect(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  const connect = React.useCallback(async (accessToken: string, signal?: AbortSignal) => {
     setConnecting(true);
     setError('');
     try {
-      setInfo(await (await request(token, '')).json() as BrowserHostInfo);
+      const workspace = await (await request(accessToken, '', { signal })).json() as BrowserHostInfo;
+      if (!signal?.aborted) setInfo(workspace);
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Cannot connect to Linux host');
+      if (!signal?.aborted) setError(err instanceof Error ? err.message : 'Cannot connect to Linux host');
     } finally {
-      setConnecting(false);
+      if (!signal?.aborted) setConnecting(false);
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    if (!loopbackToken) return;
+    const controller = new AbortController();
+    void connect(loopbackToken, controller.signal);
+    return () => controller.abort();
+  }, [connect, loopbackToken]);
 
   if (info) return <Provider store={store}>
     <DialogProvider workspacePath={info.workspacePath}>
-      <Workspace token={token} info={info} disconnect={() => {
+      <Workspace token={loopbackToken ?? token} info={info} disconnect={() => {
         setInfo(undefined);
         setToken('');
       }} />
@@ -248,12 +284,19 @@ function App() {
   return (
     <main className="browser-host-sign-in">
       <h1>Connect to Nimbalyst</h1>
-      <form onSubmit={(event) => void connect(event)}>
-        <label htmlFor="browser-host-token">Host access token</label>
-        <input id="browser-host-token" type="password" autoComplete="off" value={token} required
-          onChange={(event) => setToken(event.target.value.trim())} />
-        <button type="submit" disabled={connecting}>Connect</button>
-      </form>
+      {loopbackToken && connecting ? <p role="status">Connecting…</p> : (
+        <form onSubmit={(event) => {
+          event.preventDefault();
+          void connect(loopbackToken ?? token);
+        }}>
+          {!loopbackToken && <>
+            <label htmlFor="browser-host-token">Host access token</label>
+            <input id="browser-host-token" type="password" autoComplete="off" value={token} required
+              onChange={(event) => setToken(event.target.value.trim())} />
+          </>}
+          <button type="submit" disabled={connecting}>Connect</button>
+        </form>
+      )}
       {error && <p role="alert">{error}</p>}
     </main>
   );

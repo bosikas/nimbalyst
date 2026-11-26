@@ -13,12 +13,13 @@ import {
 } from '../../shared/browserHost';
 import { trackBrowserWorkspaceEvents } from './browserWorkspaceEvents';
 
-export interface BrowserHostConfig {
-  token: string;
+type BrowserHostAccess = { token: string; auth?: never } | { auth: 'loopback'; token?: never };
+
+export type BrowserHostConfig = BrowserHostAccess & {
   workspacePath: string;
   rendererPath: string;
   pdfPath?: string;
-}
+};
 
 export interface BrowserHostServices {
   getWorkspaceFolders?: () => string[];
@@ -136,7 +137,8 @@ async function readPdf(config: BrowserHostConfig): Promise<Response> {
 }
 
 export function createBrowserHostHandler(config: BrowserHostConfig, services: BrowserHostServices) {
-  const authorization = Buffer.from('Bearer ' + config.token);
+  const loopbackToken = config.auth === 'loopback' ? randomBytes(32).toString('hex') : undefined;
+  const authorization = Buffer.from('Bearer ' + (loopbackToken ?? config.token));
 
   return async (request: Request): Promise<Response> => {
     const url = new URL(request.url);
@@ -159,8 +161,12 @@ export function createBrowserHostHandler(config: BrowserHostConfig, services: Br
         const policy = securityHeaders['Content-Security-Policy'].replace(
           "script-src 'self'", `script-src 'self' blob: 'nonce-${nonce}'`,
         );
-        return new Response(data.toString('utf8').replace('<head>', `<head><meta name="extension-import-map" content="${nonce}">`), {
-          headers: { ...securityHeaders, 'Content-Type': type, 'Content-Security-Policy': policy },
+        const accessMeta = loopbackToken ? `<meta name="browser-host-loopback-token" content="${loopbackToken}">` : '';
+        return new Response(data.toString('utf8').replace('<head>', `<head><meta name="extension-import-map" content="${nonce}">${accessMeta}`), {
+          headers: {
+            ...securityHeaders, 'Content-Type': type, 'Content-Security-Policy': policy,
+            'Cross-Origin-Resource-Policy': 'same-origin',
+          },
         });
       }
       return new Response(new Uint8Array(data), {
@@ -325,9 +331,10 @@ export async function startBrowserHosts(
   const entries = Array.isArray(input) ? input : [input];
   if (entries.length === 0) throw new Error('Browser host requires at least one workspace');
   const configs = await Promise.all(entries.map((entry: unknown) => resolveBrowserHostConfig(entry, rendererPath)));
+  const tokens = configs.flatMap(({ token }) => token === undefined ? [] : [token]);
   if (new Set(configs.map(({ port }) => port)).size !== configs.length ||
-      new Set(configs.map(({ token }) => token)).size !== configs.length) {
-    throw new Error('Browser host requires a distinct port and token for each workspace');
+      new Set(tokens).size !== tokens.length) {
+    throw new Error('Browser host requires distinct ports and access tokens');
   }
   await stat(join(rendererPath, 'browser-host.html'));
 
@@ -358,7 +365,12 @@ async function resolveBrowserHostConfig(input: unknown, rendererPath: string) {
     throw new Error('Each browser host configuration must be an object');
   }
   const config = input as Partial<Omit<BrowserHostConfig, 'rendererPath'>> & { port?: number };
-  if (typeof config.token !== 'string' || !/^[a-f0-9]{64}$/.test(config.token)) {
+  let access: BrowserHostAccess;
+  if (config.auth === 'loopback' && config.token === undefined) {
+    access = { auth: 'loopback' };
+  } else if (config.auth === undefined && typeof config.token === 'string' && /^[a-f0-9]{64}$/.test(config.token)) {
+    access = { token: config.token };
+  } else {
     throw new Error('Browser host requires a random 32-byte hex token');
   }
   if (typeof config.workspacePath !== 'string' || !isAbsolute(config.workspacePath)) {
@@ -376,7 +388,7 @@ async function resolveBrowserHostConfig(input: unknown, rendererPath: string) {
   const workspacePath = config.workspacePath;
   const workspaceRoot = await realpath(workspacePath);
   if (!(await stat(workspaceRoot)).isDirectory()) throw new Error('Browser host workspace must be a directory');
-  return { port, workspacePath, workspaceRoot, token: config.token, pdfPath: config.pdfPath, rendererPath };
+  return { ...access, port, workspacePath, workspaceRoot, pdfPath: config.pdfPath, rendererPath };
 }
 
 async function listenBrowserHost(port: number, handle: ReturnType<typeof createBrowserHostHandler>, dispose: () => void) {
