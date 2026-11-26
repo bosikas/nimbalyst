@@ -85,6 +85,7 @@ export async function processDescriptor(
         mode: desc.mode,
         createdAt: desc.createdAt,
         thinking: desc.thinking,
+        streamChunk: desc.streamChunk,
         progressUpdate: desc.progressUpdate,
         thinkingSignature: desc.thinkingSignature,
         model: desc.model,

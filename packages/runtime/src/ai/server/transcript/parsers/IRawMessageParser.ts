@@ -70,6 +70,8 @@ export interface AssistantMessageDescriptor {
    * collapsed-by-default.
    */
   thinking?: string;
+  /** Coalesce consecutive chunks of the same kind within a streamed response. */
+  streamChunk?: boolean;
   /**
    * The thinking block is an API "progress update": a summary of text the
    * model wrote between tool calls, which the API never returns as text

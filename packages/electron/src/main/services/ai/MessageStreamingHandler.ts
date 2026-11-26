@@ -464,6 +464,21 @@ export class MessageStreamingHandler {
       await this.disableParentNotificationsAfterDirectTakeover(session);
     }
 
+    if (session.provider === 'mistral-vibe') {
+      try {
+        const { ensureVibeWorktree } = await import('./ensureVibeWorktree');
+        const worktree = await ensureVibeWorktree(session.id, workspacePath, event.sender);
+        if (worktree) {
+          session.worktreeId = worktree.id;
+          session.worktreePath = worktree.path;
+          session.worktreeProjectPath = worktree.projectPath;
+        }
+      } catch (error) {
+        if (queuedPromptId) this.svc.processingQueuedPromptIds.delete(queuedPromptId);
+        throw error;
+      }
+    }
+
     // CRITICAL: If session has a worktree, use its path instead of workspace path
     // This ensures Claude Code runs in the worktree directory
     let effectiveWorkspacePath = session.worktreePath || workspacePath;
@@ -1603,17 +1618,19 @@ export class MessageStreamingHandler {
               // worktree the session hasn't adopted yet. Adopt before
               // writing tags so they land in the correct workspace
               // history.
-              for (const entry of entries) {
-                if (!entry?.path) continue;
-                const absPath = path.isAbsolute(entry.path)
-                  ? path.normalize(entry.path)
-                  : path.resolve(effectiveWorkspacePath, entry.path);
-                const inferredWorktreePath = this.svc.inferWorktreePathFromFilePath(workspacePath, absPath);
-                if (inferredWorktreePath) {
-                  await this.svc.adoptWorktreeForSession(session, inferredWorktreePath, event);
-                  effectiveWorkspacePath = session.worktreePath || effectiveWorkspacePath;
-                  permissionsPath = session.worktreeProjectPath || permissionsPath;
-                  break;
+              if (session.provider !== 'mistral-vibe') {
+                for (const entry of entries) {
+                  if (!entry?.path) continue;
+                  const absPath = path.isAbsolute(entry.path)
+                    ? path.normalize(entry.path)
+                    : path.resolve(effectiveWorkspacePath, entry.path);
+                  const inferredWorktreePath = this.svc.inferWorktreePathFromFilePath(workspacePath, absPath);
+                  if (inferredWorktreePath) {
+                    await this.svc.adoptWorktreeForSession(session, inferredWorktreePath, event);
+                    effectiveWorkspacePath = session.worktreePath || effectiveWorkspacePath;
+                    permissionsPath = session.worktreeProjectPath || permissionsPath;
+                    break;
+                  }
                 }
               }
 
@@ -1776,7 +1793,7 @@ export class MessageStreamingHandler {
                     trackToolName = 'Bash';
                   }
 
-                  if (trackToolName === 'Bash' && typeof trackArgs?.command === 'string') {
+                  if (session.provider !== 'mistral-vibe' && trackToolName === 'Bash' && typeof trackArgs?.command === 'string') {
                     const inferredWorktreePath = this.svc.inferWorktreePathFromCommand(trackArgs.command, workspacePath);
                     if (inferredWorktreePath) {
                       await this.svc.adoptWorktreeForSession(session, inferredWorktreePath, event);

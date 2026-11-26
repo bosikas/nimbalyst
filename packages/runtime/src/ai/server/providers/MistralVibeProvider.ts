@@ -80,6 +80,7 @@ export class MistralVibeProvider extends HeadlessCliAgentProvider {
     notLoggedInMessage: 'Mistral Vibe is not signed in. Run `vibe --setup` and sign in with your Mistral account.',
     permissionModeMessage: 'Mistral Vibe could not request workspace permission.',
     supportsToolPermissions: true,
+    streamedAssistantText: true,
   };
 
   protected readonly protocol = new MistralVibeACPProtocol({

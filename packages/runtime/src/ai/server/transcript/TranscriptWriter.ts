@@ -83,6 +83,7 @@ export class TranscriptWriter {
       mode?: 'agent' | 'planning' | 'auto';
       createdAt?: Date;
       thinking?: string;
+      streamChunk?: boolean;
       progressUpdate?: boolean;
       thinkingSignature?: string;
       model?: string;
@@ -100,21 +101,32 @@ export class TranscriptWriter {
     // emit one chunk per token; without this we'd persist thousands of
     // single-token events per session.
     //
-    // Skip coalescing when the new chunk carries thinking/model metadata --
-    // those need to land on their own event so the renderer can place them
-    // in the correct part of the turn.
-    const last = hasExtras ? null : await this.loadLastEvent(sessionId);
+    // Complete thinking blocks and model metadata keep their own events.
+    // Streamed thoughts can extend the previous thought without crossing
+    // a boundary between thoughts, text, and tools.
+    const last = !hasExtras || options?.streamChunk ? await this.loadLastEvent(sessionId) : null;
     if (
       last &&
       last.eventType === 'assistant_message' &&
       last.subagentId === null &&
       last.mode === mode
     ) {
-      const mergedText = (last.searchableText ?? '') + text;
-      await this.store.updateEventText(last.id, mergedText);
-      last.searchableText = mergedText;
-      const refreshed = await this.store.getEventById(last.id);
-      return refreshed ?? this.toTranscriptEvent(sessionId, last);
+      const lastThinking = last.payload.thinking;
+      if (options?.streamChunk && options.thinking !== undefined) {
+        if (typeof lastThinking === 'string' && !last.searchableText) {
+          const payload = { ...last.payload, thinking: lastThinking + options.thinking };
+          await this.store.updateEventPayload(last.id, payload);
+          last.payload = payload;
+          const refreshed = await this.store.getEventById(last.id);
+          return refreshed ?? this.toTranscriptEvent(sessionId, last);
+        }
+      } else if (!options?.streamChunk || lastThinking === undefined) {
+        const mergedText = (last.searchableText ?? '') + text;
+        await this.store.updateEventText(last.id, mergedText);
+        last.searchableText = mergedText;
+        const refreshed = await this.store.getEventById(last.id);
+        return refreshed ?? this.toTranscriptEvent(sessionId, last);
+      }
     }
 
     const payload: AssistantMessagePayload = {
@@ -451,6 +463,7 @@ export class TranscriptWriter {
       id: event.id,
       eventType: event.eventType,
       searchableText: event.searchableText,
+      payload: event.payload,
       mode: (event.payload as { mode?: 'agent' | 'planning' })?.mode,
       subagentId: event.subagentId,
     });
@@ -470,6 +483,7 @@ export class TranscriptWriter {
           id: event.id,
           eventType: event.eventType,
           searchableText: event.searchableText,
+          payload: event.payload,
           mode: (event.payload as { mode?: 'agent' | 'planning' })?.mode,
           subagentId: event.subagentId,
         }
@@ -488,7 +502,7 @@ export class TranscriptWriter {
       eventType: state.eventType,
       searchableText: state.searchableText,
       searchable: true,
-      payload: { mode: state.mode } as Record<string, unknown>,
+      payload: state.payload,
       parentEventId: null,
       subagentId: state.subagentId,
       provider: this.provider,
@@ -501,6 +515,7 @@ interface LastEventState {
   id: number;
   eventType: TranscriptEventType;
   searchableText: string | null;
+  payload: Record<string, unknown>;
   mode: 'agent' | 'planning' | 'auto' | undefined;
   subagentId: string | null;
 }

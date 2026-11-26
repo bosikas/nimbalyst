@@ -148,7 +148,17 @@ export class HeadlessAgentRawParser implements IRawMessageParser {
     // frame's own structure and keep both paths permanently.
     if (this.kind === 'mistral-vibe') {
       const update = readGrokACPUpdateEnvelope(record);
-      if (update) return mapVibeSessionUpdate(update).flatMap((event) => projectEvent(event, msg));
+      if (update) {
+        return mapVibeSessionUpdate(update).flatMap((event): CanonicalEventDescriptor[] => {
+          if (event.type === 'text' && event.content && msg.metadata?.streamedAssistantText) {
+            return [{ type: 'assistant_message', text: event.content, streamChunk: true, createdAt: msg.createdAt }];
+          }
+          if (event.type === 'reasoning' && event.content) {
+            return [{ type: 'assistant_message', text: '', thinking: event.content, streamChunk: true, createdAt: msg.createdAt }];
+          }
+          return projectEvent(event, msg);
+        });
+      }
     }
     if (this.kind === 'grok-build') {
       const acpUpdate = readGrokACPUpdateEnvelope(record);
@@ -162,6 +172,8 @@ export class HeadlessAgentRawParser implements IRawMessageParser {
     // `item.completed` shape. Text deltas are deliberately not emitted
     // per-chunk: this one message carries the whole response.
     if (record.type === 'item.completed') {
+      // Keep the full answer indexed for search and retain the fallback for older turns.
+      if (this.kind === 'mistral-vibe' && msg.metadata?.streamedAssistantText) return [];
       return parseItemCompleted(record.item, msg);
     }
 

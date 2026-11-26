@@ -10,8 +10,10 @@ Git worktrees allow you to have multiple working directories from a single git r
 
 ### Worktree Sessions vs Regular Sessions
 
-- **Regular AI Sessions**: Run in the main workspace directory, operate on the current branch
+- **Regular AI Sessions**: Run in the main workspace directory and operate on the current branch
 - **Worktree Sessions**: Run in a separate directory with their own branch, isolated from the main workspace
+
+Mistral Vibe sessions in Git projects automatically use a worktree. Nimbalyst creates one before the first prompt that needs it, including when resuming a session created without one. Later turns reuse the linked checkout.
 
 ### Relationship Model
 

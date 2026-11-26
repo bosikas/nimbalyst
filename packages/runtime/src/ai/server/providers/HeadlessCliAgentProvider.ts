@@ -94,6 +94,8 @@ export interface HeadlessCliAgentDescriptor {
   permissionModeMessage: string;
   /** Whether this transport can pause and round-trip per-tool approval. */
   supportsToolPermissions?: boolean;
+  /** Project assistant text from native chunks in their original order. */
+  streamedAssistantText?: boolean;
 }
 
 export abstract class HeadlessCliAgentProvider extends BaseAgentProvider {
@@ -627,8 +629,8 @@ export abstract class HeadlessCliAgentProvider extends BaseAgentProvider {
   }
 
   private async storeAssistantResponse(sessionId: string, text: string): Promise<void> {
-    // Stored in the Codex `item.completed` shape so the shared parser can turn
-    // it into one canonical assistant_message rather than replaying deltas.
+    // Keep the complete response in the shared item.completed format for search
+    // and for providers that project a single assistant message per turn.
     const event = {
       type: 'item.completed',
       item: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] },
@@ -639,7 +641,10 @@ export abstract class HeadlessCliAgentProvider extends BaseAgentProvider {
         this.getProviderName(),
         'output',
         JSON.stringify(event),
-        { eventType: 'item.completed' },
+        {
+          eventType: 'item.completed',
+          ...(this.descriptor.streamedAssistantText && { streamedAssistantText: true }),
+        },
         false,
         undefined,
         true,
@@ -662,7 +667,11 @@ export abstract class HeadlessCliAgentProvider extends BaseAgentProvider {
       usedFallback
         ? JSON.stringify({ type: rawEventType, valueType: typeof event.metadata.rawEvent, fallback: true })
         : content,
-      { eventType: rawEventType, rawEventSerializationFallback: usedFallback },
+      {
+        eventType: rawEventType,
+        rawEventSerializationFallback: usedFallback,
+        ...(this.descriptor.streamedAssistantText && { streamedAssistantText: true }),
+      },
       false,
       undefined,
       false,

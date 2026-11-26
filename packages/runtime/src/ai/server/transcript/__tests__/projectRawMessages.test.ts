@@ -16,6 +16,42 @@ import { truncateContentForSync } from '../../../../sync/syncContentTruncator';
 
 const SESSION_ID = 'test-session';
 
+it('keeps Vibe text and thoughts around their tool calls without replaying the full answer', async () => {
+  const source = 'mistral-vibe';
+  const metadata = { streamedAssistantText: true };
+  const update = (id: number, fields: Record<string, unknown>) => raw({
+    id, source, metadata,
+    content: JSON.stringify({ method: 'session/update', params: { update: fields } }),
+  });
+  const text = (id: number, sessionUpdate: string, value: string) =>
+    update(id, { sessionUpdate, content: { type: 'text', text: value } });
+  const final = (id: number, value: string, meta?: typeof metadata) => raw({
+    id, source, metadata: meta,
+    content: JSON.stringify({
+      type: 'item.completed', item: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: value }] },
+    }),
+  });
+  const messages = await projectRawMessagesToViewMessages([
+    final(1, 'Earlier answer'),
+    raw({ id: 2, source, direction: 'input', content: 'Check the repository' }),
+    text(3, 'agent_thought_chunk', 'Inspect '),
+    text(4, 'agent_thought_chunk', 'the tree'),
+    text(5, 'agent_message_chunk', 'I will check.'),
+    update(6, { sessionUpdate: 'tool_call', toolCallId: 'read', title: 'Read README', kind: 'read' }),
+    text(7, 'agent_message_chunk', 'Here is the result.'),
+    final(8, 'I will check.Here is the result.', metadata),
+  ], source);
+
+  expect(messages).toMatchObject([
+    { type: 'assistant_message', text: 'Earlier answer' },
+    { type: 'user_message', text: 'Check the repository' },
+    { type: 'assistant_message', thinking: 'Inspect the tree' },
+    { type: 'assistant_message', text: 'I will check.' },
+    { type: 'tool_call' },
+    { type: 'assistant_message', text: 'Here is the result.' },
+  ]);
+});
+
 function raw(overrides: Partial<RawMessage>): RawMessage {
   return {
     id: 1,
