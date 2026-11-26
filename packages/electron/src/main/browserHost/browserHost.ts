@@ -136,7 +136,7 @@ export function createBrowserHostHandler(config: BrowserHostConfig, services: Br
     }
 
     const pathname = url.pathname;
-    if (request.method === 'GET' && (pathname === '/' || assetPath.test(pathname))) {
+    if (request.method === 'GET' && (pathname === '/' || pathname === '/prism.js' || assetPath.test(pathname))) {
       const file = pathname === '/' ? 'browser-host.html' : pathname.slice(1);
       const filePath = resolve(config.rendererPath, file);
       const type = pathname === '/' ? 'text/html; charset=utf-8' : contentTypes[extname(file)];

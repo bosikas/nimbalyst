@@ -18,7 +18,8 @@ beforeEach(async () => {
   await mkdir(workspacePath);
   workspacePath = await realpath(workspacePath);
   await mkdir(rendererPath);
-  await writeFile(join(rendererPath, 'browser-host.html'), '<head></head><main>Sessions</main>');
+  await writeFile(join(rendererPath, 'browser-host.html'), '<head><script src="./prism.js"></script></head><main>Sessions</main>');
+  await writeFile(join(rendererPath, 'prism.js'), 'window.Prism = {};');
   await writeFile(join(workspacePath, 'example.pdf'), '%PDF-1.4');
 });
 
@@ -72,6 +73,8 @@ describe('browser host', () => {
     expect((await (await request('/api')).json()).appearance).toEqual({ theme: 'dark' });
     const page = await request('/', 'GET', false);
     const html = await page.text();
+    expect(html).toContain('<script src="./prism.js"></script>');
+    expect(await (await request('/prism.js', 'GET', false)).text()).toBe('window.Prism = {};');
     const nonce = /name="extension-import-map" content="([^"]+)"/.exec(html)?.[1];
     expect(nonce).toBeTruthy();
     expect(page.headers.get('Content-Security-Policy')).toContain(`'nonce-${nonce}'`);
