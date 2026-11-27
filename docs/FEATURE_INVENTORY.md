@@ -394,7 +394,7 @@ Companion app; pairs with a desktop over encrypted sync. Voice mode is not inclu
 
 - Opt-in browser access to desktop workspaces over a private connection, with a separate port and a choice of automatic loopback sign-in or a manually entered access token for each workspace. Use the desktop session history, workstream header, session tabs, and agent session panel in the browser. Create child sessions in the workstream tab strip, edit tags, search transcripts, edit drafts, change models and effort, send prompts, and interrupt turns. Respond to tool permissions and submit or cancel agent questions and structured forms, including editable drafts and confirmations. The icon rail opens installed extension panels with host-stored preferences, supported session and worktree controls, and catalog-authorized session data reads scoped to the connected workspace. Open a configured workspace PDF and create recurring schedules in the host's Automations extension. See [Browser host setup](./BROWSER_HOST.md).
 - Installed browser extension panels receive workspace folder and Git status updates. Panels with AI permission can embed the browser agent session panel.
-- Transcript and extension file links download files from paths explicitly shared with the authenticated browser workspace.
+- Transcript and extension file links preview text and images and download files from paths explicitly shared with the authenticated browser workspace.
 - The browser navigation rail reuses the desktop provider-usage gauges and shows extension notification counts for its workspace. Both surfaces show Mistral Vibe’s monthly allowance when the native account reports it.
 
 ### Web Console

@@ -18,7 +18,7 @@ import type { BrowserHostInfo, BrowserHostPromptReceipt, BrowserHostSession, Bro
 import { getTheme, registerThemeContribution } from '@nimbalyst/runtime';
 import { applyThemeToDOM } from '../hooks/useTheme';
 import { BrowserWorkspaceViews } from './BrowserExtensions';
-import { downloadBrowserFile } from './downloadBrowserFile';
+import BrowserFileView from './BrowserFileView';
 import type { BrowserPanelBridge, RegisterBrowserPanelBridge } from './BrowserPanel';
 import { useBrowserRefresh } from './useBrowserRefresh';
 import {
@@ -51,8 +51,9 @@ function postJson(input: unknown): RequestInit {
   return { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) };
 }
 
-function Session({ token, id, workspacePath, collapseTranscript, className }: {
+function Session({ token, id, workspacePath, collapseTranscript, className, onOpenFile }: {
   token: string; id: string; workspacePath: string; collapseTranscript?: boolean; className?: string;
+  onOpenFile: (path: string) => void;
 }) {
   const [loaded, setLoaded] = useState(false);
   const [feedback, setFeedback] = useState('');
@@ -121,11 +122,7 @@ function Session({ token, id, workspacePath, collapseTranscript, className }: {
   return (
     <section className={className ? `browser-host-session ${className}` : 'browser-host-session'}>
       <AgentSessionPanel sessionId={id} workspacePath={workspacePath} collapseTranscript={collapseTranscript}
-        onFileClick={(filePath) => {
-          setFeedback('');
-          void downloadBrowserFile((path) => request(token, path), filePath)
-            .catch((error: Error) => setFeedback(error.message));
-        }}
+        onFileClick={onOpenFile}
         browserSession={{
           submit,
           interrupt: async () => {
@@ -143,7 +140,7 @@ function Session({ token, id, workspacePath, collapseTranscript, className }: {
 }
 
 function PanelSession({ token, workspacePath, sessionId, ...props }:
-  PanelSessionTranscriptProps & { token: string; workspacePath: string }) {
+  PanelSessionTranscriptProps & { token: string; workspacePath: string; onOpenFile: (path: string) => void }) {
   return <Session key={sessionId} token={token} id={sessionId} workspacePath={workspacePath} {...props} />;
 }
 
@@ -156,6 +153,7 @@ const sessionComponentCommands = new Set([
 
 function Workspace({ token, info, disconnect }: { token: string; info: BrowserHostInfo; disconnect: () => void }) {
   const workspacePath = info.workspacePath ?? '';
+  const [filePath, setFilePath] = useState<string | null>(null);
   useEffect(() => {
     document.title = `${info.workspaceName} – Nimbalyst`;
     return () => { document.title = 'Nimbalyst'; };
@@ -181,7 +179,7 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
   const refreshHistory = React.useCallback(() => setRevision((value) => value + 1), []);
   const [selected, setSelected] = useState('');
   const panelComponents = React.useMemo(() => createPanelHostComponents(PanelSession, {
-    token, workspacePath,
+    token, workspacePath, onOpenFile: setFilePath,
   }), [token, workspacePath]);
   const loadSessions = React.useCallback(async (signal: AbortSignal) => {
     const observedAt = nextBrowserObservation();
@@ -260,7 +258,7 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
   return (
     <main className="browser-host-workspace">
       <BrowserWorkspaceViews request={extensionRequest} pdfName={info.pdfName}
-        workspacePath={workspacePath} openSession={setSelected} components={panelComponents}
+        workspacePath={workspacePath} openSession={setSelected} onOpenFile={setFilePath} components={panelComponents}
         connectionControl={
           <button className="browser-host-disconnect" type="button" onClick={disconnect}
             title={`Disconnect from ${info.workspaceName}`} aria-label={`Disconnect from ${info.workspaceName}`}>
@@ -284,11 +282,14 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
             <Suspense fallback={<p role="status">Loading session…</p>}>
               <BrowserWorkstream key={workstreamId} workstreamId={workstreamId}
                 selected={sessionId} onSelect={setSelected} onCommand={workspaceCommand}
-                renderSession={(id) => <Session key={id} token={token} id={id} workspacePath={workspacePath} />} />
+                renderSession={(id) => <Session key={id} token={token} id={id} workspacePath={workspacePath}
+                  onOpenFile={setFilePath} />} />
             </Suspense>
           )}
         </div>
       </BrowserWorkspaceViews>
+      {filePath && <BrowserFileView key={filePath} request={extensionRequest} path={filePath}
+        onClose={() => setFilePath(null)} />}
     </main>
   );
 }

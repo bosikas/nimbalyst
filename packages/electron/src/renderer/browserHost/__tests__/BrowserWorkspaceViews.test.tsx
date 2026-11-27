@@ -5,15 +5,19 @@ import type { BrowserHostPanel } from '../../../shared/browserHost';
 import { BrowserWorkspaceViews } from '../BrowserExtensions';
 
 vi.mock('../BrowserPanel', () => ({
-  BrowserPanel: ({ panel, openSession }: { panel: BrowserHostPanel; openSession: (id: string) => void }) => (
+  BrowserPanel: ({ panel, openSession, openFile }: {
+    panel: BrowserHostPanel; openSession: (id: string) => void; openFile: (path: string) => void;
+  }) => (
     <section aria-label={panel.title}>
       <button type="button" onClick={() => openSession('linked-session')}>Open linked session</button>
+      <button type="button" onClick={() => openFile('outputs/SPEC.md')}>Open linked file</button>
     </section>
   ),
 }));
 
 it('opens an extension directly from the rail and returns to Sessions from a panel link', async () => {
   const openSession = vi.fn();
+  const openFile = vi.fn();
   const request = vi.fn(async (path: string) => path.startsWith('/rail-status') ? Response.json({
     claude: null, codex: null, gemini: null,
     vibe: { utilization: 23, resetsAt: null },
@@ -30,7 +34,7 @@ it('opens an extension directly from the rail and returns to Sessions from a pan
   ]));
   render(
     <BrowserWorkspaceViews request={request} pdf={null} pdfName={null}
-      workspacePath="/workspace" openSession={openSession}>
+      workspacePath="/workspace" openSession={openSession} onOpenFile={openFile}>
       <h2>Session transcript</h2>
     </BrowserWorkspaceViews>,
   );
@@ -50,6 +54,9 @@ it('opens an extension directly from the rail and returns to Sessions from a pan
   fireEvent.click(backlog);
   expect(backlog.getAttribute('aria-pressed')).toBe('true');
   expect(screen.queryByRole('heading', { name: 'Session transcript' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Open linked file' }));
+  expect(openFile).toHaveBeenCalledWith('/workspace/outputs/SPEC.md');
+  expect(backlog.getAttribute('aria-pressed')).toBe('true');
   fireEvent.click(within(screen.getByRole('region', { name: 'Backlog' })).getByRole('button', { name: 'Open linked session' }));
   expect(openSession).toHaveBeenCalledWith('linked-session');
   expect(rail.getByRole('button', { name: 'Sessions' }).getAttribute('aria-pressed')).toBe('true');

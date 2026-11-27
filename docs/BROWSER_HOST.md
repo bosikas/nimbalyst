@@ -20,7 +20,7 @@ Browser extension panels receive workspace folder and Git status updates from th
 
 Use the workspace path as shown in Nimbalyst. The optional PDF path is relative to the workspace and the file limit is 32 MB. The port defaults to 17864.
 
-Set the optional `fileLinkPaths` array to share specific absolute files or directories with this browser workspace. Transcript and extension file links download shared files up to 32 MB. Paths are checked against the shared files and directories after following symlinks. Each workspace has its own list.
+Set the optional `fileLinkPaths` array to share specific absolute files or directories with this browser workspace. Transcript and extension file links preview raster images and text files up to 2 MB. HTML and SVG are shown as source. Shared files up to 32 MB can be downloaded. Paths are checked against the shared files and directories after following symlinks. Each workspace has its own list.
 
 To serve more than one workspace from the same desktop app, make the configuration a JSON array of these objects. Assign distinct ports and forward each port through SSH. Open the workspaces in separate desktop windows so their extension backends can run. On the client, open each forwarded address in its own tab or window.
 

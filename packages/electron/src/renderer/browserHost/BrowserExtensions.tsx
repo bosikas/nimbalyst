@@ -5,7 +5,6 @@ import type { BrowserHostExtension, BrowserHostSchedule } from '../../shared/bro
 import { BrowserPanel, type RegisterBrowserPanelBridge } from './BrowserPanel';
 import { BrowserUsageIndicators, useBrowserRailStatus } from './BrowserRailStatus';
 import { PanelGutterBadgeBubble } from '../extensions/panels/PanelGutterBadgeBubble';
-import { downloadBrowserFile } from './downloadBrowserFile';
 
 type Request = (path: string, init?: RequestInit) => Promise<Response>;
 const week = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
@@ -89,9 +88,10 @@ function Automations({ request }: { request: Request }) {
   );
 }
 
-export function BrowserWorkspaceViews({ request, pdf, pdfName, workspacePath, openSession, components, registerPanelBridge, connectionControl, children }:
+export function BrowserWorkspaceViews({ request, pdf, pdfName, workspacePath, openSession, onOpenFile, components, registerPanelBridge, connectionControl, children }:
   { request: Request; pdf: React.ReactNode; pdfName: string | null; workspacePath: string;
-    openSession: (id: string) => void; components?: PanelHostComponents; registerPanelBridge?: RegisterBrowserPanelBridge;
+    openSession: (id: string) => void; onOpenFile: (path: string) => void;
+    components?: PanelHostComponents; registerPanelBridge?: RegisterBrowserPanelBridge;
     connectionControl?: React.ReactNode; children: React.ReactNode }) {
   const [view, setView] = useState('sessions');
   const [installed, setInstalled] = useState<BrowserHostExtension[]>([]);
@@ -123,12 +123,8 @@ export function BrowserWorkspaceViews({ request, pdf, pdfName, workspacePath, op
   const openFile = useCallback((path: string) => {
     if (path.startsWith('session://')) goToSession(path.slice('session://'.length).split('/')[0]);
     else if (pdfName && path === `${workspacePath}/${pdfName}`) setView('pdf');
-    else {
-      setNavigationError('');
-      const filePath = path.startsWith('/') ? path : `${workspacePath}/${path}`;
-      void downloadBrowserFile(request, filePath).catch((error: Error) => setNavigationError(error.message));
-    }
-  }, [goToSession, pdfName, request, workspacePath]);
+    else onOpenFile(path.startsWith('/') ? path : `${workspacePath}/${path}`);
+  }, [goToSession, onOpenFile, pdfName, workspacePath]);
   const close = useCallback(() => setView('sessions'), []);
   useEffect(() => setNavigationError(''), [view]);
 
