@@ -55,3 +55,26 @@ it('opens an extension directly from the rail and returns to Sessions from a pan
   expect(rail.getByRole('button', { name: 'Sessions' }).getAttribute('aria-pressed')).toBe('true');
   expect(screen.getByRole('heading', { name: 'Session transcript' }).textContent).toBe('Session transcript');
 });
+
+it('routes external openFile calls (transcript links) into the file view', async () => {
+  const openFileRef: { current: ((path: string) => void) | undefined } = { current: undefined };
+  const request = vi.fn(async (path: string) => path.startsWith('/rail-status') ? Response.json({
+    claude: null, codex: null, gemini: null, vibe: null, badges: {},
+  }) : path.startsWith('/file') ? new Response('file body', {
+    headers: { 'content-type': 'text/plain; charset=utf-8' },
+  }) : Response.json([]));
+  render(
+    <BrowserWorkspaceViews request={request} pdf={null} pdfName={null}
+      workspacePath="/workspace" openSession={() => {}} openFileRef={openFileRef}>
+      <h2>Session transcript</h2>
+    </BrowserWorkspaceViews>,
+  );
+  expect(await screen.findByRole('heading', { name: 'Session transcript' })).toBeTruthy();
+  expect(typeof openFileRef.current).toBe('function');
+  await act(async () => { openFileRef.current?.('/workspace/notes.md'); });
+  expect(await screen.findByText('file body')).toBeTruthy();
+  expect(request).toHaveBeenCalledWith('/file?path=' + encodeURIComponent('/workspace/notes.md'));
+  expect(screen.queryByRole('heading', { name: 'Session transcript' })).toBeNull();
+  await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Sessions' })); });
+  expect(screen.getByRole('heading', { name: 'Session transcript' })).toBeTruthy();
+});

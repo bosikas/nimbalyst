@@ -141,6 +141,73 @@
   overflow: hidden;
 }
 
+.browser-host-file {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.browser-host-file-header {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  padding: .75rem 1rem;
+  border-bottom: 1px solid var(--nim-border);
+  color: var(--nim-text-muted);
+}
+
+.browser-host-file-title {
+  min-width: 0;
+}
+
+.browser-host-file-title h2 {
+  margin: 0;
+  font-size: .95rem;
+  color: var(--nim-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-host-file-title p {
+  margin: 0;
+  font-size: .75rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-host-file > p[role="status"],
+.browser-host-file > p[role="alert"] {
+  padding: 1rem;
+}
+
+.browser-host-file-content {
+  flex: 1;
+  margin: 0;
+  padding: 1rem;
+  overflow: auto;
+  font-family: var(--nim-mono-font, monospace);
+  font-size: .8rem;
+  white-space: pre;
+}
+
+.browser-host-file-image {
+  flex: 1;
+  min-height: 0;
+  object-fit: contain;
+  background: var(--nim-bg-secondary);
+}
+
+.browser-host-file-binary {
+  padding: 1rem;
+  display: grid;
+  justify-items: start;
+  gap: .5rem;
+}
+
 .browser-host-automations {
   padding: 1rem;
   overflow-y: auto;

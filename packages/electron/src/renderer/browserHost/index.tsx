@@ -47,8 +47,9 @@ function postJson(input: unknown): RequestInit {
   return { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(input) };
 }
 
-function Session({ token, id, workspacePath, collapseTranscript, className }: {
+function Session({ token, id, workspacePath, collapseTranscript, className, onFileClick }: {
   token: string; id: string; workspacePath: string; collapseTranscript?: boolean; className?: string;
+  onFileClick?: (filePath: string) => void;
 }) {
   const [loaded, setLoaded] = useState(false);
   const [feedback, setFeedback] = useState('');
@@ -91,6 +92,7 @@ function Session({ token, id, workspacePath, collapseTranscript, className }: {
   return (
     <section className={className ? `browser-host-session ${className}` : 'browser-host-session'}>
       <AgentSessionPanel sessionId={id} workspacePath={workspacePath} collapseTranscript={collapseTranscript}
+        onFileClick={onFileClick}
         browserSession={{
           submit: (prompt) => mutate('prompt', { prompt }),
           interrupt: () => mutate('interrupt'),
@@ -101,9 +103,9 @@ function Session({ token, id, workspacePath, collapseTranscript, className }: {
   );
 }
 
-function PanelSession({ token, workspacePath, sessionId, ...props }:
-  PanelSessionTranscriptProps & { token: string; workspacePath: string }) {
-  return <Session key={sessionId} token={token} id={sessionId} workspacePath={workspacePath} {...props} />;
+function PanelSession({ token, workspacePath, sessionId, onFileClick, ...props }:
+  PanelSessionTranscriptProps & { token: string; workspacePath: string; onFileClick?: (filePath: string) => void }) {
+  return <Session key={sessionId} token={token} id={sessionId} workspacePath={workspacePath} onFileClick={onFileClick} {...props} />;
 }
 
 const sessionComponentCommands = new Set([
@@ -138,9 +140,14 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
   const [revision, setRevision] = useState(0);
   const refreshHistory = React.useCallback(() => setRevision((value) => value + 1), []);
   const [selected, setSelected] = useState('');
+  // Transcript file links route into the workspace file view via this ref.
+  const openFileRef = React.useRef<((path: string) => void) | undefined>(undefined);
+  const openFileInBrowser = React.useCallback((path: string) => {
+    openFileRef.current?.(path);
+  }, []);
   const panelComponents = React.useMemo(() => createPanelHostComponents(PanelSession, {
-    token, workspacePath,
-  }), [token, workspacePath]);
+    token, workspacePath, onFileClick: openFileInBrowser,
+  }), [token, workspacePath, openFileInBrowser]);
   const loadSessions = React.useMemo(() => async (signal: AbortSignal) => (
     await request(token, '/session-history', { signal })
   ).json() as Promise<BrowserHostSessionHistory>, [token, revision]);
@@ -219,6 +226,7 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
     <main className="browser-host-workspace">
       <BrowserWorkspaceViews request={extensionRequest} pdfName={info.pdfName}
         workspacePath={workspacePath} openSession={setSelected} components={panelComponents}
+        openFileRef={openFileRef}
         connectionControl={
           <button className="browser-host-disconnect" type="button" onClick={disconnect}
             title={`Disconnect from ${info.workspaceName}`} aria-label={`Disconnect from ${info.workspaceName}`}>
@@ -242,7 +250,9 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
             <Suspense fallback={<p role="status">Loading session…</p>}>
               <BrowserWorkstream key={workstreamId} workstreamId={workstreamId}
                 selected={sessionId} onSelect={setSelected} onCommand={workspaceCommand}
-                renderSession={(id) => <Session key={id} token={token} id={id} workspacePath={workspacePath} />} />
+                renderSession={(id) => (
+                  <Session key={id} token={token} id={id} workspacePath={workspacePath} onFileClick={openFileInBrowser} />
+                )} />
             </Suspense>
           )}
         </div>

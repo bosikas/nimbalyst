@@ -44,6 +44,7 @@ export interface BrowserHostServices {
 }
 
 const maxPdfBytes = 32 * 1024 * 1024;
+const maxFileBytes = 8 * 1024 * 1024;
 const maxBodyBytes = 64 * 1024;
 const scheduleTime = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 const weekdays = new Set(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']);
@@ -56,6 +57,33 @@ const contentTypes: Record<string, string> = {
   '.svg': 'image/svg+xml',
   '.woff': 'font/woff',
   '.woff2': 'font/woff2',
+};
+
+// Content types for workspace files served to the browser-host file view. Text
+// is always served as text (never rendered as HTML); anything unlisted falls
+// back to application/octet-stream so the renderer offers a download instead.
+const fileContentTypes: Record<string, string> = {
+  '.css': 'text/css; charset=utf-8',
+  '.csv': 'text/csv; charset=utf-8',
+  '.html': 'text/plain; charset=utf-8',
+  '.htm': 'text/plain; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.json': 'application/json; charset=utf-8',
+  '.jsx': 'text/javascript; charset=utf-8',
+  '.md': 'text/markdown; charset=utf-8',
+  '.mjs': 'text/javascript; charset=utf-8',
+  '.pdf': 'application/pdf',
+  '.png': 'image/png',
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.gif': 'image/gif',
+  '.svg': 'image/svg+xml',
+  '.ts': 'text/plain; charset=utf-8',
+  '.tsx': 'text/plain; charset=utf-8',
+  '.txt': 'text/plain; charset=utf-8',
+  '.xml': 'text/xml; charset=utf-8',
+  '.yaml': 'text/yaml; charset=utf-8',
+  '.yml': 'text/yaml; charset=utf-8',
 };
 
 const securityHeaders = {
@@ -138,6 +166,44 @@ async function readPdf(config: BrowserHostConfig): Promise<Response> {
   }
 }
 
+/**
+ * Serve a single workspace file to the authed browser host so transcript file
+ * links (`[name](/abs/path)`) can be viewed without opening a new tab (which
+ * cannot carry the bearer token). The path must resolve — after realpath, so
+ * symlinks cannot escape — inside the workspace, an attached folder, or the
+ * sibling `<project>_worktrees` directory where session worktrees live.
+ */
+async function readWorkspaceFile(config: BrowserHostConfig, services: BrowserHostServices, rawPath: string | null): Promise<Response> {
+  if (!rawPath || !isAbsolute(rawPath)) return failure('An absolute file path is required', 400);
+  const roots = [
+    config.workspacePath,
+    ...(services.getWorkspaceFolders?.() ?? []),
+    resolve(config.workspacePath, '..', `${basename(config.workspacePath)}_worktrees`),
+  ];
+  const allowed = (await Promise.all(roots.map((root) => realpath(root).catch(() => null))))
+    .filter((root): root is string => Boolean(root));
+  const filePath = await realpath(resolve(config.workspacePath, rawPath)).catch(() => null);
+  if (!filePath || !allowed.some((root) => isInside(root, filePath))) return failure('File unavailable', 404);
+
+  const file = await open(filePath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  try {
+    const info = await file.stat();
+    if (!info.isFile()) return failure('File unavailable', 404);
+    if (info.size > maxFileBytes) return failure('File exceeds 8 MB', 413);
+    const data = Buffer.alloc(info.size + 1);
+    const { bytesRead } = await file.read(data, 0, data.length, 0);
+    if (bytesRead !== info.size) return failure('File changed while reading', 409);
+    return new Response(new Uint8Array(data.subarray(0, bytesRead)), {
+      headers: {
+        ...securityHeaders,
+        'Content-Type': fileContentTypes[extname(filePath).toLowerCase()] ?? 'application/octet-stream',
+      },
+    });
+  } finally {
+    await file.close();
+  }
+}
+
 export function createBrowserHostHandler(config: BrowserHostConfig, services: BrowserHostServices) {
   const loopbackToken = config.auth === 'loopback' ? randomBytes(32).toString('hex') : undefined;
   const authorization = Buffer.from('Bearer ' + (loopbackToken ?? config.token));
@@ -213,6 +279,9 @@ export function createBrowserHostHandler(config: BrowserHostConfig, services: Br
     }
     if (request.method === 'GET' && pathname === '/api/pdf') {
       return readPdf(config);
+    }
+    if (request.method === 'GET' && pathname === '/api/file') {
+      return readWorkspaceFile(config, services, url.searchParams.get('path'));
     }
     if (request.method === 'GET' && pathname === '/api/extensions') {
       return json(await services.listExtensions());

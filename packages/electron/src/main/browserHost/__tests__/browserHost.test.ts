@@ -197,6 +197,43 @@ describe('browser host', () => {
     expect(await (await request('/api/pdf')).text()).toBe('%PDF-1.4');
   });
 
+  it('serves workspace files to the authed browser host only', async () => {
+    const { request } = setup();
+    await writeFile(join(workspacePath, 'notes.md'), '# Notes\nhello');
+    const fileUrl = `/api/file?path=${encodeURIComponent(join(workspacePath, 'notes.md'))}`;
+    expect((await request(fileUrl, 'GET', false)).status).toBe(401);
+    expect((await request('/api/file')).status).toBe(400);
+    expect((await request('/api/file?path=notes.md')).status).toBe(400);
+    expect((await request(`/api/file?path=${encodeURIComponent(join(root, 'outside.txt'))}`)).status).toBe(404);
+    const response = await request(fileUrl);
+    expect(response.status).toBe(200);
+    expect(response.headers.get('content-type')).toBe('text/markdown; charset=utf-8');
+    expect(response.headers.get('x-content-type-options')).toBe('nosniff');
+    expect(await response.text()).toBe('# Notes\nhello');
+    // Unknown extensions are served as opaque downloads.
+    await writeFile(join(workspacePath, 'data.bin'), 'bin');
+    const binary = await request(`/api/file?path=${encodeURIComponent(join(workspacePath, 'data.bin'))}`);
+    expect(binary.headers.get('content-type')).toBe('application/octet-stream');
+  });
+
+  it('allows transcript-linked files in the sibling worktrees directory but blocks symlink escapes', async () => {
+    const { request } = setup();
+    const worktreesDir = join(root, `${workspacePath.split('/').pop()}_worktrees`);
+    await mkdir(worktreesDir);
+    const worktreeFile = join(worktreesDir, 'wt-1', 'src', 'app.ts');
+    await mkdir(join(worktreesDir, 'wt-1', 'src'), { recursive: true });
+    await writeFile(worktreeFile, 'export const x = 1;');
+    const worktreeResponse = await request(`/api/file?path=${encodeURIComponent(worktreeFile)}`);
+    expect(worktreeResponse.status).toBe(200);
+    expect(worktreeResponse.headers.get('content-type')).toBe('text/plain; charset=utf-8');
+    expect(await worktreeResponse.text()).toBe('export const x = 1;');
+    // A symlink inside the workspace pointing outside every allowed root is refused.
+    await writeFile(join(root, 'secret.txt'), 'secret');
+    await symlink(join(root, 'secret.txt'), join(workspacePath, 'link.txt'));
+    expect((await request(`/api/file?path=${encodeURIComponent(join(workspacePath, 'link.txt'))}`)).status).toBe(404);
+    expect((await request(`/api/file?path=${encodeURIComponent(join(root, 'secret.txt'))}`)).status).toBe(404);
+  });
+
   it('serves the native session list model only after authentication', async () => {
     const { request, services } = setup();
     const history = [{

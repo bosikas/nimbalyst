@@ -3,6 +3,7 @@ import type { PanelHostComponents } from '@nimbalyst/extension-sdk';
 import { MaterialSymbol } from '@nimbalyst/runtime/ui/icons/MaterialSymbol';
 import type { BrowserHostExtension, BrowserHostSchedule } from '../../shared/browserHost';
 import { BrowserPanel, type RegisterBrowserPanelBridge } from './BrowserPanel';
+import BrowserFileView from './BrowserFileView';
 import { BrowserUsageIndicators, useBrowserRailStatus } from './BrowserRailStatus';
 import { PanelGutterBadgeBubble } from '../extensions/panels/PanelGutterBadgeBubble';
 
@@ -88,11 +89,15 @@ function Automations({ request }: { request: Request }) {
   );
 }
 
-export function BrowserWorkspaceViews({ request, pdf, pdfName, workspacePath, openSession, components, registerPanelBridge, connectionControl, children }:
+export function BrowserWorkspaceViews({ request, pdf, pdfName, workspacePath, openSession, components, registerPanelBridge, connectionControl, openFileRef, children }:
   { request: Request; pdf: React.ReactNode; pdfName: string | null; workspacePath: string;
     openSession: (id: string) => void; components?: PanelHostComponents; registerPanelBridge?: RegisterBrowserPanelBridge;
-    connectionControl?: React.ReactNode; children: React.ReactNode }) {
+    connectionControl?: React.ReactNode;
+    /** Lets the host open files from outside these views (e.g. transcript links). */
+    openFileRef?: { current: ((path: string) => void) | undefined };
+    children: React.ReactNode }) {
   const [view, setView] = useState('sessions');
+  const [filePath, setFilePath] = useState<string | null>(null);
   const [installed, setInstalled] = useState<BrowserHostExtension[]>([]);
   const [error, setError] = useState('');
   const [navigationError, setNavigationError] = useState('');
@@ -122,8 +127,18 @@ export function BrowserWorkspaceViews({ request, pdf, pdfName, workspacePath, op
   const openFile = useCallback((path: string) => {
     if (path.startsWith('session://')) goToSession(path.slice('session://'.length).split('/')[0]);
     else if (pdfName && path === `${workspacePath}/${pdfName}`) setView('pdf');
-    else setNavigationError('This file cannot be opened in the browser');
+    else {
+      setFilePath(path);
+      setView('file');
+    }
   }, [goToSession, pdfName, workspacePath]);
+  // Expose openFile so session transcripts (rendered as children) can route
+  // their file links into this view.
+  useEffect(() => {
+    if (!openFileRef) return;
+    openFileRef.current = openFile;
+    return () => { if (openFileRef.current === openFile) openFileRef.current = undefined; };
+  }, [openFileRef, openFile]);
   const close = useCallback(() => setView('sessions'), []);
   useEffect(() => setNavigationError(''), [view]);
 
@@ -153,6 +168,7 @@ export function BrowserWorkspaceViews({ request, pdf, pdfName, workspacePath, op
       <section className="browser-host-extension">
         {view === 'sessions' && children}
         {view === 'pdf' && pdf}
+        {view === 'file' && filePath && <BrowserFileView request={request} path={filePath} />}
         {view === 'automations' && <Automations request={request} />}
         {navigationError && <p role="alert">{navigationError}</p>}
         {active && <BrowserPanel key={view} request={request} extensionId={active.extensionId}
