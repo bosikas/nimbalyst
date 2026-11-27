@@ -528,29 +528,39 @@ export class AIService {
       getAppearance: getBrowserAppearance,
       getWorkspaceFolders: () => getWorkspaceRoots(workspacePath),
       listSessions: () => this.sessionManager.getSessionList(workspacePath),
-      listSessionHistory: () => AISessionsRepository.list(workspacePath, { includeArchived: true }),
+      listSessionHistory: async () => {
+        const sessions = await AISessionsRepository.list(workspacePath, { includeArchived: true });
+        const running = new Set(getSessionStateManager().getRunningSessionIds());
+        return sessions.map((session) => ({ ...session, processing: running.has(session.id) }));
+      },
       invokeSessionHistory: (channel, args) =>
         invokeBrowserSessionHistory(workspacePath, channel, args, this.getSettingsStore().get('defaultProvider', 'claude-code')),
+      hasSession: async (id) => (await AISessionsRepository.get(id))?.workspacePath === workspacePath,
       getSession: async (id) => {
         const session = await AISessionsRepository.get(id);
         if (session?.workspacePath !== workspacePath) return null;
         const { getQueuedPromptsStore } = await import('../RepositoryManager');
-        const [messages, pending, tokenUsage] = await Promise.all([
+        // Read the queue before the transcript so a settled prompt can't disappear
+        // from the queue while its saved message is still missing from this snapshot.
+        const queued = await getQueuedPromptsStore().listForSession(id);
+        const [messages, tokenUsage] = await Promise.all([
           TranscriptMigrationRepository.getService().getViewMessages(id, session.provider),
-          getQueuedPromptsStore().listPending(id),
           readSessionTokenUsageForDisplay(session),
         ]);
         const state = getSessionStateManager().getSessionState(id);
         return {
-          ...session, messages, tokenUsage, processing: state?.status === 'running',
-          queuedPrompts: pending.map(({ id, prompt, createdAt }) => ({ id, prompt, timestamp: createdAt })),
+          ...session, messages, tokenUsage, processing: state?.status === 'running' || state?.isStreaming === true,
+          queuedPrompts: queued.filter(({ status }) => status === 'pending')
+            .map(({ id, prompt, createdAt }) => ({ id, prompt, timestamp: createdAt })),
+          executingPromptIds: queued.filter(({ status }) => status === 'executing').map(({ id }) => id),
         };
       },
       interruptSession: (id) => this.interruptCurrentTurn(id),
       saveDraft: (id, draft) => this.sessionManager.saveDraftInput(id, draft, workspacePath),
       queuePrompt: async (id, prompt) => {
-        await this.queuePromptForSession(id, prompt);
+        const receipt = await this.queuePromptForSession(id, prompt);
         this.requestQueueDrive(id, workspacePath, 'browser-host');
+        return receipt;
       },
       respondToPermission: (sessionId, promptId, decision) => this.respondToInteractivePrompt({
         sessionId, promptId, promptType: 'permission_request', response: { decision, scope: 'once' },

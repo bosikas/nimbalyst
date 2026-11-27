@@ -12,15 +12,18 @@ import { MaterialSymbol } from '@nimbalyst/runtime/ui/icons/MaterialSymbol';
 import { activeWorkspacePathAtom } from '../store/atoms/openProjects';
 import {
   sessionDraftHydratedAtom, sessionDraftInputAtom, sessionHasPendingInteractivePromptAtom, sessionListWorkspaceAtom,
-  sessionProcessingAtom, sessionRegistryAtom, sessionStoreAtom,
+  sessionRegistryAtom,
 } from '../store/atoms/sessions';
-import { sessionQueuedPromptsAtom } from '../store/atoms/sessionTranscript';
-import type { BrowserHostInfo, BrowserHostSession, BrowserHostSessionHistory } from '../../shared/browserHost';
+import type { BrowserHostInfo, BrowserHostPromptReceipt, BrowserHostSession, BrowserHostSessionHistory } from '../../shared/browserHost';
 import { getTheme, registerThemeContribution } from '@nimbalyst/runtime';
 import { applyThemeToDOM } from '../hooks/useTheme';
 import { BrowserWorkspaceViews } from './BrowserExtensions';
 import type { BrowserPanelBridge, RegisterBrowserPanelBridge } from './BrowserPanel';
 import { useBrowserRefresh } from './useBrowserRefresh';
+import {
+  applyBrowserActivity, applyBrowserTranscript, nextBrowserObservation, selectBrowserSession,
+  settleBrowserPrompt, showBrowserPrompt,
+} from './browserSessionState';
 import '../index.css';
 import '../styles/components.css';
 import './browserHost.css';
@@ -37,8 +40,8 @@ async function request(token: string, path: string, init?: RequestInit): Promise
     headers,
   });
   if (!response.ok) {
-    const data = await response.json() as { error?: string };
-    throw new Error(data.error ?? 'Linux host request failed');
+    const data = await response.json().catch(() => null) as { error?: string } | null;
+    throw new Error(data?.error ?? `Linux host request failed (${response.status})`);
   }
   return response;
 }
@@ -55,35 +58,51 @@ function Session({ token, id, workspacePath, collapseTranscript, className }: {
   const [refresh, setRefresh] = useState(0);
   const path = '/sessions/' + encodeURIComponent(id);
   const loadSession = React.useCallback(async (signal: AbortSignal) => {
+    const observedAt = nextBrowserObservation();
     const response = await request(token, path, { signal });
     const data = await response.json() as BrowserHostSession;
     return {
-      ...data,
-      workspacePath,
-      messages: data.messages.map((message) => ({ ...message, createdAt: new Date(message.createdAt) })),
+      observedAt,
+      snapshot: {
+        ...data,
+        workspacePath,
+        messages: data.messages.map((message) => ({ ...message, createdAt: new Date(message.createdAt) })),
+      },
     };
   }, [token, path, workspacePath]);
-  const updateSnapshot = React.useCallback((snapshot: Awaited<ReturnType<typeof loadSession>>) => {
+  const updateSnapshot = React.useCallback(({ snapshot, observedAt }: Awaited<ReturnType<typeof loadSession>>) => {
     if (!store.get(sessionDraftHydratedAtom(id))) {
       store.set(sessionDraftInputAtom(id), snapshot.draftInput ?? '');
       store.set(sessionDraftHydratedAtom(id), true);
     }
-    store.set(sessionStoreAtom(id), snapshot);
-    store.set(sessionQueuedPromptsAtom(id), snapshot.queuedPrompts ?? []);
-    const processing = snapshot.processing === true;
-    if (store.get(sessionProcessingAtom(id)) !== processing) store.set(sessionProcessingAtom(id), processing);
+    applyBrowserTranscript(snapshot, observedAt);
+    applyBrowserActivity(id, snapshot.processing, observedAt);
     setLoaded(true);
   }, [id]);
   const error = useBrowserRefresh(loadSession, updateSnapshot, 3000, refresh);
 
   async function mutate(action: string, input?: unknown) {
     try {
-      await request(token, path + '/' + action, postJson(input ?? {}));
+      const response = await request(token, path + '/' + action, postJson(input ?? {}));
       setFeedback('');
-      if (action !== 'draft') setRefresh((previous) => previous + 1);
+      return response;
     } catch (err) {
       setFeedback(err instanceof Error ? err.message : 'Session request failed');
       throw err;
+    }
+  }
+
+  async function submit(prompt: string) {
+    const optimisticId = showBrowserPrompt(id, prompt);
+    try {
+      const response = await mutate('prompt', { prompt });
+      const { receipt } = await response.json() as { receipt?: BrowserHostPromptReceipt };
+      settleBrowserPrompt(id, optimisticId, receipt);
+    } catch (error) {
+      settleBrowserPrompt(id, optimisticId);
+      throw error;
+    } finally {
+      setRefresh((previous) => previous + 1);
     }
   }
 
@@ -92,9 +111,12 @@ function Session({ token, id, workspacePath, collapseTranscript, className }: {
     <section className={className ? `browser-host-session ${className}` : 'browser-host-session'}>
       <AgentSessionPanel sessionId={id} workspacePath={workspacePath} collapseTranscript={collapseTranscript}
         browserSession={{
-          submit: (prompt) => mutate('prompt', { prompt }),
-          interrupt: () => mutate('interrupt'),
-          persistDraft: (draft) => mutate('draft', { draft }),
+          submit,
+          interrupt: async () => {
+            await mutate('interrupt');
+            setRefresh((previous) => previous + 1);
+          },
+          persistDraft: async (draft) => { await mutate('draft', { draft }); },
           error: feedback || error,
         }} />
     </section>
@@ -141,20 +163,24 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
   const panelComponents = React.useMemo(() => createPanelHostComponents(PanelSession, {
     token, workspacePath,
   }), [token, workspacePath]);
-  const loadSessions = React.useMemo(() => async (signal: AbortSignal) => (
-    await request(token, '/session-history', { signal })
-  ).json() as Promise<BrowserHostSessionHistory>, [token, revision]);
-  const applyHistory = React.useCallback((snapshot: BrowserHostSessionHistory) => {
+  const loadSessions = React.useCallback(async (signal: AbortSignal) => {
+    const observedAt = nextBrowserObservation();
+    const response = await request(token, '/session-history', { signal });
+    return { observedAt, snapshot: await response.json() as BrowserHostSessionHistory };
+  }, [token]);
+  const applyHistory = React.useCallback(({ snapshot, observedAt }: Awaited<ReturnType<typeof loadSessions>>) => {
     store.set(activeWorkspacePathAtom, workspacePath);
     store.set(sessionListWorkspaceAtom, workspacePath);
     store.set(sessionRegistryAtom, new Map(snapshot.map((session) => [session.id, session])));
     for (const session of snapshot) {
       store.set(sessionHasPendingInteractivePromptAtom(session.id), session.hasPendingInteractivePrompt === true);
+      applyBrowserActivity(session.id, session.processing, observedAt);
     }
+    setSelected((previous) => selectBrowserSession(previous, snapshot));
     setSessions(snapshot);
   }, [workspacePath]);
-  const error = useBrowserRefresh(loadSessions, applyHistory, 6000);
-  const sessionId = selected || sessions?.find((session) => !session.isArchived)?.id;
+  const error = useBrowserRefresh(loadSessions, applyHistory, 3000, revision);
+  const sessionId = selected;
   const workstreamId = sessionId ? sessionSelectionRootId(sessionId, store.get(sessionRegistryAtom)) : undefined;
   const loadPdf = React.useCallback(async () => (await request(token, '/pdf')).arrayBuffer(), [token]);
   const extensionRequest = React.useCallback((path: string, init?: RequestInit) => request(token, path, init), [token]);

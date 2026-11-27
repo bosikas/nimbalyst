@@ -21,7 +21,12 @@ export interface BrowserHostSessionSummary {
   title: string;
 }
 
-export type BrowserHostSessionHistory = SessionMeta[];
+export type BrowserHostSessionHistory = (SessionMeta & { processing?: boolean })[];
+
+export interface BrowserHostPromptReceipt {
+  id: string;
+  createdAt: number;
+}
 
 export type BrowserHostSession = Pick<SessionData,
   'id' | 'provider' | 'title' | 'messages' | 'createdAt' | 'updatedAt' | 'model' | 'mode' |
@@ -29,6 +34,7 @@ export type BrowserHostSession = Pick<SessionData,
 > & {
   processing?: boolean;
   queuedPrompts?: { id: string; prompt: string; timestamp: number }[];
+  executingPromptIds?: string[];
   metadata?: Partial<Pick<NonNullable<SessionData['metadata']>, 'effortLevel' | 'thinkingMode' | 'sessionStatus' | 'currentTodos'>>;
 };
 

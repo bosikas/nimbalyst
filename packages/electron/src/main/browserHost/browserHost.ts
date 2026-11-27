@@ -9,7 +9,7 @@ import {
   pendingBrowserPermissions, type BrowserHostApproval, type BrowserHostAutomation,
   type BrowserHostExtension, type BrowserHostInfo, type BrowserHostSession,
   type BrowserHostSessionHistory, type BrowserHostSessionSummary,
-  type BrowserHostRailStatus, type BrowserUsageProvider,
+  type BrowserHostPromptReceipt, type BrowserHostRailStatus, type BrowserUsageProvider,
   type BrowserWorkspaceEvents,
 } from '../../shared/browserHost';
 import { trackBrowserWorkspaceEvents } from './browserWorkspaceEvents';
@@ -30,9 +30,10 @@ export interface BrowserHostServices {
   listSessions: () => Promise<BrowserHostSessionSummary[]>;
   listSessionHistory?: () => Promise<BrowserHostSessionHistory>;
   invokeSessionHistory?: (channel: string, args: unknown[]) => Promise<unknown>;
+  hasSession: (id: string) => Promise<boolean>;
   getSession: (id: string) => Promise<(BrowserHostSession & Pick<SessionData, 'metadata'>) | null>;
   interruptSession: (id: string) => Promise<{ success: boolean }>;
-  queuePrompt: (id: string, prompt: string) => Promise<void>;
+  queuePrompt: (id: string, prompt: string) => Promise<BrowserHostPromptReceipt>;
   saveDraft?: (id: string, draft: string) => Promise<boolean>;
   respondToPermission: (id: string, requestId: string, decision: BrowserHostApproval) => Promise<{ success: boolean }>;
   listExtensions: () => Promise<BrowserHostExtension[]>;
@@ -274,8 +275,9 @@ export function createBrowserHostHandler(config: BrowserHostConfig, services: Br
     if (!match) return failure('Not found', 404);
     const [, id, action] = match;
     if (request.method !== (action ? 'POST' : 'GET')) return failure('Method denied', 405);
-    const session = await services.getSession(id);
-    if (!session) return failure('Session unavailable', 404);
+    if (action && action !== 'permission' && !await services.hasSession(id)) {
+      return failure('Session unavailable', 404);
+    }
     if (action === 'interrupt') {
       const result = await services.interruptSession(id);
       return result.success ? json({ success: true }) : failure('Session could not be interrupted', 409);
@@ -284,8 +286,8 @@ export function createBrowserHostHandler(config: BrowserHostConfig, services: Br
       const input = await readBody(request);
       const prompt = typeof input?.prompt === 'string' ? input.prompt.trim() : '';
       if (!prompt || prompt.length > 32_000) return failure('Invalid prompt', 400);
-      await services.queuePrompt(id, prompt);
-      return json({ success: true }, 202);
+      const { id: promptId, createdAt } = await services.queuePrompt(id, prompt);
+      return json({ success: true, receipt: { id: promptId, createdAt } }, 202);
     }
     if (action === 'draft' && services.saveDraft) {
       const input = await readBody(request);
@@ -293,6 +295,8 @@ export function createBrowserHostHandler(config: BrowserHostConfig, services: Br
       return await services.saveDraft(id, input.draft) ? json({ success: true }) : failure('Draft could not be saved', 409);
     }
     if (action === 'draft') return failure('Session drafts are unavailable', 404);
+    const session = await services.getSession(id);
+    if (!session) return failure('Session unavailable', 404);
     if (action === 'permission') {
       const input = await readBody(request);
       const requestId = input?.requestId;
@@ -309,11 +313,11 @@ export function createBrowserHostHandler(config: BrowserHostConfig, services: Br
 
     const {
       title, provider, messages, createdAt, updatedAt, model, mode, isArchived,
-      parentSessionId, worktreeId, worktreePath, tokenUsage, draftInput, processing, queuedPrompts, metadata,
+      parentSessionId, worktreeId, worktreePath, tokenUsage, draftInput, processing, queuedPrompts, executingPromptIds, metadata,
     } = session;
     return json({
       id, title, provider, messages, createdAt, updatedAt, model, mode, isArchived,
-      parentSessionId, worktreeId, worktreePath, draftInput, processing, queuedPrompts,
+      parentSessionId, worktreeId, worktreePath, draftInput, processing, queuedPrompts, executingPromptIds,
       tokenUsage: tokenUsage ?? (metadata?.tokenUsage as BrowserHostSession['tokenUsage']),
       metadata: metadata && {
         effortLevel: metadata.effortLevel,

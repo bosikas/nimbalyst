@@ -32,6 +32,7 @@ function setup() {
   const services = {
     getAppearance: vi.fn(async () => ({ theme: 'dark' })),
     listSessions: vi.fn(async () => [{ id: 'local', title: 'Local session' }]),
+    hasSession: vi.fn(async (id: string) => id === 'local'),
     getSession: vi.fn(async (id: string): ReturnType<BrowserHostServices['getSession']> => id === 'local'
       ? {
         id, provider: 'openai-codex', createdAt: 1, updatedAt: 1,
@@ -46,7 +47,7 @@ function setup() {
       }
       : null),
     interruptSession: vi.fn(async () => ({ success: true })),
-    queuePrompt: vi.fn(async () => {}),
+    queuePrompt: vi.fn(async () => ({ id: 'queued-1', createdAt: 1234 })),
     saveDraft: vi.fn(async () => true),
     respondToPermission: vi.fn(async () => ({ success: true })),
     listExtensions: vi.fn(async () => [{ id: 'pdf-viewer', name: 'PDF Viewer', version: '1.0.0', enabled: true }]),
@@ -203,7 +204,7 @@ describe('browser host', () => {
       id: 'local', title: 'Local session', provider: 'codex', sessionType: 'session',
       workspaceId: '/example', worktreeId: null, parentSessionId: null,
       childCount: 0, uncommittedCount: 0, createdAt: 1, updatedAt: 2,
-      messageCount: 0, isArchived: false, isPinned: true,
+      messageCount: 0, isArchived: false, isPinned: true, processing: true,
     }];
     Object.assign(services, { listSessionHistory: vi.fn(async () => history) });
     expect((await request('/api/session-history', 'GET', false)).status).toBe(401);
@@ -261,8 +262,11 @@ describe('browser host', () => {
     expect((await post('/api/sessions/outside/prompt', { prompt: 'Run checks' })).status).toBe(404);
     expect((await post('/api/sessions/local/prompt', { prompt: ' ' })).status).toBe(400);
     expect((await post('/api/sessions/local/prompt', { prompt: 'x'.repeat(65_536) })).status).toBe(400);
-    expect((await post('/api/sessions/local/prompt', { prompt: '  Run checks  ' })).status).toBe(202);
+    const accepted = await post('/api/sessions/local/prompt', { prompt: '  Run checks  ' });
+    expect(accepted.status).toBe(202);
+    expect(await accepted.json()).toEqual({ success: true, receipt: { id: 'queued-1', createdAt: 1234 } });
     expect(services.queuePrompt).toHaveBeenCalledExactlyOnceWith('local', 'Run checks');
+    expect(services.getSession).not.toHaveBeenCalled();
   });
 
   it('answers pending permissions for the selected session only', async () => {
