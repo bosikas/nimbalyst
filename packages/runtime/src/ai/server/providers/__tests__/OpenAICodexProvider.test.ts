@@ -256,7 +256,7 @@ describe('OpenAICodexProvider', () => {
   });
 
   it('returns fallback models when SDK model discovery is unavailable', async () => {
-    expect(OpenAICodexProvider.DEFAULT_MODEL).toBe('openai-codex:gpt-6.1-sol');
+    expect(OpenAICodexProvider.DEFAULT_MODEL).toBe('openai-codex:gpt-6.2-sol');
 
     const models = await OpenAICodexProvider.getModels(undefined, {
       loadSdkModule: async () => {
@@ -279,6 +279,8 @@ describe('OpenAICodexProvider', () => {
 
   it('leads the Codex roster with the GPT-6 models and keeps them out of the ACP roster', async () => {
     const expectedCodexModelIds = [
+      'gpt-6.2-sol',
+      'gpt-6.2-astra',
       'gpt-6.1-sol',
       'gpt-6.1-terra',
       'gpt-6-sol',
@@ -341,7 +343,7 @@ describe('OpenAICodexProvider', () => {
       },
     });
 
-    expect(models[0].id).toBe('openai-codex:gpt-6.1-sol');
+    expect(models[0].id).toBe('openai-codex:gpt-6.2-sol');
     expect(models.map((model) => model.id)).toContain('openai-codex:gpt-5.4-mini');
   });
 
@@ -365,9 +367,9 @@ describe('OpenAICodexProvider', () => {
   });
 
   it('normalizes legacy codex default aliases to the GPT-6.1 Sol default', () => {
-    expect(OpenAICodexProvider.normalizeModelSelection('openai-codex:openai-codex-cli')).toBe('openai-codex:gpt-6.1-sol');
-    expect(OpenAICodexProvider.normalizeModelSelection('openai-codex:default')).toBe('openai-codex:gpt-6.1-sol');
-    expect(OpenAICodexProvider.normalizeModelSelection('cli')).toBe('openai-codex:gpt-6.1-sol');
+    expect(OpenAICodexProvider.normalizeModelSelection('openai-codex:openai-codex-cli')).toBe('openai-codex:gpt-6.2-sol');
+    expect(OpenAICodexProvider.normalizeModelSelection('openai-codex:default')).toBe('openai-codex:gpt-6.2-sol');
+    expect(OpenAICodexProvider.normalizeModelSelection('cli')).toBe('openai-codex:gpt-6.2-sol');
   });
 
   it.each([
@@ -437,7 +439,7 @@ describe('OpenAICodexProvider', () => {
         provider: 'openai-codex',
       }),
     ]));
-    expect(models).toHaveLength(11);
+    expect(models).toHaveLength(13);
   });
 
   it('preserves CLI auth when initialized without an API key', async () => {
@@ -1189,27 +1191,16 @@ describe('OpenAICodexProvider', () => {
     expect(mcpServers.Customer_io_2).toEqual({
       url: 'https://mcp.customer.io/alternate',
     });
+    // In the app, Nimbalyst points OAuth servers at its own gateway before
+    // they get here. A config arriving unconverted is handed to Codex as plain
+    // Streamable HTTP; no OAuth helper is launched and no client secret is
+    // emitted into the Codex config or a command line.
     expect(mcpServers.slack_oauth).toEqual({
-      command: 'npx',
-      args: [
-        '-y',
-        'mcp-remote',
-        'https://mcp.slack.com/mcp',
-        '3118',
-        '--transport',
-        'http-only',
-        '--resource',
-        'https://slack.com',
-        '--auth-timeout',
-        '60',
-        '--header',
-        'X-Tenant:workspace-1',
-        '--static-oauth-client-metadata',
-        '{"scope":"channels:history chat:write"}',
-        '--static-oauth-client-info',
-        '{"client_id":"slack-client-id","client_secret":"slack-client-secret"}',
-      ],
+      url: 'https://mcp.slack.com/mcp',
+      http_headers: { 'X-Tenant': 'workspace-1' },
     });
+    expect(JSON.stringify(mcpServers)).not.toContain('slack-client-secret');
+    expect(JSON.stringify(mcpServers)).not.toContain('mcp-remote');
   });
 
   it('emits tool_call chunks from streamed MCP tool events', async () => {
@@ -1826,7 +1817,7 @@ describe('OpenAICodexProvider', () => {
     expect(errorChunk?.error).toContain('permission mode');
   });
 
-  it('maps default codex cli aliases to gpt-6.1-sol when starting a thread', async () => {
+  it('maps default codex cli aliases to gpt-6.2-sol when starting a thread', async () => {
     const startThread = vi.fn((config: { model: string }) => ({
       id: 'thread-legacy',
       runStreamed: async () => ({
@@ -1866,7 +1857,7 @@ describe('OpenAICodexProvider', () => {
 
     expect(startThread).toHaveBeenCalledTimes(1);
     const startArgs = (startThread.mock.calls as unknown as [Record<string, unknown>][])[0][0];
-    expect(startArgs.model).toBe('gpt-6.1-sol');
+    expect(startArgs.model).toBe('gpt-6.2-sol');
   });
 
   it('maps removed codex aliases to supported model ids', async () => {

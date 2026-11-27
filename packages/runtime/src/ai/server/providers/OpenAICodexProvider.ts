@@ -133,9 +133,12 @@ export class OpenAICodexProvider extends BaseAgentProvider {
     maxTokens: number;
   }> = [
     // GPT-6 catalog entries require codex >= 0.153.0 (Astra), >= 0.155.0
-    // (Sol, Luna), >= 0.159.1 (6.1 Sol), and >= 0.165.0 (6.1 Terra); the
+    // (Sol, Luna), >= 0.159.1 (6.1 Sol), >= 0.165.0 (6.1 Terra), and
+    // >= 0.171.0 (6.2 Sol, 6.2 Astra; 6.2 Sol is codex's own default). The
     // catalog lists a 272k default context window for all of them except
-    // 6.1 Terra, which defaults to 500k.
+    // 6.1 Terra and 6.2 Sol, which default to 500k.
+    { id: 'gpt-6.2-sol', name: 'GPT-6.2 Sol', contextWindow: 500000, maxTokens: 128000 },
+    { id: 'gpt-6.2-astra', name: 'GPT-6.2 Astra', contextWindow: 272000, maxTokens: 128000 },
     { id: 'gpt-6.1-sol', name: 'GPT-6.1 Sol', contextWindow: 272000, maxTokens: 128000 },
     { id: 'gpt-6.1-terra', name: 'GPT-6.1 Terra', contextWindow: 500000, maxTokens: 128000 },
     { id: 'gpt-6-sol', name: 'GPT-6 Sol', contextWindow: 272000, maxTokens: 128000 },
@@ -149,6 +152,7 @@ export class OpenAICodexProvider extends BaseAgentProvider {
     { id: 'gpt-5.4-mini', name: 'GPT-5.4 Mini', contextWindow: 400000, maxTokens: 128000 },
   ];
   private static readonly MODEL_FALLBACK_PRIORITY: ReadonlyArray<string> = [
+    'gpt-6.2-sol',
     'gpt-6.1-sol',
     'gpt-6.1-terra',
     'gpt-6-sol',
@@ -2019,7 +2023,7 @@ export class OpenAICodexProvider extends BaseAgentProvider {
     const resolved = parsed ? parsed.model : configured.replace(/^openai-codex:/, '');
     const normalized = resolved.toLowerCase();
     if (normalized === 'openai-codex-cli' || normalized === 'default' || normalized === 'cli') {
-      return OpenAICodexProvider.toBedrockModelId('gpt-6.1-sol');
+      return OpenAICodexProvider.toBedrockModelId(OpenAICodexProvider.DEFAULT_MODEL.replace(/^openai-codex:/, ''));
     }
 
     // Pass the model directly to the Codex SDK without pre-validation.
@@ -2308,11 +2312,8 @@ export class OpenAICodexProvider extends BaseAgentProvider {
         return null;
       }
 
-      const wrappedRemoteConfig = this.convertRemoteOAuthServerToMcpRemote(serverConfig as MCPServerConfig);
-      if (wrappedRemoteConfig) {
-        return wrappedRemoteConfig;
-      }
-
+      // Servers Nimbalyst authorizes arrive already pointed at its loopback
+      // gateway (docs/MCP_OAUTH.md); nothing here launches an OAuth helper.
       const remoteConfig: Record<string, unknown> = {
         url: serverConfig.url,
       };
@@ -2367,81 +2368,6 @@ export class OpenAICodexProvider extends BaseAgentProvider {
     }
 
     return stdioConfig;
-  }
-
-  private convertRemoteOAuthServerToMcpRemote(
-    serverConfig: MCPServerConfig
-  ): Record<string, unknown> | null {
-    if ((serverConfig.type !== 'http' && serverConfig.type !== 'sse') || !serverConfig.url || !serverConfig.oauth) {
-      return null;
-    }
-
-    const args: string[] = ['-y', 'mcp-remote', serverConfig.url];
-
-    if (serverConfig.oauth.callbackPort) {
-      args.push(String(serverConfig.oauth.callbackPort));
-    }
-
-    if (serverConfig.oauth.host) {
-      args.push('--host', serverConfig.oauth.host);
-    }
-
-    if (serverConfig.oauth.transportStrategy) {
-      args.push('--transport', serverConfig.oauth.transportStrategy);
-    }
-
-    if (serverConfig.oauth.resource) {
-      args.push('--resource', serverConfig.oauth.resource);
-    }
-
-    if (serverConfig.oauth.authTimeoutSeconds) {
-      args.push('--auth-timeout', String(serverConfig.oauth.authTimeoutSeconds));
-    }
-
-    const rawHeaders = (serverConfig as Record<string, unknown>).http_headers ?? serverConfig.headers;
-    const headers = this.toCodexStringMap(rawHeaders) ?? {};
-    for (const key of Object.keys(headers).sort()) {
-      args.push('--header', `${key}:${headers[key]}`);
-    }
-
-    if (serverConfig.oauth.staticClientMetadata) {
-      args.push('--static-oauth-client-metadata', JSON.stringify(serverConfig.oauth.staticClientMetadata));
-    }
-
-    const staticClientInfo = this.getMcpRemoteStaticClientInfo(serverConfig.oauth);
-    if (staticClientInfo) {
-      args.push('--static-oauth-client-info', JSON.stringify(staticClientInfo));
-    }
-
-    return {
-      command: 'npx',
-      args,
-    };
-  }
-
-  private getMcpRemoteStaticClientInfo(
-    oauthConfig: MCPServerConfig['oauth']
-  ): Record<string, string> | null {
-    if (!oauthConfig) {
-      return null;
-    }
-
-    if (oauthConfig.staticClientInfo && Object.keys(oauthConfig.staticClientInfo).length > 0) {
-      return oauthConfig.staticClientInfo;
-    }
-
-    if (!oauthConfig.clientId && !oauthConfig.clientSecret) {
-      return null;
-    }
-
-    const clientInfo: Record<string, string> = {};
-    if (oauthConfig.clientId) {
-      clientInfo.client_id = oauthConfig.clientId;
-    }
-    if (oauthConfig.clientSecret) {
-      clientInfo.client_secret = oauthConfig.clientSecret;
-    }
-    return Object.keys(clientInfo).length > 0 ? clientInfo : null;
   }
 
   private toCodexStringMap(value: unknown): Record<string, string> | null {

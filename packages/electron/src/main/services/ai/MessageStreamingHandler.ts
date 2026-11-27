@@ -102,11 +102,13 @@ import { getSyncProvider, isDesktopTrulyAway } from '../SyncManager';
 import { publishContextUsage } from './publishContextUsage';
 import { requestMobilePush } from './mobilePushRequest';
 import { createAskUserQuestionListeners } from './askUserQuestionListeners';
-import { createTeammateIdleWakeListener } from './teammateIdleWake';
+import { createTeammateIdleWakeListener, type TeammateIdleWakeDeps } from './teammateIdleWake';
 // The per-session pending-prompt bit is derived from the set of prompts still
 // open, so one prompt settling cannot clear the indicator for another that is
 // still waiting on the user. Refs #1549.
 import { openPrompt, resolvePrompt, hasOpenPrompts } from './openPromptRegistry';
+import { isSessionBlockedOnUser, onSessionUnblocked } from './idleWakeSignals';
+import { createHeldIdleWakeRelease, deferIdleWakeMessage } from './idleWakeGating';
 import { getAgentWorkflowService } from '../AgentWorkflowService';
 import { repairOrphanedSessionMetaCall } from './repairOrphanedSessionMetaCall';
 import {
@@ -145,8 +147,9 @@ import type Store from 'electron-store';
 import type { AIService } from './AIService';
 import type { HooklessAgentFileWatcher } from './HooklessAgentFileWatcher';
 import type { WorkspaceFileAttributionMode } from '../WorkspaceFileAttributionPolicy';
+import { isShellWindowLifecycleConfigured } from './HooklessAgentFileWatcher';
 import {
-  attributionModeForFileChangeFidelity,
+  attributionModeForProvider,
   fileChangeFidelityForProviderType,
   isProviderEditTool,
   type FileChangeFidelity,
@@ -168,8 +171,9 @@ function resolveWorkspaceFileAttributionMode(
   const liveProvider = provider as (AIProvider & {
     getFileChangeFidelity?: () => FileChangeFidelity;
   }) | null | undefined;
+  const shellWindow = isShellWindowLifecycleConfigured();
   const live = liveProvider?.getFileChangeFidelity?.();
-  if (live) return attributionModeForFileChangeFidelity(live);
+  if (live) return attributionModeForProvider(providerName, live, shellWindow);
 
   // Codex is the only provider whose fidelity is a user-selected setting: the
   // legacy SDK transport has no `fileChange` item. Without a live instance to
@@ -182,7 +186,7 @@ function resolveWorkspaceFileAttributionMode(
     return 'fuzzy';
   }
 
-  return attributionModeForFileChangeFidelity(fileChangeFidelityForProviderType(providerName));
+  return attributionModeForProvider(providerName, fileChangeFidelityForProviderType(providerName), shellWindow);
 }
 
 export type SendMessageHandler = (
@@ -227,6 +231,12 @@ interface AIServiceInternal {
     source: string,
   ): Promise<boolean>;
   requestQueueDrive(sessionId: string, workspacePath: string, reason: DriveReason): void;
+  queuePromptForSession(
+    sessionId: string,
+    prompt: string,
+    attachments?: any[],
+    documentContext?: any,
+  ): Promise<{ id: string; prompt: string; createdAt: number }>;
   runAutoContextCommand(
     session: SessionData,
     workspacePath: string,
@@ -301,6 +311,16 @@ async function getWorkspacePathForSession(sessionId: string): Promise<string | n
 export class MessageStreamingHandler {
   private readonly svc: AIServiceInternal;
   private readonly unsubscribeBatchListener: () => void;
+  // Releases wakes held while a lead was waiting on the user (#1557). One
+  // subscription for the handler's lifetime, not one per handle() call, so the
+  // per-session release ordering is shared by every turn.
+  private readonly unsubscribePromptCleared: () => void;
+  // Sessions with a handle() turn between its in-flight point and its finally.
+  // Counted, not a set: an idle wake can overlap a turn that is still unwinding.
+  // A held wake released while a turn is in flight (the user's message
+  // superseded the question during this turn's setup, before the provider's
+  // query exists) must queue behind it, never start a second send.
+  private readonly turnsInFlight = new Map<string, number>();
   // Per-provider map of event -> currently-installed listener. Used by
   // installListener so handle() can re-wire its own subscriptions on every
   // ai:sendMessage call without nuking listeners owned by other modules.
@@ -312,6 +332,41 @@ export class MessageStreamingHandler {
 
   constructor(service: AIService) {
     this.svc = service as unknown as AIServiceInternal;
+
+    // Release what the idle-wake listener held once the prompt clears (#1557).
+    // With no turn in flight, wake the lead the same way an unheld wake would:
+    // its end was deferred for exactly that send, so its status still reads
+    // running and the queue driver would wait for an end that never comes. If
+    // the answer (or a message that superseded the question) already started a
+    // turn, queue the results behind it instead of racing it; that turn's
+    // completion drains the queue.
+    const releaseHeldWakes = createHeldIdleWakeRelease({
+      isBlockedOnUser: (id) => isSessionBlockedOnUser(id),
+      isSessionActive: (id) => getSessionStateManager().isSessionActive(id),
+      deliver: async (id, message) => {
+        const workspacePath = await getWorkspacePathForSession(id);
+        if (!workspacePath) return false;
+        if (this.turnsInFlight.has(id)) {
+          await this.svc.queuePromptForSession(id, message, undefined, {
+            promptProvenance: { actor: 'system', origin: 'session-orchestration' },
+          });
+          this.svc.requestQueueDrive(id, workspacePath, 'session-idle');
+          return true;
+        }
+        const wake = this.createIdleWakeListener(() => workspacePath, {
+          // The release already checked; the listener must not re-hold what it
+          // is handing over.
+          isBlockedOnUser: () => false,
+          holdForUser: () => {},
+        });
+        return (await wake({ sessionId: id, message })) === 'started';
+      },
+      logInfo: (message) => logger.main.info(message),
+      logWarn: (message, error) => logger.main.warn(message, error),
+    });
+    this.unsubscribePromptCleared = onSessionUnblocked((sessionId) => {
+      void releaseHeldWakes(sessionId);
+    });
 
     // The shared AgentMessageWriteQueue (in BaseAIProvider) coalesces streaming
     // chunk writes to relieve PGLite writer-lock contention. Per-row
@@ -347,9 +402,41 @@ export class MessageStreamingHandler {
     });
   }
 
+  /** The teammate idle-wake listener, bound to this service. See teammateIdleWake.ts. */
+  private createIdleWakeListener(
+    turnWorkspacePath: () => string,
+    gate: Pick<TeammateIdleWakeDeps, 'isBlockedOnUser' | 'holdForUser'>,
+  ) {
+    const sessionStateManagerForWake = getSessionStateManager();
+    return createTeammateIdleWakeListener({
+      isSessionActive: (id) => sessionStateManagerForWake.isSessionActive(id),
+      startSession: (options) => sessionStateManagerForWake.startSession(options),
+      endSession: (id) => sessionStateManagerForWake.endSession(id),
+      ...gate,
+      turnWorkspacePath,
+      resolveOwnerWorkspacePath: getWorkspacePathForSession,
+      findWindow: (wakePath) => findWindowByWorkspace(wakePath),
+      sendMessage: async (targetWindow, message, wakeSessionId, wakePath) => {
+        if (!this.svc.sendMessageHandler) {
+          throw new Error('sendMessageHandler is not registered');
+        }
+        const mockEvent = {
+          sender: targetWindow.webContents,
+          senderFrame: targetWindow.webContents.mainFrame,
+        } as Electron.IpcMainInvokeEvent;
+        return this.svc.sendMessageHandler(mockEvent, message, {} as any, wakeSessionId, wakePath);
+      },
+      defer: (fn) => { setImmediate(fn); },
+      logInfo: (message) => logger.main.info(message),
+      logWarn: (message) => logger.main.warn(message),
+      logError: (message, error) => logger.main.error(`${message}:`, error),
+    });
+  }
+
   /** Used by AIService teardown to unwire the singleton batch listener. */
   destroy(): void {
     this.unsubscribeBatchListener();
+    this.unsubscribePromptCleared();
   }
 
   /**
@@ -1108,31 +1195,17 @@ export class MessageStreamingHandler {
     this.installListener(provider, 'session:providerSessionReceived', onProviderSessionReceived);
 
     // Wake the lead when a teammate message or finished background task
-    // arrives after its turn ended. See teammateIdleWake.ts.
-    const sessionStateManagerForWake = getSessionStateManager();
-    const onTeammateMessageWhileIdle = createTeammateIdleWakeListener({
-      isSessionActive: (id) => sessionStateManagerForWake.isSessionActive(id),
-      startSession: (options) => sessionStateManagerForWake.startSession(options),
-      endSession: (id) => sessionStateManagerForWake.endSession(id),
-      turnWorkspacePath: () => effectiveWorkspacePath,
-      resolveOwnerWorkspacePath: getWorkspacePathForSession,
-      findWindow: (wakePath) => findWindowByWorkspace(wakePath),
-      sendMessage: async (targetWindow, message, wakeSessionId, wakePath) => {
-        if (!this.svc.sendMessageHandler) {
-          throw new Error('sendMessageHandler is not registered');
-        }
-        const mockEvent = {
-          sender: targetWindow.webContents,
-          senderFrame: targetWindow.webContents.mainFrame,
-        } as Electron.IpcMainInvokeEvent;
-        return this.svc.sendMessageHandler(mockEvent, message, {} as any, wakeSessionId, wakePath);
-      },
-      defer: (fn) => { setImmediate(fn); },
-      logInfo: (message) => logger.main.info(message),
-      logWarn: (message) => logger.main.warn(message),
-      logError: (message, error) => logger.main.error(`${message}:`, error),
+    // arrives after its turn ended. See teammateIdleWake.ts. A lead parked on
+    // an interactive prompt is blocked on the user, not idle, so its wake is
+    // held until the prompt clears (#1557).
+    const onTeammateMessageWhileIdle = this.createIdleWakeListener(() => effectiveWorkspacePath, {
+      isBlockedOnUser: (id) => isSessionBlockedOnUser(id),
+      holdForUser: (id, message) => deferIdleWakeMessage(id, message),
     });
     this.installListener(provider, 'teammate:messageWhileIdle', onTeammateMessageWhileIdle);
+
+    // What the listener holds is released from the constructor's
+    // onSessionUnblocked subscription once the user has answered.
 
     // Listen for all teammates completing. When the lead finished but teammates
     // were still active, endSession was deferred. Now that all teammates are
@@ -1295,6 +1368,7 @@ export class MessageStreamingHandler {
     // A later message for this session replaces this turn; see turnOwnership.ts.
     const turnClaim = claimTurn(session.id);
     try {
+      this.turnsInFlight.set(session.id, (this.turnsInFlight.get(session.id) ?? 0) + 1);
       inboxTurn = ['claude-code', 'openai-codex'].includes(session.provider)
         ? await setup.stage('inbox', () => sessionInbox.begin(session.id, session.workspacePath ?? workspacePath)) : undefined;
       questionTurn = session.provider === 'openai-codex' ? codexQuestionTurns.begin(session.id) : undefined;
@@ -3010,6 +3084,9 @@ export class MessageStreamingHandler {
       // ticker's own expiry.
       stopTurnLiveness();
       turnClaim.release();
+      const turnsLeft = (this.turnsInFlight.get(session.id) ?? 1) - 1;
+      if (turnsLeft > 0) this.turnsInFlight.set(session.id, turnsLeft);
+      else this.turnsInFlight.delete(session.id);
       await Promise.all([questionRetirement, inboxRetirement]);
 
       // A cancelled turn or a provider that disconnected mid-command never sends

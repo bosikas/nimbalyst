@@ -47,10 +47,18 @@ export interface VisibleSessionTreeRow {
   pinSession?: SessionMeta;
 }
 
-/** Background activity never expands a branch; rollup indicators remain visible. */
-function readTreeExpanded(get: Getter, node: { id: string; ids: readonly string[] }, activeSessionId: string | null): boolean {
-  void activeSessionId;
-  const state = get(workstreamStateAtom(node.id));
+/**
+ * Title search opens the ancestors of nested matches without writing the saved
+ * expansion. A chevron click during search flips only this entry, so clearing the
+ * query restores each tree as the user left it.
+ */
+export const sessionTreeSearchExpandAtom = atom<ReadonlyMap<string, boolean>>(new Map());
+
+/** A temporary search override takes precedence over saved expansion. */
+export function readTreeExpanded(get: Getter, id: string): boolean {
+  const searchOverride = get(sessionTreeSearchExpandAtom).get(id);
+  if (searchOverride !== undefined) return searchOverride;
+  const state = get(workstreamStateAtom(id));
   return state.treeExpanded === true && (state.treeExpandedUntil === null || state.treeExpandedUntil === undefined || state.treeExpandedUntil > Date.now());
 }
 
@@ -124,6 +132,7 @@ export function useVisibleSessionTreeRows(
     }, Math.max(0, deadline - now));
     return () => clearTimeout(timer);
   }, [expandedKey, store, appearance.autoCollapseSeconds]);
+  const searchOverrides = useAtomValue(sessionTreeSearchExpandAtom);
   return useMemo(() => {
     const expanded = new Set((JSON.parse(expandedKey) as Array<[string, number | null]>).filter(([, until]) => until === null || until > Date.now()).map(([id]) => id));
     const live = new Set(JSON.parse(liveKey) as string[]);
@@ -136,7 +145,7 @@ export function useVisibleSessionTreeRows(
           rows.push({ node, baseDepth: header.depth, pinSession });
           const active = node.children.filter(child => child.ids.some(id => live.has(id)));
           const older = node.children.filter(child => !child.ids.some(id => live.has(id)));
-          const full = revealMatches || expanded.has(node.session.id);
+          const full = revealMatches || (searchOverrides.get(node.session.id) ?? expanded.has(node.session.id));
           const shown = full ? node.children : [...active, ...older.slice(0, appearance.olderChildren)];
           const ordered = appearance.activeChildrenFirst ? [...active.filter(child => shown.includes(child)), ...older.filter(child => shown.includes(child))] : node.children.filter(child => shown.includes(child));
           ordered.forEach(child => visit(child));
@@ -146,7 +155,7 @@ export function useVisibleSessionTreeRows(
       result.set(forest.key, rows);
     }
     return result;
-  }, [forests, expandedKey, revealMatches, liveKey, appearance.activeChildrenFirst, appearance.olderChildren]);
+  }, [forests, expandedKey, revealMatches, searchOverrides, liveKey, appearance.activeChildrenFirst, appearance.olderChildren]);
 }
 
 /** Non-virtual tree, used inside worktree groups. */
@@ -202,7 +211,7 @@ function SessionTreeSessionRow(props: SessionTreeRowHandlers & VisibleSessionTre
             if (get(sessionProcessingAtom(id))) running++;
             if (get(sessionHasPendingInteractivePromptAtom(id))) review++;
           }
-          return { running, review, expanded: readTreeExpanded(get, { id: row.id, ids: node.ids }, activeSessionId) };
+          return { running, review, expanded: readTreeExpanded(get, row.id) };
         }),
       // Keyed by content, not node identity, so a re-sorted list never mints a new atom.
       // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -249,7 +258,9 @@ function SessionTreeSessionRow(props: SessionTreeRowHandlers & VisibleSessionTre
         className={`session-tree-chevron shrink-0 flex items-center p-0 leading-none ${compact ? "" : "mt-1"}`}
         onClick={(e) => {
           e.stopPropagation();
-          setState({ treeExpanded: !expanded, treeExpandedUntil: expanded || !appearance.autoCollapseSeconds ? null : Date.now() + appearance.autoCollapseSeconds * 1000 });
+          const overrides = store.get(sessionTreeSearchExpandAtom);
+          if (overrides.has(row.id)) store.set(sessionTreeSearchExpandAtom, new Map(overrides).set(row.id, !expanded));
+          else setState({ treeExpanded: !expanded, treeExpandedUntil: expanded || !appearance.autoCollapseSeconds ? null : Date.now() + appearance.autoCollapseSeconds * 1000 });
         }}
       >
         <MaterialSymbol icon={expanded ? 'expand_more' : 'chevron_right'} size={14} />
@@ -257,7 +268,7 @@ function SessionTreeSessionRow(props: SessionTreeRowHandlers & VisibleSessionTre
     ) : (
       <span className="session-tree-spacer w-3.5 shrink-0" />
     )
-  ), [hasChildren, expanded, row.title, compact, setState, appearance.autoCollapseSeconds]);
+  ), [hasChildren, expanded, row.id, row.title, compact, setState, store, appearance.autoCollapseSeconds]);
   return (
     <div
       className={`session-tree-row ${activeSessionId && activeSessionId !== row.id && node.ids.includes(activeSessionId) ? 'session-tree-ancestor-active' : ''}`}

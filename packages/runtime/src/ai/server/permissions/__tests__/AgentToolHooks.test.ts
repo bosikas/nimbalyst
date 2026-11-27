@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { AgentToolHooks } from '../AgentToolHooks';
 import type { AgentToolHooksOptions } from '../AgentToolHooks';
 import { agentToolActivity } from '../../agentToolActivity';
+import { __resetClaudeShellTrackingForTests, claudeShellEndTurn, setClaudeShellTrackingSink } from '../../claudeShellTracking';
 import { parseExitPlanModeDeferral, type ExitPlanModeResponse } from '../../../exitPlanModeDeferral';
 
 // Mock fs module
@@ -141,6 +142,39 @@ describe('AgentToolHooks', () => {
     expect(agentToolActivity.writerEvidence('activity-session', file, Date.now())).toBe('possible');
     await hooks.createPostToolUseHook()(input, 'activity-bash', { signal });
     expect(agentToolActivity.writerEvidence('activity-session', file, Date.now() + 10_000)).toBe('idle');
+  });
+
+  // Hook windows bracket every Bash call so a file it writes is linked to the
+  // session even when the command never names the file.
+  it('opens a shell window before Bash runs and keeps a backgrounded one open past its acknowledgement', async () => {
+    const calls: string[] = [];
+    setClaudeShellTrackingSink({
+      isTracking: (id) => id === 'shell-session',
+      pre: async (_id, toolUseId) => { calls.push('pre:' + toolUseId); },
+      post: async (_id, toolUseId) => { calls.push('post:' + toolUseId); },
+      endTurn: async () => { calls.push('endTurn'); },
+      drain: async () => {},
+    });
+    try {
+      const hooks = new AgentToolHooks(createMockOptions({ sessionId: 'shell-session' }));
+      const signal = new AbortController().signal;
+      const foreground = { tool_name: 'Bash', tool_input: { command: "python3 - <<'EOF'\np='x.ts'\nEOF" } };
+      const background = { tool_name: 'Bash', tool_input: { command: 'pnpm test', run_in_background: true } };
+
+      expect(await hooks.createPreToolUseHook()(foreground, 'fg', { signal })).toEqual({});
+      expect(calls).toEqual(['pre:fg']);
+      await hooks.createPostToolUseHook()(foreground, 'fg', { signal });
+      await hooks.createPreToolUseHook()(background, 'bg', { signal });
+      await hooks.createPostToolUseHook()(background, 'bg', { signal });
+      expect(calls).toEqual(['pre:fg', 'post:fg', 'pre:bg']);
+      // Turn-end snapshots come from linked files, not parsed command text.
+      expect(hooks.getEditedFiles().size).toBe(0);
+
+      claudeShellEndTurn('shell-session');
+      expect(calls).toEqual(['pre:fg', 'post:fg', 'pre:bg', 'endTurn']);
+    } finally {
+      __resetClaudeShellTrackingForTests();
+    }
   });
 
   describe('Bash post-tool hook: editedFilesThisTurn tracking', () => {
@@ -312,6 +346,66 @@ describe('AgentToolHooks', () => {
       expect(sessionApprovedPatterns.size).toBe(1);
     });
 
+    it('carries the Bash description to the ToolPermission widget', async () => {
+      const pending = new Map<string, any>();
+      const options = createMockOptions({
+        getCurrentMode: () => 'auto',
+        getPendingToolPermissions: () => pending,
+        getSessionApprovedPatterns: () => new Set<string>(),
+      });
+      const hooks = new AgentToolHooks(options);
+      const hook = hooks.createPermissionDeniedHook();
+
+      const resultPromise = hook(
+        {
+          tool_name: 'Bash',
+          tool_input: { command: 'git reset --hard HEAD~1', description: 'Drop the last commit' },
+          reason: 'destructive git op',
+        },
+        'tool-use-denied-5',
+        { signal: new AbortController().signal }
+      );
+
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const persistedPayload = JSON.parse((options.logAgentMessage as any).mock.calls[0][3]);
+      expect(persistedPayload.input.description).toBe('Drop the last commit');
+
+      Array.from(pending.values())[0].resolve({ decision: 'deny', scope: 'once' });
+      await resultPromise;
+    });
+
+    it('shows what a sub-agent will do instead of the bare tool name', async () => {
+      const pending = new Map<string, any>();
+      const options = createMockOptions({
+        getCurrentMode: () => 'auto',
+        getPendingToolPermissions: () => pending,
+        getSessionApprovedPatterns: () => new Set<string>(),
+      });
+      const hooks = new AgentToolHooks(options);
+      const hook = hooks.createPermissionDeniedHook();
+
+      const resultPromise = hook(
+        {
+          tool_name: 'Agent',
+          tool_input: { description: 'Survey open issues', prompt: 'Search the tracker for duplicates of ...' },
+          reason: '[Modify Shared Resources]',
+        },
+        'tool-use-denied-6',
+        { signal: new AbortController().signal }
+      );
+
+      await Promise.resolve();
+      await Promise.resolve();
+
+      const persistedPayload = JSON.parse((options.logAgentMessage as any).mock.calls[0][3]);
+      expect(persistedPayload.input.rawCommand).toBe('Survey open issues');
+
+      Array.from(pending.values())[0].resolve({ decision: 'deny', scope: 'once' });
+      await resultPromise;
+    });
+
     it('returns no-op (denial stands) when the user denies the re-prompt', async () => {
       const pending = new Map<string, any>();
       const options = createMockOptions({
@@ -410,6 +504,65 @@ describe('AgentToolHooks', () => {
       await expect(preToolUse(bashCall, 'tool-use-retry', { signal })).resolves.toMatchObject({
         hookSpecificOutput: { permissionDecision: 'allow' },
       });
+    });
+
+    // retry:true only adds a fixed "you may retry" hint, so the model could not
+    // tell the user had approved and sometimes skipped the call.
+    it('tells the model the user approved the exact call, and only on approval', async () => {
+      const pending = new Map<string, any>();
+      const sendApprovalToModel = vi.fn((_text: string) => true);
+      const hooks = new AgentToolHooks(createMockOptions({
+        getCurrentMode: () => 'auto',
+        getPendingToolPermissions: () => pending,
+        getSessionApprovedPatterns: () => new Set<string>(),
+        sendApprovalToModel,
+      }));
+      const command = 'git fetch -q && gh workflow run publish.yml -f dry_run=true';
+      const run = async (decision: 'allow' | 'deny') => {
+        const denied = hooks.createPermissionDeniedHook()(
+          { tool_name: 'Bash', tool_input: { command }, reason: '[Destructive]' },
+          'tool-use-denied-8',
+          { signal: new AbortController().signal }
+        );
+        await Promise.resolve();
+        await Promise.resolve();
+        const [requestId, entry] = Array.from(pending.entries()).at(-1)!;
+        pending.delete(requestId);
+        entry.resolve({ decision, scope: 'once' });
+        return denied;
+      };
+
+      await run('deny');
+      expect(sendApprovalToModel).not.toHaveBeenCalled();
+
+      await run('allow');
+      expect(sendApprovalToModel).toHaveBeenCalledOnce();
+      expect(sendApprovalToModel.mock.calls[0][0]).toContain(command);
+    });
+
+    it('offers only a one-time approval for a compound Bash command', async () => {
+      const pending = new Map<string, any>();
+      const options = createMockOptions({
+        getCurrentMode: () => 'auto',
+        getPendingToolPermissions: () => pending,
+        getSessionApprovedPatterns: () => new Set<string>(),
+      });
+      const hooks = new AgentToolHooks(options);
+      const signal = new AbortController().signal;
+      void hooks.createPermissionDeniedHook()(
+        { tool_name: 'Bash', tool_input: { command: 'git fetch && git push' }, reason: 'x' },
+        'tool-use-denied-9',
+        { signal }
+      );
+      void hooks.createPermissionDeniedHook()(
+        { tool_name: 'Bash', tool_input: { command: 'git push' }, reason: 'x' },
+        'tool-use-denied-10',
+        { signal }
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      const widgets = (options.logAgentMessage as any).mock.calls.map((call: any[]) => JSON.parse(call[3]).input);
+      expect(widgets.map((w: any) => w.suppressAlwaysAllowRule === true)).toEqual([true, false]);
     });
 
     it('honours a saved project-local allow rule only in auto mode', async () => {

@@ -15,8 +15,8 @@ import { Virtuoso, VirtuosoHandle } from 'react-virtuoso';
 import { CollapsibleGroup } from './CollapsibleGroup';
 import { WorktreeBaseBranchPicker } from './WorktreeBaseBranchPicker';
 import { SessionListItem } from './SessionListItem';
-import { SessionTreeRow, useVisibleSessionTreeRows, type VisibleSessionTreeRow } from './SessionTree.tsx';
-import { visibleSessionTreeIds, sessionTreeRootId, sessionFamilyWorktreeId, rendersAsSessionTree, treeParentIds } from './sessionTreeModel';
+import { SessionTreeRow, readTreeExpanded, sessionTreeSearchExpandAtom, useVisibleSessionTreeRows, type VisibleSessionTreeRow } from './SessionTree.tsx';
+import { bulkTreeExpand, searchExpandEntries, searchExpandKey, titleSearchReveal, visibleSessionTreeIds, sessionTreeRootId, sessionFamilyWorktreeId, rendersAsSessionTree, treeParentIds } from './sessionTreeModel';
 import { resolveSessionArchiveSelection, sessionArchiveSubtreeIds } from './sessionArchiveSelection';
 import { WorkstreamGroup } from './WorkstreamGroup';
 import { BlitzGroup } from './BlitzGroup';
@@ -49,8 +49,8 @@ import {
 import { alphaFeatureEnabledAtom, worktreesFeatureAvailableAtom } from '../../store/atoms/appSettings';
 import { activeWorkspacePathAtom } from '../../store/atoms/openProjects';
 import { useGitRepoProbe } from '../../hooks/useGitRepoProbe';
-import { workstreamStateAtom, setTreeExpandedForAtom } from '../../store/atoms/workstreamState';
-import { sessionProcessingAtom, sessionUnreadAtom, sessionHasPendingInteractivePromptAtom, activeSessionIdAtom as globalActiveSessionIdAtom, sessionPinnedUpdateAtom, createWorkstreamAtom } from '../../store/atoms/sessions';
+import { setTreeExpandedForAtom } from '../../store/atoms/workstreamState';
+import { activeSessionIdAtom as globalActiveSessionIdAtom, sessionPinnedUpdateAtom, createWorkstreamAtom } from '../../store/atoms/sessions';
 import { collapsedGroupsAtom, compactRowsAtom, setCompactRowsAtom, showContextUsageAtom, setShowContextUsageAtom, sortOrderAtom, setCollapsedGroupsAtom, setSortOrderAtom } from '../../store/atoms/agentMode';
 import {
   recentlyRenamedSessionAtom,
@@ -72,11 +72,13 @@ import { blitzCreatedAtom, blitzDisplayNameUpdateAtom } from '../../store/atoms/
 import { superLoopListAtom, upsertSuperLoopAtom, removeSuperLoopAtom } from '../../store/atoms/superLoop';
 import { useSuperLoopDialog } from '../../hooks/useSuperLoop';
 import { workspaceSessionTurnActivityAtom } from '../../store/atoms/sessionActivity';
-import { sessionKanbanTagsAtom } from '../../store/atoms/sessionKanban';
+import { SESSION_PHASE_COLUMNS, sessionKanbanTagsAtom, type SessionPhase } from '../../store/atoms/sessionKanban';
 import {
   isWorkstreamParentSession,
+  matchesSessionListPhases,
   matchesSessionListTag,
   SESSION_LIST_VIRTUAL_TAGS,
+  sessionListHiddenPhasesAtom,
   sessionListTagFilterAtom,
   VIRTUAL_TAG_WORKSTREAMS,
   VIRTUAL_TAG_WORKTREE,
@@ -521,6 +523,7 @@ const SessionHistoryComponent: React.FC<{ browser?: SessionHistoryBrowserActions
   const allWorkspaceTags = useAtomValue(sessionKanbanTagsAtom);
   const tagFilter = useAtomValue(sessionListTagFilterAtom);
   const revealMatches = searchQuery.trim().length > 0 || tagFilter.tags.length > 0 || workFilter !== 'all';
+  const revealTreeMatches = revealMatches && (!searchQuery.trim() || contentSearchTriggered);
   const summaryAreas = useMemo(() => [...new Map([...sessionRegistry.values()]
     .filter(s => s.workspaceId === workspacePath && (s.remoteHostDeviceId ?? '') === (selectedRemoteHost ?? '') && (showArchived || !s.isArchived))
     .flatMap(s => s.workSummary?.areas ?? []).map(area => [area.toLocaleLowerCase(), area])).values()].sort(), [sessionRegistry, workspacePath, selectedRemoteHost, showArchived]);
@@ -576,6 +579,14 @@ const SessionHistoryComponent: React.FC<{ browser?: SessionHistoryBrowserActions
 
   const removeTagFilter = (tag: string) => {
     setTagFilter({ tags: tagFilter.tags.filter(t => t !== tag) });
+  };
+
+  // Phase visibility toggles (session-only)
+  const hiddenPhases = useAtomValue(sessionListHiddenPhasesAtom);
+  const setHiddenPhases = useSetAtom(sessionListHiddenPhasesAtom);
+
+  const togglePhaseFilter = (phase: SessionPhase) => {
+    setHiddenPhases(prev => prev.includes(phase) ? prev.filter(p => p !== phase) : [...prev, phase]);
   };
 
   // Archive worktree dialog hook
@@ -820,6 +831,29 @@ const SessionHistoryComponent: React.FC<{ browser?: SessionHistoryBrowserActions
     };
   }, [workspacePath, updateSessionStore]);
 
+  const matchesSidebarFilters = useCallback((session: SessionItem) =>
+    matchesSessionWorkSearch(session, searchQuery) &&
+    matchesWorkSummaryFilter(session.workSummary, workFilter) &&
+    matchesSessionListPhases(session, hiddenPhases, sessionRegistry) &&
+    (tagFilter.tags.length === 0 || tagFilter.tags.some(tag => matchesSessionListTag(session, tag, sessionRegistry))),
+  [searchQuery, workFilter, hiddenPhases, sessionRegistry, tagFilter.tags]);
+  // Reveal the ancestors of matches in this workspace without changing saved expansion.
+  const titleReveal = useMemo(() => {
+    if (!searchQuery.trim() || contentSearchTriggered) return null;
+    return titleSearchReveal(sessionRegistry, row => {
+      const session = sessionRegistry.get(row.id);
+      return !!session && session.workspaceId === workspacePath &&
+        (session.remoteHostDeviceId ?? '') === (selectedRemoteHost ?? '') &&
+        (showArchived || !session.isArchived) && matchesSidebarFilters(session);
+    });
+  }, [searchQuery, contentSearchTriggered, sessionRegistry, workspacePath, selectedRemoteHost, showArchived, matchesSidebarFilters]);
+  const expandKey = searchExpandKey(searchQuery, titleReveal?.expandIds ?? null);
+  const setSearchExpand = useSetAtom(sessionTreeSearchExpandAtom);
+  useEffect(() => {
+    setSearchExpand(searchExpandEntries(expandKey));
+  }, [expandKey, setSearchExpand]);
+  useEffect(() => () => setSearchExpand(new Map()), [setSearchExpand]);
+
   // Session list refresh is now handled by centralized listener in sessionListListeners.ts
   // Components just read from sessionListAtom which updates automatically
 
@@ -836,7 +870,7 @@ const SessionHistoryComponent: React.FC<{ browser?: SessionHistoryBrowserActions
   // a content search is active, this effect leaves `sessions` (already populated by
   // executeSearch) alone instead of clobbering it.
   useEffect(() => {
-    const filterKey = `${searchQuery}|${tagFilter.tags.join(',')}|${mode}|${workFilter}`;
+    const filterKey = `${searchQuery}|${tagFilter.tags.join(',')}|${hiddenPhases.join(',')}|${mode}|${workFilter}`;
     const userFilterInputsChanged = prevSessionFilterKeyRef.current !== filterKey;
     prevSessionFilterKeyRef.current = filterKey;
 
@@ -855,29 +889,30 @@ const SessionHistoryComponent: React.FC<{ browser?: SessionHistoryBrowserActions
     const hasTagFilter = activeTags.length > 0;
     const titleQuery = searchQuery.trim().toLowerCase();
     const hasTitleQuery = titleQuery.length > 0;
+    const hasPhaseFilter = hiddenPhases.length > 0;
 
-    if (!hasTitleQuery && !hasTagFilter && workFilter === 'all') {
+    if (!hasTitleQuery && !hasTagFilter && !hasPhaseFilter && workFilter === 'all') {
       // No filters - show all sessions (filtered by mode)
       setSessions([...sessionsToFilter].sort(compareSessionOrder));
       return;
     }
 
-    const matches = (session: SessionItem) =>
-      (!hasTitleQuery || matchesSessionWorkSearch(session, titleQuery)) &&
-      matchesWorkSummaryFilter(session.workSummary, workFilter) &&
-      (!hasTagFilter || activeTags.some(tag => matchesSessionListTag(session, tag, sessionRegistry)));
     const matchingRoots = new Set<string>();
     const matchingWorktrees = new Set<string>();
     for (const candidate of sessionRegistry.values()) {
       if (candidate.workspaceId !== workspacePath || (candidate.remoteHostDeviceId ?? '') !== (selectedRemoteHost ?? '') || (!showArchived && candidate.isArchived)) continue;
-      if (matches(candidate)) {
+      if (matchesSidebarFilters(candidate)) {
         matchingRoots.add(sessionTreeRootId(candidate.id, sessionRegistry));
         if (candidate.worktreeId) matchingWorktrees.add(candidate.worktreeId);
       }
     }
-    const filtered = sessionsToFilter.filter(session => matches(session) || matchingRoots.has(session.id) || (!!session.worktreeId && matchingWorktrees.has(session.worktreeId)));
+    const filtered = sessionsToFilter.filter(session =>
+      matchesSessionListPhases(session, hiddenPhases, sessionRegistry) &&
+      (matchesSidebarFilters(session) || matchingRoots.has(session.id) ||
+        (!!session.worktreeId && matchingWorktrees.has(session.worktreeId)))
+    );
     setSessions(filtered.sort(compareSessionOrder));
-  }, [searchQuery, tagFilter.tags, allSessions, mode, compareSessionOrder, sessionRegistry, contentSearchTriggered, workspacePath, selectedRemoteHost, showArchived, workFilter]);
+  }, [searchQuery, tagFilter.tags, hiddenPhases, allSessions, mode, compareSessionOrder, sessionRegistry, contentSearchTriggered, workspacePath, selectedRemoteHost, showArchived, workFilter, matchesSidebarFilters]);
 
   useEffect(() => {
     const commitOrderMap = (nextMap: Map<string, number>) => {
@@ -2403,7 +2438,7 @@ const SessionHistoryComponent: React.FC<{ browser?: SessionHistoryBrowserActions
     }
     return trees;
   }, [groupKeys, groupedItems, collapsedGroups, sessionRegistry, revealMatches]);
-  const workstreamTreeRows = useVisibleSessionTreeRows(workstreamTrees, activeSessionId, workspacePath, revealMatches);
+  const workstreamTreeRows = useVisibleSessionTreeRows(workstreamTrees, activeSessionId, workspacePath, revealTreeMatches);
 
   // Every parent with children in the list, expanded or not, for Collapse all / Expand all.
   const allTreeParentIds = useMemo(() => {
@@ -2421,6 +2456,11 @@ const SessionHistoryComponent: React.FC<{ browser?: SessionHistoryBrowserActions
     return ids;
   }, [groupKeys, groupedItems, sessionRegistry]);
   const setTreeExpandedFor = useSetAtom(setTreeExpandedForAtom);
+  const setAllTreesExpanded = useCallback((expanded: boolean) => {
+    const next = bulkTreeExpand(allTreeParentIds, store.get(sessionTreeSearchExpandAtom), expanded);
+    setTreeExpandedFor({ ids: next.persistIds, expanded });
+    setSearchExpand(next.overrides);
+  }, [setTreeExpandedFor, setSearchExpand, allTreeParentIds]);
 
   const flatVirtuosoItems = useMemo(() => {
     const flat: FlatVirtuosoItem[] = [];
@@ -2454,7 +2494,7 @@ const SessionHistoryComponent: React.FC<{ browser?: SessionHistoryBrowserActions
   visualOrderRef.current = () => {
     const ids: string[] = [];
     const treeOrder = (rows: SessionItem[]) => visibleSessionTreeIds(rows.map(row => ({...row, updatedAt: Math.max(row.updatedAt, workspaceTurnActivity.get(row.id) ?? 0)})), node =>
-      revealMatches || store.get(workstreamStateAtom(node.session.id)).treeExpanded === true
+      revealTreeMatches || readTreeExpanded(store.get, node.session.id)
     );
     for (const entry of flatVirtuosoItems) {
       if (entry.kind === 'tree-row') {
@@ -2755,6 +2795,9 @@ const SessionHistoryComponent: React.FC<{ browser?: SessionHistoryBrowserActions
   // Check if we have an active search query
   const hasSearchQuery = searchQuery.trim().length > 0;
   const hasTagFilter = tagFilter.tags.length > 0;
+  // Only counts when there are sessions for the toggles to hide, so a workspace
+  // with no sessions still gets the plain empty state.
+  const hasPhaseFilter = hiddenPhases.length > 0 && allSessions.length > 0;
 
   // Pre-render the "new session / worktree / terminal / blitz" dropdown so that
   // both the empty-state early-return AND the main return can mount it. Before
@@ -2780,7 +2823,7 @@ const SessionHistoryComponent: React.FC<{ browser?: SessionHistoryBrowserActions
     />
   );
 
-  if (sessions.length === 0 && !hasSearchQuery && !hasTagFilter) {
+  if (sessions.length === 0 && !hasSearchQuery && !hasTagFilter && !hasPhaseFilter) {
     // No sessions at all - show simple empty state without search.
     // When a search or tag filter is active we fall through to the main render so
     // the search input and tag chips stay mounted -- otherwise the user can't
@@ -3035,6 +3078,31 @@ const SessionHistoryComponent: React.FC<{ browser?: SessionHistoryBrowserActions
       </div>
       )}
 
+      <div
+        className="session-history-phase-filters flex flex-wrap items-center px-3 py-1.5 border-b border-[var(--nim-border)] gap-1 shrink-0"
+        data-testid="session-list-phase-filters"
+      >
+        {SESSION_PHASE_COLUMNS.map(col => {
+          const visible = !hiddenPhases.includes(col.value);
+          return (
+            <button
+              key={col.value}
+              type="button"
+              className={`session-history-phase-filter flex items-center gap-1 px-1.5 py-0.5 text-[11px] rounded border cursor-pointer transition-colors duration-150 outline-none ${visible ? 'border-[var(--nim-border)] bg-[var(--nim-bg-secondary)] text-[var(--nim-text)] hover:bg-[var(--nim-bg-tertiary)]' : 'border-dashed border-[var(--nim-border)] bg-transparent text-[var(--nim-text-faint)] hover:text-[var(--nim-text-muted)]'}`}
+              onClick={() => togglePhaseFilter(col.value)}
+              aria-pressed={visible}
+              title={visible ? `Hide ${col.label.toLowerCase()} sessions` : `Show ${col.label.toLowerCase()} sessions`}
+              data-testid={`session-list-phase-filter-${col.value}`}
+            >
+              <span
+                className="session-history-phase-filter-dot w-1.5 h-1.5 rounded-full shrink-0 border"
+                style={{ borderColor: col.color, backgroundColor: visible ? col.color : 'transparent' }}
+              />
+              {col.label}
+            </button>
+          );
+        })}
+      </div>
       {(selectedSessionIds.size > 0 || selectedGroupIds.size > 0) && (
         <div className="session-history-bulk-actions flex items-center justify-between px-3 py-2 bg-[var(--nim-bg-selected)] border-b border-[var(--nim-border)] gap-2">
           <span className="session-history-bulk-count text-xs font-medium text-[var(--nim-text)]">{selectedSessionIds.size + selectedGroupIds.size} selected</span>
@@ -3073,21 +3141,22 @@ const SessionHistoryComponent: React.FC<{ browser?: SessionHistoryBrowserActions
       {/* No scroll-smooth here: Virtuoso corrects scrollTop as rows are measured, and an
           animated correction reads back mid-flight, which makes the list jump. */}
       <div className="session-history-list nim-scrollbar flex-1 overflow-y-auto overflow-x-hidden py-2" ref={scrollContainerCallbackRef}>
-        {groupKeys.length === 0 && (hasSearchQuery || hasTagFilter) ? (
-          // No results for the active search/tag filter - offer a clear affordance
+        {groupKeys.length === 0 && (hasSearchQuery || hasTagFilter || hasPhaseFilter) ? (
+          // No results for the active search/tag/phase filter - offer a clear affordance
           <div className="session-history-empty flex flex-col items-center justify-center px-4 py-8 text-center text-[var(--nim-text-faint)] text-[13px]">
             <p className="my-1">No matching sessions found</p>
             <p className="session-history-empty-hint my-1 text-xs text-[var(--nim-text-faint)]">
-              {hasSearchQuery && hasTagFilter ? 'Adjust your search or ' : hasSearchQuery ? 'Try a different search term or ' : 'Remove the active tag filter or '}
+              {hasSearchQuery && hasTagFilter ? 'Adjust your search or ' : hasSearchQuery ? 'Try a different search term or ' : hasTagFilter ? 'Remove the active tag filter or ' : 'Every session is in a hidden phase -- '}
               <button
                 className="session-history-clear-search-link bg-transparent border-none text-[var(--nim-primary)] cursor-pointer underline p-0 text-inherit font-inherit hover:opacity-80"
                 onClick={() => {
                   setSearchQuery('');
                   if (hasTagFilter) setTagFilter({ tags: [] });
+                  if (!hasSearchQuery && !hasTagFilter) setHiddenPhases([]);
                 }}
                 type="button"
               >
-                {hasSearchQuery && hasTagFilter ? 'clear search and tags' : hasSearchQuery ? 'clear search' : 'clear tag filter'}
+                {hasSearchQuery && hasTagFilter ? 'clear search and tags' : hasSearchQuery ? 'clear search' : hasTagFilter ? 'clear tag filter' : 'show all phases'}
               </button>
             </p>
           </div>
@@ -3106,7 +3175,7 @@ const SessionHistoryComponent: React.FC<{ browser?: SessionHistoryBrowserActions
                 if (entry.kind === 'tree-row') {
                   return (
                     <SessionTreeRow
-                      revealMatches={revealMatches}
+                      revealMatches={revealTreeMatches}
                       {...entry.row}
                       activeSessionId={activeSessionId}
                       projectPath={workspacePath}
@@ -3159,7 +3228,7 @@ const SessionHistoryComponent: React.FC<{ browser?: SessionHistoryBrowserActions
 
                   return (
                     <BlitzGroup
-                      revealMatches={revealMatches}
+                      revealMatches={revealTreeMatches}
                       blitzId={item.blitzId}
                       title={blitzData?.displayName || (blitzData?.prompt ? blitzData.prompt.slice(0, 60) + (blitzData.prompt.length > 60 ? '...' : '') : 'Loading...')}
                       isExpanded={isBlitzExpanded}
@@ -3197,7 +3266,7 @@ const SessionHistoryComponent: React.FC<{ browser?: SessionHistoryBrowserActions
                   return (
                     <WorkstreamGroup
                       type="worktree"
-                      revealMatches={revealMatches}
+                      revealMatches={revealTreeMatches}
                       projectPath={workspacePath}
                       id={item.worktreeId}
                       title={worktreeData?.displayName || worktreeData?.name || 'Loading...'}

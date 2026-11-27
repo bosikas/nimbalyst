@@ -10,7 +10,7 @@ import {
   buildMCPOAuthAnalyticsProperties,
   MCPOAuthTriggerResult,
 } from './mcpOAuthAnalytics';
-import { withStaticClientId } from './mcpStaticClientId';
+import { isUsableRedirectUri, withRedirectUri, withStaticClientId } from './mcpStaticClientId';
 import { requestConfirmation } from '../../../dialogs/requestConfirmation';
 import { errorNotificationService } from '../../../services/ErrorNotificationService';
 
@@ -27,6 +27,7 @@ interface MCPServerConfig {
     transportStrategy?: 'http-first' | 'sse-first' | 'http-only' | 'sse-only';
     authTimeoutSeconds?: number;
     staticClientInfo?: Record<string, string>;
+    redirectUri?: string;
     clientId?: string;
     clientSecret?: string;
     staticClientMetadata?: Record<string, string | number | boolean | null>;
@@ -96,7 +97,7 @@ interface MCPServerTemplate {
   name: string;
   description: string;
   docsUrl?: string;
-  /** Authentication type: 'oauth' uses mcp-remote for browser-based login, 'api-key' requires manual key */
+  /** Authentication type: 'oauth' signs in through the browser with Authorize, 'api-key' requires a manual key */
   authType?: 'oauth' | 'api-key' | 'none';
   config: MCPServerConfig;
 }
@@ -331,8 +332,8 @@ const MCP_SERVER_TEMPLATES: MCPServerTemplate[] = [
     docsUrl: 'https://linear.app/docs/mcp',
     authType: 'oauth',
     config: {
-      command: 'npx',
-      args: ['-y', 'mcp-remote', 'https://mcp.linear.app/mcp'],
+      type: 'http',
+      url: 'https://mcp.linear.app/mcp',
       oauth: {}
     }
   },
@@ -343,14 +344,11 @@ const MCP_SERVER_TEMPLATES: MCPServerTemplate[] = [
     docsUrl: 'https://github.com/github/github-mcp-server',
     authType: 'api-key',
     config: {
-      command: 'npx',
-      args: [
-        '-y',
-        'mcp-remote',
-        'https://api.githubcopilot.com/mcp/',
-        '--header',
-        'Authorization:Bearer ${GITHUB_PERSONAL_ACCESS_TOKEN}'
-      ],
+      type: 'http',
+      url: 'https://api.githubcopilot.com/mcp/',
+      headers: {
+        Authorization: 'Bearer ${GITHUB_PERSONAL_ACCESS_TOKEN}'
+      },
       env: {
         GITHUB_PERSONAL_ACCESS_TOKEN: ''
       }
@@ -391,14 +389,11 @@ const MCP_SERVER_TEMPLATES: MCPServerTemplate[] = [
     docsUrl: 'https://posthog.com/docs/model-context-protocol',
     authType: 'api-key',
     config: {
-      command: 'npx',
-      args: [
-        '-y',
-        'mcp-remote@latest',
-        'https://mcp.posthog.com/sse',
-        '--header',
-        'Authorization:Bearer ${POSTHOG_PERSONAL_API_KEY}'
-      ],
+      type: 'http',
+      url: 'https://mcp.posthog.com/mcp',
+      headers: {
+        Authorization: 'Bearer ${POSTHOG_PERSONAL_API_KEY}'
+      },
       env: {
         POSTHOG_PERSONAL_API_KEY: ''
       }
@@ -411,8 +406,8 @@ const MCP_SERVER_TEMPLATES: MCPServerTemplate[] = [
     docsUrl: 'https://www.atlassian.com/blog/announcements/remote-mcp-server',
     authType: 'oauth',
     config: {
-      command: 'npx',
-      args: ['-y', 'mcp-remote', 'https://mcp.atlassian.com/v1/sse'],
+      type: 'http',
+      url: 'https://mcp.atlassian.com/v1/mcp',
       oauth: {}
     }
   },
@@ -423,8 +418,8 @@ const MCP_SERVER_TEMPLATES: MCPServerTemplate[] = [
     docsUrl: 'https://developers.notion.com/docs/mcp',
     authType: 'oauth',
     config: {
-      command: 'npx',
-      args: ['-y', 'mcp-remote', 'https://mcp.notion.com/mcp'],
+      type: 'http',
+      url: 'https://mcp.notion.com/mcp',
       oauth: {}
     }
   },
@@ -435,8 +430,8 @@ const MCP_SERVER_TEMPLATES: MCPServerTemplate[] = [
     docsUrl: 'https://developers.asana.com/docs/mcp-server',
     authType: 'oauth',
     config: {
-      command: 'npx',
-      args: ['-y', 'mcp-remote', 'https://mcp.asana.com/sse'],
+      type: 'http',
+      url: 'https://mcp.asana.com/v2/mcp',
       oauth: {}
     }
   },
@@ -515,8 +510,8 @@ const MCP_SERVER_TEMPLATES: MCPServerTemplate[] = [
     docsUrl: 'https://zapier.com/mcp',
     authType: 'api-key',
     config: {
-      command: 'npx',
-      args: ['-y', 'mcp-remote', '${ZAPIER_MCP_URL}'],
+      type: 'http',
+      url: '${ZAPIER_MCP_URL}',
       env: {
         ZAPIER_MCP_URL: ''
       }
@@ -874,7 +869,7 @@ function MCPServersPanelInner({ scope = 'user', workspacePath }: MCPServersPanel
     setFormOAuth(server.oauth);
     setFormOmitToolsFrom(server.omit_tools_from);
 
-    // Check OAuth status for mcp-remote servers and HTTP transport
+    // Check OAuth status for remote servers (including stored npx mcp-remote entries)
     if (isOAuthServer(server)) {
       checkOAuthStatus(server);
     } else {
@@ -966,8 +961,19 @@ function MCPServersPanelInner({ scope = 'user', workspacePath }: MCPServersPanel
         .filter(header => header.key.trim())
         .map(header => [header.key.trim(), header.value])
     ),
+    // `${VAR}` in a URL, header or mcp-remote argument resolves from these.
+    env: Object.fromEntries(
+      formEnv
+        .filter(entry => entry.key.trim())
+        .map(entry => [entry.key.trim(), entry.value])
+    ),
     oauth: getCurrentOAuthConfig(),
   });
+
+  // Only Nimbalyst's own sign-in can be redone from here. A stored
+  // `npx mcp-remote` command that runs the helper reuses its cached tokens,
+  // so the button would do nothing visible for it.
+  const canSignInAgain = formType === 'http' || formType === 'sse';
 
   const usesNativeOAuth = (config: MCPServerConfig): boolean =>
     Boolean((config.type === 'http' || config.type === 'sse') && (config.oauth?.clientId || config.oauth?.clientSecret));
@@ -1254,7 +1260,7 @@ function MCPServersPanelInner({ scope = 'user', workspacePath }: MCPServersPanel
     if (usesNativeOAuth(config)) {
       setOauthStatus('unknown');
       setTestStatus('error');
-      setTestMessage('This server uses native MCP OAuth. The auth cache tools only apply to mcp-remote-based servers.');
+      setTestMessage('This server uses its own OAuth client settings. Use Authorize to sign in again.');
       return;
     }
 
@@ -1592,6 +1598,10 @@ function MCPServersPanelInner({ scope = 'user', workspacePath }: MCPServersPanel
 
   const updateStaticClientId = (value: string) => {
     setFormOAuth((current) => withStaticClientId(current, value));
+  };
+
+  const updateRedirectUri = (value: string) => {
+    setFormOAuth((current) => withRedirectUri(current, value));
   };
 
   /**
@@ -1983,6 +1993,17 @@ function MCPServersPanelInner({ scope = 'user', workspacePath }: MCPServersPanel
                   aria-busy={oauthAction === 'authorizing'}
                 >
                   {oauthAction === 'authorizing' ? 'Authorizing...' : 'Authorize'}
+                </button>
+              )}
+              {oauthStatus === 'authorized' && canSignInAgain && (
+                <button
+                  onClick={handleAuthorize}
+                  disabled={oauthAction !== 'idle'}
+                  className="mcp-oauth-button reauthorize px-4 py-2 rounded text-sm font-medium cursor-pointer transition-all duration-150 bg-transparent text-[var(--nim-text)] border border-[var(--nim-border)] disabled:opacity-60 disabled:cursor-not-allowed hover:enabled:bg-[var(--nim-bg-hover)]"
+                  aria-label="Sign in to this server again"
+                  aria-busy={oauthAction === 'authorizing'}
+                >
+                  {oauthAction === 'authorizing' ? 'Signing in...' : 'Sign in again'}
                 </button>
               )}
               {oauthStatus === 'authorized' && (
@@ -2439,6 +2460,30 @@ function MCPServersPanelInner({ scope = 'user', workspacePath }: MCPServersPanel
               Leave this empty unless authorization fails because the provider does not support
               dynamic client registration. Then paste the client ID the provider issued you.
             </div>
+            {formOAuth?.staticClientInfo?.client_id && (
+              <div className="mcp-oauth-redirect-uri-group mt-4">
+                <label
+                  htmlFor="mcp-oauth-redirect-uri"
+                  className="block mb-2 font-medium text-sm text-[var(--nim-text)]"
+                >
+                  Redirect URI
+                </label>
+                <input
+                  id="mcp-oauth-redirect-uri"
+                  type="text"
+                  value={formOAuth?.redirectUri ?? ''}
+                  onChange={(e) => updateRedirectUri(e.target.value)}
+                  onBlur={isExistingServer ? autoSave : undefined}
+                  placeholder="http://localhost:PORT/oauth/callback"
+                  className="mcp-oauth-redirect-uri w-full px-3 py-2 border border-[var(--nim-border)] rounded bg-[var(--nim-bg)] text-[var(--nim-text)] text-sm"
+                />
+                <div className="mcp-form-hint mt-1 text-xs text-[var(--nim-text-faint)]">
+                  {formOAuth?.redirectUri && !isUsableRedirectUri(formOAuth.redirectUri)
+                    ? 'Use the http://localhost address with a port that you registered with the provider.'
+                    : 'Only needed if you registered this client with a specific redirect URI. Nimbalyst sends it exactly as entered.'}
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -2471,7 +2516,7 @@ function MCPServersPanelInner({ scope = 'user', workspacePath }: MCPServersPanel
           </div>
         )}
 
-        {/* OAuth section for existing mcp-remote servers and HTTP transport */}
+        {/* OAuth section for remote servers, including stored npx mcp-remote entries */}
         {isExistingServer && isOAuthServer(currentConfig) && (
           <div className="mcp-form-group mb-6">
             <label className="block mb-2 font-medium text-sm text-[var(--nim-text)]">OAuth Authorization</label>
@@ -2506,6 +2551,17 @@ function MCPServersPanelInner({ scope = 'user', workspacePath }: MCPServersPanel
                     className="mcp-oauth-button authorize px-4 py-2 rounded text-sm font-medium cursor-pointer transition-all duration-150 bg-[var(--nim-primary)] text-white border-none disabled:opacity-60 disabled:cursor-not-allowed hover:enabled:opacity-90"
                   >
                     {oauthAction === 'authorizing' ? 'Authorizing...' : 'Authorize'}
+                  </button>
+                )}
+                {oauthStatus === 'authorized' && canSignInAgain && (
+                  <button
+                    onClick={handleAuthorize}
+                    disabled={oauthAction !== 'idle'}
+                    className="mcp-oauth-button reauthorize px-4 py-2 rounded text-sm font-medium cursor-pointer transition-all duration-150 bg-transparent text-[var(--nim-text)] border border-[var(--nim-border)] disabled:opacity-60 disabled:cursor-not-allowed hover:enabled:bg-[var(--nim-bg-hover)]"
+                    aria-label="Sign in to this server again"
+                    aria-busy={oauthAction === 'authorizing'}
+                  >
+                    {oauthAction === 'authorizing' ? 'Signing in...' : 'Sign in again'}
                   </button>
                 )}
                 {oauthStatus === 'authorized' && (

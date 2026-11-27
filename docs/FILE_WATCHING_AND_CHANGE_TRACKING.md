@@ -25,11 +25,11 @@ Native workspace observation and independent open-file reconciliation share the 
 
 ### WorkspaceEventBus - Recoverable Native Watchers
 
-[WorkspaceEventBus](../packages/electron/src/main/file/WorkspaceEventBus.ts) owns one logical entry per root. Its listener map survives native errors and event storms. [RecoveringFileWatcher](../packages/electron/src/main/file/RecoveringFileWatcher.ts) replaces the handle after 1, 5, 15, then 60 seconds; permission errors use 60 seconds. A minute of healthy operation resets backoff. Closing a failed native handle is deferred outside its event callback. Generation checks discard retired callbacks, rename checks, and setup completions. The last unsubscribe cancels retries and closes the handle.
+[WorkspaceEventBus](../packages/electron/src/main/file/WorkspaceEventBus.ts) owns one logical entry per root. Its listener map survives native errors and event storms. [RecoveringFileWatcher](../packages/electron/src/main/file/RecoveringFileWatcher.ts) replaces the handle after 1, 5, 15, then 60 seconds; permission errors use 60 seconds. `ENOSPC` means the OS watch limit is exhausted, which retrying cannot change, so it has its own schedule: 1, 5, 15, then 30 minutes, with one log warning per run that names the Linux inotify limit. A handle counts as healthy only once its initial scan is ready (chokidar's `ready` event on Linux, immediately for recursive `fs.watch`); a minute of operation after ready resets both schedules. A scan that fails before it is ready keeps escalating, however long it ran. Closing a failed native handle is deferred outside its event callback. Generation checks discard retired callbacks, rename checks, and setup completions. The last unsubscribe cancels retries and closes the handle.
 
-[WorkspaceNativeWatcher](../packages/electron/src/main/file/WorkspaceNativeWatcher.ts) uses recursive `fs.watch` on macOS/Windows and chokidar on Linux. Native events use a bounded queue: ordinary notifications deliver immediately, while bursts coalesce duplicate event/path pairs and yield after 128 deliveries or four milliseconds per batch. Native observation timestamps survive batching and rename probes; shell tool boundaries drain accepted native work before changing owners. More than 16,384 pending unique event/path pairs triggers explicit recovery for queue overflow. Total callback count alone no longer closes a healthy watcher. Linux uses atomic writes, a 50 ms write-stability threshold, and depth 10; expanded and bypassed paths are restored onto replacement handles.
+[WorkspaceNativeWatcher](../packages/electron/src/main/file/WorkspaceNativeWatcher.ts) uses recursive `fs.watch` on macOS/Windows and chokidar on Linux. Native events use a bounded queue: ordinary notifications deliver immediately, while bursts coalesce duplicate event/path pairs and yield after 128 deliveries or four milliseconds per batch. Native observation timestamps survive batching and rename probes; shell tool boundaries drain accepted native work before changing owners. More than 16,384 pending unique event/path pairs triggers explicit recovery for queue overflow. Total callback count alone no longer closes a healthy watcher. Linux uses atomic writes, a 50 ms write-stability threshold, and depth 10; expanded and bypassed paths are restored onto replacement handles. While a scan runs, such a path that cannot be stat'ed (a file an agent is about to create, a deleted file whose bypass is still registered) is watched through its nearest existing parent folder, because chokidar would count it twice toward `ready` and report the scan finished early.
 
-Health (`starting`, `watching`, `recovering`, `stopped`) travels through `file:watch-health`. The centralized renderer listener warns after ten seconds of sustained recovery. Successful recovery requests open-file reconciliation and a debounced tree refresh. Diagnostics distinguish healthy handles from registered roots and include reconciliation counts. Recovery cannot reconstruct intermediate AI history events missed during downtime.
+Health (`starting`, `watching`, `recovering`, `stopped`) travels through `file:watch-health`. A handle is `starting` while its initial scan runs and `watching` once it is ready; events seen during the scan are still delivered. The centralized renderer listener warns after ten seconds of sustained recovery; a retry's `starting` does not end the outage, and the warning names the cause when the watch limit is exhausted. "File updates resumed" appears only on `watching`. Successful recovery requests open-file reconciliation and a debounced tree refresh. Diagnostics distinguish healthy handles from registered roots and include reconciliation counts. Recovery cannot reconstruct intermediate AI history events missed during downtime.
 
 ### OpenFileReconciler - Independent Open-Document Checks
 
@@ -245,6 +245,16 @@ Correlates file edits with specific AI tool calls using a scoring heuristic:
 - Time window: 10 seconds before/after tool call
 
 Results stored in `ai_tool_call_file_edits` table.
+
+### Bash edits by provider
+
+Which mechanism links a file changed by a shell command depends on the provider's attribution mode ([providerFileTracking.ts](../packages/runtime/src/ai/server/providerFileTracking.ts)):
+
+- `'shell-window'` (Claude Code): the hook-window tracker links any file changed inside the session's Bash window, named in the command or not. Overlapping windows of two sessions abstain and the sidebar lists the file as withheld. See [CODEX_SHELL_TRACKING.md](./CODEX_SHELL_TRACKING.md#claude-code-bash).
+- `'disabled'` (Codex app-server): structured `fileChange` items plus the same hook-window tracker for shell commands. While such a session's turn runs, the fuzzy watcher path is off for `'fuzzy'` sessions in that workspace.
+- `'fuzzy'` (OpenCode, Codex SDK transport, Claude CLI, others): `WorkspaceFileEditAttributionService` scores watcher events against tool calls within 10 seconds, and `trackBashEditsFromCommand` scrapes paths from the command text.
+
+The fuzzy path's burst throttle (20 events per second per workspace) runs after exclusion and dedupe; over-budget events wait in a bounded deferred queue instead of being dropped.
 
 ---
 

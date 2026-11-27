@@ -76,7 +76,7 @@ Twelve built-in provider lanes, plus any agent an extension contributes. Every l
 **Cross-provider behavior**
 
 - Extension-contributed agent providers — an extension can register its own agent lane alongside the built-ins
-- Per-provider file-change fidelity (`providerFileTracking.ts`) — each lane declares how well it can report the files it changed (`structured` / `tool-args` / `none`), and the filesystem watcher is switched off only for lanes that report authoritatively. Lanes with no delete or move tool (Grok Build, Gemini) deliberately keep the watcher on so `rm` inside a shell command still shows up in the files-edited sidebar
+- Per-provider file-change fidelity (`providerFileTracking.ts`) — each lane declares how well it can report the files it changed (`structured` / `tool-args` / `none`), and the filesystem watcher is switched off only for lanes that report authoritatively. Lanes with no delete or move tool (Grok Build, Gemini) deliberately keep the watcher on so `rm` inside a shell command still shows up in the files-edited sidebar. Claude Code Bash commands are bracketed by its pre/post tool hooks, so a file a command changes is linked to the session even when the command never names it (python heredocs, codegen); when two sessions' commands overlap the file is left unlinked and the sidebar lists it as withheld
 - Per-project AI provider overrides (Project settings) on top of application-level provider config
 
 ## AI Sessions
@@ -86,7 +86,7 @@ Twelve built-in provider lanes, plus any agent an extension contributes. Every l
 - Session search with full-text index (Cmd+L)
 - Session pinning
 - Session branching / forking
-- Session tags and phase tracking
+- Session tags and phase tracking, with opt-in phase toggles in the session list that hide sessions by phase (all phases shown by default; applies to top-level sessions, children follow their parent)
 - Desktop summaries can publish durable Work Overview items in the same turn. The host supplies the checkpoint and its exact remainder, and untracked lines remain available to the extension's fallback.
 - Work Overview reads a one-line outcome and optional source-linked write-up from the saved session summary, with worker outcomes and current next actions on the same card.
 - Desktop session scope summaries and remaining-work captions — working agents can submit whole-session scope, remaining work and topic labels through `update_session_summary`; a submission for the current host-tracked turn suppresses automatic background inference. Missing or invalid submissions fall back to the enabled, signed-in Codex CLI; manual refresh remains available. Scoped text search and area/remaining-work/blocker/review filters work across whole-group activity sections. Summaries are AI estimates with immutable evidence and preserved worker request checkpoints; coverage, freshness and source details live on hover. Native input/cache/output usage is retained per background attempt, including retries; same-session usage belongs to the working turn. Original transcripts stay intact
@@ -213,8 +213,8 @@ Twelve built-in provider lanes, plus any agent an extension contributes. Every l
 - Git operations panel with a Changes list where users select files and commit directly or ask AI to write the message
 - AI-assisted commit message generation
 - Interactive git commit proposal widget with individual-hunk selection to commit only the intended lines of a shared file
-- Commit proposals accept folder paths (with optional excludes), expanded to the changed files under them for review; files under a folder that only another session edited start unchecked, and auto-commit, voice and mobile approvals defer those proposals to desktop review
-- Commit proposals can target another registered worktree of the session's repository; the widget names its branch and path, and these commits always need approval on desktop, even with auto-commit on
+- Commit proposals accept folder paths (with optional excludes), expanded to the changed files under them for review; files under a folder that only another session edited start unchecked in manual review, and voice and mobile approvals defer those proposals to desktop review; auto-commit commits the whole expansion
+- Commit proposals can target another registered worktree of the session's repository; the widget names its branch and path, and auto-commit applies to them; voice and mobile approvals defer to desktop
 - Commit history view with ahead/behind tracking and links to the AI sessions that produced commits
 - Branch switcher in the Git panel: searchable local and remote-only branches, new branch from a branch or commit, confirmation when uncommitted changes or a running agent session are in the checkout, and "Open session" for branches checked out in another worktree; the Log follows the checked-out branch unless pinned
 - Per-repository status, branches, file lists, and commit controls for multi-folder projects; Commit with AI proposes separate commits per repository; the title-bar branch, Git panel and new-worktree dialog follow the file open in the editor
@@ -472,6 +472,9 @@ Companion app; pairs with a desktop over encrypted sync. Voice mode is not inclu
 - Tracker importer contribution (`trackerImporters`) — external-source importers backed by a backend module
 - Extension-driven AI sessions (`ai-sessions` permission): a backend module can create sessions with a system-prompt directive (agent providers only), queue prompts, read status, results, and token usage, and receive settle events for the sessions it owns and their descendants; panels can embed a session transcript with its composer and set a gutter badge, including from the backend while the panel is closed
 - Extension watch callbacks: an agent calling a backend tool with `grantsSessionWake` grants that extension one queued callback to that session through `sessions.wake`, without session ownership or read access. Tokens can be revoked, expire after 24 hours or app restart, and require `ai-sessions`; extensions provide their own monitoring while active
+- Command terminals for backend modules (`terminals` permission): a module runs a command in a terminal tab it owns, follows the output, reads the log as plain text, sets a status dot on the tab, and stops the whole process group; the host stops the terminals when the module stops or the app quits
+- Developer-mode extensions (`requiresDeveloperMode`): panels, gutter button and agent tools exist only while developer mode is on
+- Gutter badge colors for panel buttons: default, warning, success, error
 - Extension hot reload
 - Extension developer kit with scaffolding
 - Extension marketplace (alpha)
@@ -503,6 +506,7 @@ Companion app; pairs with a desktop over encrypted sync. Voice mode is not inclu
 - Media Viewer — `.mp4` playback in a tab
 - Project Graph — navigable whole-project graph of plans, trackers, sessions, commits, and files, with a horizontally scrollable **Timeline mode** (time ranges down to the last 24 hours with an hourly ruler; phase-colored lifecycle bars per item; collapse items into per-tag activity lanes), plus **Atlas**, **Pulse**, and **Evidence Trails** for exploring a project across broader source coverage, with saved views and linked source exploration
 - SQLite Browser
+- Run Manager (Alpha) -- developer mode only; a Runs bottom panel for a project's long-running processes (dev server, worker, watcher). Run targets are named commands in the committed `.nimbalyst/run.json`; each runs in a pinned terminal tab that is its log. The panel shows status (stopped, starting, running, crashed, or external when another process holds the port), port/URL link and uptime, with start, stop, restart and logs; the gutter button shows the aggregate status color. Agent tools `run_list`, `run_start`, `run_stop`, `run_restart`, `run_logs` and the permission-gated `run_configure`. Nothing starts automatically; Nimbalyst stops runs when it quits, restarts or updates, and when the extension or developer mode is turned off
 - RTL Support -- automatic or forced right-to-left text direction for transcripts, prompts, and Markdown, with per-block detection and a toggle shortcut
 
 ## MCP Servers (Internal)
@@ -562,7 +566,8 @@ Companion app; pairs with a desktop over encrypted sync. Voice mode is not inclu
 - Document history retention
 - Auto-save interval
 - System spellchecker toggle; Windows/Linux language selection follows the OS locale with an override available through settings tools, while macOS uses the system spellchecker languages
-- MCP server configuration and OAuth authorization, including explicit client registration details for servers without dynamic registration; project-level Claude server disabling also applies to external Claude Code
+- MCP server configuration and OAuth authorization, including explicit client registration details (client ID, redirect URI) for servers without dynamic registration; project-level Claude server disabling also applies to external Claude Code
+- Remote MCP OAuth handled by Nimbalyst itself: Authorize signs in from the main process, credentials are stored encrypted in Nimbalyst's own storage (imported once from `~/.mcp-auth`), and agent CLIs reach those servers through a loopback gateway or a bundled stdio bridge on Electron's Node, so no system Node, `npx` or third-party helper is needed; stored `npx mcp-remote <url>` entries using only supported options are routed the same way without rewriting the config. See `docs/MCP_OAUTH.md`
 - Database controls for backup retention, pruning old tool output, migration status, and recovery of preserved database copies
 
 ## Theming
@@ -605,7 +610,7 @@ Companion app; pairs with a desktop over encrypted sync. Voice mode is not inclu
 - Auto-updater with toast notification
 - Deferred restart (waits for active AI sessions)
 - Linux `.deb` package for Debian and Ubuntu, which starts on Ubuntu 24.04 and later where the AppImage is blocked by AppArmor's user-namespace restriction
-- SQLite for new installs and migration from existing PGLite databases, retaining original data and recovery copies; databases up to 1 GiB are migrated automatically at startup and larger ones migrate only from Database settings; backup and recovery controls in Database settings
+- SQLite for new installs and migration from existing PGLite databases, retaining original data and recovery copies; databases up to 3 GiB are migrated automatically at startup and larger ones are offered a one-time migration prompt at launch and can migrate from Database settings, which every install still on PGLite can see; backup and recovery controls in Database settings
 
 ## Onboarding & Help
 

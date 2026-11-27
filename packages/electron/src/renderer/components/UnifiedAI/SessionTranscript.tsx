@@ -45,6 +45,7 @@ import { useDialog } from '../../contexts/DialogContext';
 import { FileGutter } from '../AIChat/FileGutter';
 import { recordClaudeActivity } from '../../store/listeners/claudeUsageListeners';
 import { recordCodexActivity } from '../../store/listeners/codexUsageListeners';
+import { revealOwnedTerminal } from '../../store/listeners/terminalRevealListeners';
 import { PendingReviewBanner } from '../AIChat/PendingReviewBanner';
 import { WakeupBanner } from '../AIChat/WakeupBanner';
 import { McpLockdownBanner } from '../AIChat/McpLockdownBanner';
@@ -2235,6 +2236,7 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
         }
       },
       openPage: (uri: string) => openAgentEditedPage(uri, workspacePath || ''),
+      revealCommandTerminal: (owner) => revealOwnedTerminal({ workspacePath: workspacePath || '', ...owner }),
       trackEvent: (eventName: string, properties?: Record<string, unknown>) => {
         posthog?.capture(eventName, properties);
       },
@@ -2279,6 +2281,7 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
       openAttachmentSettings: (...args) => liveHostRef.current!.openAttachmentSettings!(...args),
       openFile: (...args) => liveHostRef.current!.openFile(...args),
       openPage: (...args) => liveHostRef.current!.openPage!(...args),
+      revealCommandTerminal: (...args) => liveHostRef.current!.revealCommandTerminal!(...args),
       trackEvent: (...args) => liveHostRef.current!.trackEvent(...args),
     };
 

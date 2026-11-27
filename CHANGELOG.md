@@ -56,6 +56,112 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 <!-- Removed features go here -->
 
+## [0.84.5] - 2026-11-27
+
+
+### Added
+<!-- New features go here -->
+- Each window in the Claude and Codex usage popovers now shows how much of the window has passed next to its reset time, and a "Limit ratio" line (elapsed share divided by usage share) while the window is still running (#1975).
+
+### Changed
+<!-- Changes to existing functionality go here -->
+- In an orchestrating session's transcript, a child session's update message now shows as a card labeled "Child session update" with its list of modified files collapsed behind a "Files modified" toggle (#2001).
+- Remote MCP servers that need OAuth are now signed in by Nimbalyst itself instead of the third-party `mcp-remote` helper, so they no longer need Node.js installed or an `npx` download. Sign-ins are stored encrypted in Nimbalyst's own storage, existing `mcp-remote` sign-ins are imported once, and Codex, Copilot and other agents reach these servers through a local gateway that keeps the tokens out of their configuration. Saved `npx mcp-remote <url>` servers that use only supported options are routed the same way without changing the saved config.
+- The Linear, GitHub, PostHog, Atlassian, Notion, Asana and Zapier server templates now add HTTP servers. The Asana template uses Asana's v2 endpoint, which needs an OAuth client ID; the v1 endpoint the template used before has been shut down.
+
+### Fixed
+<!-- Bug fixes go here -->
+- Session title search in the sidebar now also matches sessions nested under a parent session, and opens the parents above each match until the search is cleared (#2007).
+- AI actions with non-Latin headings in `ai-actions.md` remain separate actions instead of being dropped as duplicates (#1565).
+- Gemini models no longer disappear from the model picker when settings carry an outdated list of Gemini model IDs (#2016).
+- The Gemini usage chip shows usage before the first Gemini request when the Antigravity IDE's language server is already running, instead of waiting for that request (#2018).
+- When signed out, a published team tracker item shows its body right away instead of showing "Connecting..." for about 15 seconds while team lookups retry (#1914).
+- An answer to a permission prompt or question given on another device, such as your phone, now reaches the waiting desktop session when the session has more than 50 messages; before, the prompt waited until it timed out (#2009).
+- When a project has more files than the operating system can watch, the file watcher now retries after 1, 5, 15, then 30 minutes instead of re-scanning the project as often as every second, and the "File updates delayed" warning suggests adding large folders to .gitignore (#2021).
+- In Claude Agent sessions, the approval prompt for a shell command now shows the agent's one-line description of the command above it, and the prompt for starting a sub-agent shows its task instead of just "Agent" (#1792).
+- Jump to question now goes to the newest open question instead of the oldest, the automatic jump to a new question runs once instead of again each time the pane is shown or the session is reopened, and reopening a session whose open question was already shown now keeps the transcript at the end (#1867).
+
+### Removed
+<!-- Removed features go here -->
+
+## [0.84.4] - 2026-11-23
+
+
+### Added
+<!-- New features go here -->
+- Phase toggles in the agent mode session list can hide sessions by phase, such as Complete; all phases are shown until you turn one off.
+
+### Changed
+<!-- Changes to existing functionality go here -->
+- Extensions must name a project when they call `sendPrompt` or one of their backend tools; a call without one is refused instead of using the project on screen. Editors get their tab's project from the new `EditorHost.workspacePath`.
+
+### Fixed
+<!-- Bug fixes go here -->
+- An automation that runs on a schedule or from its document's Run Now button now starts its AI session in the project that contains the automation file, not whichever project is active in the window's project rail.
+- Automations in every project open in a window's project rail now run on schedule, not only those in the window's first project, and write their output and history into their own project.
+- A relative file path an agent passes to an extension tool now resolves against the session's project, not the window's first project.
+- An extension editor whose tab is in a project other than the one on screen now reads and writes files in its own project, not the on-screen one.
+- In auto mode, approving a Claude tool call that the safety classifier blocked now tells the agent you approved it and to run it again. Before, the agent only got a generic retry hint and could skip the call. The prompt for a compound shell command now offers only Allow Once, since Session and Always never applied to it.
+- Launching Nimbalyst again while it is already running no longer starts a second copy of the app that shows a window for about five seconds and then disappears. On Windows and Linux the extra launch now hands over to the running app and exits at once, and on every platform it no longer opens the shared database or replaces the running app's logs.
+- Deleting a session whose transcript was not open, or while sync was disconnected, now removes it from your other devices too. Before, the server never got the delete and the session could come back. A delete made offline is kept and sent once sync reconnects, including after a restart, and only for the account it was made under.
+- If the database worker crashes again right after Nimbalyst restarts it, Nimbalyst now tries again instead of leaving every database action failing until you restart the app.
+- Launching Nimbalyst while it is already running now brings its window back, or opens the Project Manager, even when the only window left is a hidden background one. On Windows and Linux, closing the Project Manager with no project open and no other window visible now quits the app instead of leaving it running with no window, which made later launches open and close again.
+- While an agent reply streams, scrolling up in the transcript (with the wheel, keys, scrollbar or touch) now keeps you where you scrolled instead of pulling you back to the bottom as the reply grows, and returning to the bottom after jumping to a search result, message or prompt follows the reply again.
+- A session that spawns child sessions now appears in the Files-mode chat panel's session dropdown and auto-select; only workstream containers and empty parent roots are skipped (#1737).
+- The @-mention file picker now lists all recent files, and a file opened in a side-rail project is recorded under the project on screen instead of the window's first project (#303).
+- `tracker_get` reports archive state and comments, and `nim tracker show` prints comments in the record instead of as a raw JSON line (#1225).
+- An agent waiting on your answer to an interactive prompt is no longer woken by finished background tasks, which closed its MCP connection before the answer arrived; results are held and delivered after you answer (#1557).
+
+### Removed
+<!-- Removed features go here -->
+
+## [0.84.3] - 2026-11-20
+
+
+### Added
+<!-- New features go here -->
+
+### Changed
+<!-- Changes to existing functionality go here -->
+- New Codex sessions default to GPT-6.2 Sol, the model Codex itself selects by default; GPT-6.2 Sol and GPT-6.2 Astra are now listed in the Codex model picker
+- Nimbalyst now runs on Electron 45 and requires macOS 13 Ventura or later on Mac. Macs on macOS 12 Monterey are not offered the update and can keep using 0.84.2.
+
+### Fixed
+<!-- Bug fixes go here -->
+- Desktop builds now include the patched image decoder that Memory needs to load local embedding models.
+- Desktop personal sync now encrypts with a different crypto API, avoiding a runtime bug that could abort the app with no crash report when an earlier unrelated encryption error, such as an unreadable saved credential, was still pending (#1979)
+- Reopen Closed Tab (Cmd+Shift+T) in Wiki mode now reopens Local wiki pages, item pages and type pages; before, it only reopened shared documents
+- When the SQLite database worker exits unexpectedly, it is now restarted automatically (up to 5 times in 10 minutes) instead of leaving database access broken until the app restarts, and agent messages that had not reached the database while it restarted are held and written afterwards instead of being dropped (#1988)
+- On Windows, Import earlier sessions no longer fails with "Invalid external session cursor" for session files whose file ID is above 2^53; sessions left empty by that failure are shown as needing update and preselected for retry, and the import dialog now shows the underlying error instead of "Failed to import sessions" (#1989)
+- Files a Claude Code session changes through a Bash command (for example a python heredoc or `sed -i`) are now listed in its edited files even when the command never names the file's path, and a Codex session running in the same project no longer stops them from being listed; when two sessions' commands overlap, the file is listed as a withheld edit instead of being linked to either session
+
+### Removed
+<!-- Removed features go here -->
+
+## [0.84.2] - 2026-11-18
+
+
+### Added
+<!-- New features go here -->
+- Databases too large to migrate to SQLite automatically now get a one-time prompt at launch to migrate, with the size, the disk space needed, and progress
+- Run Manager (alpha), in developer mode: a Runs panel that starts, stops and restarts a project's dev servers from named commands in `.nimbalyst/run.json`, shows each one's status, link and uptime, and keeps its log in a pinned terminal tab; agents can list, start, stop and restart the same targets and read their logs
+
+### Changed
+<!-- Changes to existing functionality go here -->
+- Existing databases up to 3 GiB (previously 1 GiB) now migrate to SQLite automatically at startup
+- Settings > Database is now shown to every install still on PGLite, not only in developer mode, so larger databases can be migrated from there
+- Extensions can run commands in terminal tabs and show colored status badges on their gutter buttons, gated on developer mode
+- The Terminal and Runs bottom panels use the same dash hide button as the Git panel
+
+### Fixed
+<!-- Bug fixes go here -->
+- Claude Agent skills that run as a forked command, such as `/review`, are no longer denied the Nimbalyst session-summary and session-result tools
+- With auto-commit on, commit proposals into another worktree of the session's repository, and folder proposals containing files another session also edited, are now committed automatically instead of waiting for manual approval
+- The PGLite to SQLite cutover retries a briefly locked database folder instead of failing immediately
+- Run Manager stops its processes on restart and update, and Stop cancels a start that is still checking its port
+
+### Removed
+<!-- Removed features go here -->
 
 ## [0.84.1] - 2026-11-15
 
@@ -405,6 +511,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Switching projects in one window no longer restarts the previous project's terminals inside the new project
 - Clicking a notification for a session in another open project opens that session, instead of the session that was open there before.
 - Choosing "Always" on one of several tool permission prompts that are waiting at once now approves the others too, instead of asking again
+- The @-mention file list in the chat box now shows all of a project's stored recent files (up to 50) instead of only the 20 most recent
 
 ### Removed
 <!-- Removed features go here -->
@@ -625,6 +732,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Quick Open, @ mentions, and content search find files in git repositories cloned inside a project, which the project's ignore rules used to hide (#1449).
 - An agent session in a worktree can read and edit folders attached to either the worktree or its project
 - Expanded deep folders stay visible and current when files change elsewhere, even when refreshes finish out of order
+- A session waiting on your answer is no longer interrupted when a background task finishes, so the question stays open and the results arrive once you have replied (#1557).
 
 ### Removed
 <!-- Removed features go here -->

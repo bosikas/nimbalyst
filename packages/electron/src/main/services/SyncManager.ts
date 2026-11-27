@@ -23,6 +23,7 @@ import { getProjectFileSyncService } from './ProjectFileSyncService';
 import { startProjectFileSync, stopAllProjectFileSync } from '../file/WorkspaceWatcher';
 import { listOpenWorkspacePaths } from '../window/windowState';
 import { createProjectConfigSync } from './sync/projectConfigSync';
+import { createPendingSessionDeletesStorage } from './sync/pendingSessionDeletesStorage';
 import { projectConfigSources } from './sync/projectConfigSources';
 import { nextMobileSettingsVersion } from './sync/mobileSettingsVersion';
 import { createMobileJoinDetector } from './sync/mobileJoinDetector';
@@ -36,6 +37,7 @@ import { timeStartupPhase } from '../utils/startupTiming';
 import { resolveWorkspaceAttachmentStagingDirectory } from './attachments/attachmentStagingRoot';
 // Side effect: registers the mobile-sync image compressor and display_to_user image loader.
 import './sync/mobileSyncImages';
+import { aesGcmDecrypt } from '@nimbalyst/runtime/sync/aesGcm';
 
 function loadSyncModule() {
   return syncModule;
@@ -510,6 +512,9 @@ export async function initializeSync(baseStore: SessionStore): Promise<SessionSt
       getDeviceInfo: () => getDeviceInfo(personalUserId),
       // Opted-out projects stay listed on the phone, marked as not syncing their transcript (NIM-7545).
       isTranscriptSyncDisabled: createTranscriptSyncDisabledPredicate(),
+      // A delete made while sync was down is saved here and sent after the next start (GitHub #1901).
+      // Scoped to this server and account: another account must not send or clear these.
+      pendingSessionDeletes: createPendingSessionDeletesStorage({ serverUrl, orgId: personalOrgId, personalMemberId: personalUserId }),
     });
     logger.main.info('[SyncManager] Created CollabV3 sync provider with device:', initialDeviceInfo.name);
 
@@ -1128,11 +1133,7 @@ export async function decryptMobileAttachments(
       const iv = Buffer.from(att.iv, 'base64');
 
       // Decrypt using AES-GCM (same format as iOS CryptoManager: ciphertext + tag concatenated)
-      const decrypted = await crypto.subtle.decrypt(
-        { name: 'AES-GCM', iv },
-        key,
-        ciphertext,
-      );
+      const decrypted = await aesGcmDecrypt(key, iv, ciphertext);
 
       const imageBuffer = Buffer.from(decrypted);
       const result = await attachmentService.saveAttachment(

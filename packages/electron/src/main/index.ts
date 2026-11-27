@@ -28,6 +28,7 @@ import { createApplicationMenu } from './menu/ApplicationMenu';
 import { updateNativeTheme, updateWindowTitleBars } from './theme/ThemeManager';
 import { restoreSessionState, saveSessionState } from './session/SessionState';
 import { createRestartShutdown } from './session/restartShutdown';
+import { resumeBackendTerminalsAfterAbortedQuit, stopAllBackendTerminals } from './extensions/backendTerminals';
 import { setSafeModeSessionStateProtection } from './session/safeModeSessionState';
 import { isSafeModeArgument } from './session/startupSafeMode';
 import { getRestartSignalPath } from './utils/appPaths';
@@ -38,6 +39,7 @@ import {
 } from './utils/appActionLinks';
 import { createWorkspaceManagerWindow, getWorkspaceManagerWindow, openOrFocusWorkspaceWindow, setupWorkspaceManagerHandlers, wasWorkspaceManagerManuallyClosed } from './window/WorkspaceManagerWindow.ts';
 import { initializeApplicationWindowRecovery } from './window/ApplicationWindowRecovery';
+import { handleSecondInstance } from './window/secondInstanceActivation';
 import { createTeamManagementWindow, setupTeamManagementHandlers } from './window/TeamManagementWindow';
 import { setupTrayPanelHandlers } from './window/TrayPanelWindow';
 import { setupMenuBarIslandHandlers } from './window/MenuBarIslandWindow';
@@ -68,6 +70,14 @@ import { registerPermissionHandlers } from './ipc/PermissionHandlers';
 import { registerGitStatusHandlers } from './ipc/GitStatusHandlers';
 import { registerShellCommandHandlers } from './shellCommand/shellCommandActions';
 import { resolveLaunchTarget, statPathKind, userArgsStart, type LaunchTarget } from './shellCommand/launchTarget';
+import { markSingleInstanceLockLost, ownerOnly, ownsAppLifecycle } from './singleInstance/lifecycleOwnership';
+import { planLosingInstance } from './singleInstance/losingInstancePlan';
+import {
+    consumeLaunchSignals,
+    isLaunchSignalFilename,
+    relayAppleEventThenQuit,
+    relayFileToLockOwner,
+} from './singleInstance/launchRelay';
 import { registerGitHandlers } from './ipc/GitHandlers';
 import { registerProjectSelectionHandlers } from './ipc/ProjectSelectionHandlers';
 import { registerProjectAppearanceHandlers } from './ipc/ProjectAppearanceHandlers';
@@ -178,6 +188,7 @@ import { onWorkspaceUsageChanged } from './file/GitWatcherLifecycle';
 // as standalone HTTP servers; their tool dispatch + schemas are imported by the
 // unified httpServer instead. Nothing to start/shutdown from here.
 import { generateMcpAuthToken, getMcpAuthToken } from './mcp/mcpAuth';
+import { configureMcpRemoteGatewayEndpoint } from './services/mcpOAuth';
 import {
   registerNimAssetSchemeAsPrivileged,
   registerNimAssetProtocolHandler,
@@ -244,6 +255,8 @@ import { configureMcpServers } from '@nimbalyst/runtime/ai/server';
 import { matchesAllowPattern } from '@nimbalyst/runtime/ai/server/permissions/toolPermissionHelpers';
 import { resolveCodexPreEditHookScriptPath } from './services/ai/codexPreEditHookPath';
 import {configureCodexShellTracking} from './services/ai/codexShellTrackingHost';
+import {configureClaudeShellTracking, registerClaudeShellSession, releaseClaudeShellSession} from './services/ai/claudeShellTrackingHost';
+import {setShellWindowLifecycle} from './services/ai/HooklessAgentFileWatcher';
 import { createGrokAskUserQuestionHandler } from './services/ai/grokAskUserQuestionHandler';
 import { executeGeminiTool } from './services/ai/geminiToolExecutor';
 import { sessionFileTracker } from './services/SessionFileTracker';
@@ -748,147 +761,116 @@ if (!allowMultipleInstances) {
     const gotTheLock = app.requestSingleInstanceLock();
 
     if (!gotTheLock) {
-        // Another instance holds the lock. On macOS, when the OS launches the
-        // packaged app to open a file, the path comes via Apple Events which
-        // Electron delivers as the open-file event. But open-file only fires
-        // once the event loop is running. We must NOT quit synchronously or the
-        // event is lost. Instead, stay alive, wait for open-file, relay the
-        // path via a signal file, then exit.
-        const pendingOpenFilePath = path.join(app.getPath('userData'), '.pending-open-file');
+        // Another instance holds the lock. This process only hands its launch
+        // over and quits; it must not boot the app, open the shared database
+        // or run the quit cleanup (#1188, #1070). Recorded before any
+        // app.quit(), which emits before-quit synchronously.
+        markSingleInstanceLockLost();
 
-        logger.main.info(`[SingleInstance] Second instance launched, waiting for open-file. argv=${JSON.stringify(process.argv)}`);
+        logger.main.info(`[SingleInstance] Second instance launched. argv=${JSON.stringify(process.argv)}`);
 
-        // Also check argv for file paths (Windows/Linux, or CLI open --args).
-        // A folder (`nimbalyst .`) reaches the primary through its
-        // second-instance event, which carries this process's argv and cwd.
+        // A file in argv (Windows/Linux, or CLI open --args) is relayed through
+        // a signal file. A folder (`nimbalyst .`), a missing path or a deep link
+        // reaches the primary through its second-instance event, which carries
+        // this process's argv and cwd.
         const launchTarget = resolveLaunchTarget(process.argv.slice(userArgsStart(app.isPackaged)), process.cwd());
-        const fileArg = launchTarget?.kind === 'file' ? launchTarget.path : null;
-        if (launchTarget && launchTarget.kind !== 'file') {
-            logger.main.info(`[SingleInstance] Second instance has ${launchTarget.kind} target, quitting: ${launchTarget.path}`);
+        const plan = planLosingInstance({
+            platform: process.platform,
+            launchTarget,
+            hasDeepLink: process.argv.some(arg => arg.startsWith('nimbalyst://')),
+        });
+        if (plan.action === 'relay-file-and-quit') {
+            logger.main.info(`[SingleInstance] Found file in argv: ${plan.filePath}`);
+            relayFileToLockOwner(app.getPath('userData'), plan.filePath);
             app.quit();
-        } else if (fileArg) {
-            logger.main.info(`[SingleInstance] Found file in argv: ${fileArg}`);
-            try { writeFileSync(pendingOpenFilePath, fileArg, 'utf-8'); } catch (_) {}
-            app.quit();
-        } else if (process.argv.find(arg => arg.startsWith('nimbalyst://'))) {
-            // Primary instance will handle via second-instance event; quit immediately
-            logger.main.info('[SingleInstance] Second instance has deep link arg, quitting immediately');
+        } else if (plan.action === 'quit') {
+            const why = plan.reason === 'no-target'
+                ? 'no file, folder or deep link to hand over'
+                : plan.reason === 'deep-link'
+                    ? 'a deep link arg'
+                    : `a ${plan.reason} target (${launchTarget?.path})`;
+            logger.main.info(`[SingleInstance] Another instance holds the lock and this launch has ${why}, quitting now`);
             app.quit();
         } else {
-            // No file in argv -- wait for open-file Apple Event
-            let gotFile = false;
-            app.on('open-file', (event, filePath) => {
-                event.preventDefault();
-                gotFile = true;
-                logger.main.info(`[SingleInstance] Second instance received open-file: ${filePath}`);
-                try {
-                    writeFileSync(pendingOpenFilePath, filePath, 'utf-8');
-                    logger.main.info(`[SingleInstance] Wrote signal file: ${pendingOpenFilePath}`);
-                } catch (err) {
-                    logger.main.error('[SingleInstance] Failed to write signal file:', err);
-                }
-                app.quit();
+            // macOS only: when the OS launches the packaged app to open a file
+            // or a nimbalyst:// link, it arrives as an Apple Event (open-file
+            // or open-url) once the event loop is running, never in argv.
+            // Quitting synchronously would lose it, so wait, relay it via a
+            // signal file, then quit.
+            logger.main.info('[SingleInstance] Waiting for open-file or open-url');
+            relayAppleEventThenQuit({
+                app,
+                userDataPath: app.getPath('userData'),
+                timeoutMs: plan.timeoutMs,
+                quit: () => app.quit(),
             });
-
-            // Fallback timeout -- if open-file never fires, quit anyway
-            setTimeout(() => {
-                if (!gotFile) {
-                    logger.main.info('[SingleInstance] No open-file after timeout, quitting');
-                    app.quit();
-                }
-            }, 5000);
         }
     } else {
         // We are the primary instance. When a second instance tries to launch,
         // extract any deep link URL or file path and handle it here.
         app.on('second-instance', (_event, argv, workingDirectory) => {
-            logger.main.info('[SingleInstance] second-instance event, argv:', argv);
-
-            // On Windows the protocol URL is passed as the last argument
-            const deepLinkUrl = argv.find(arg => arg.startsWith('nimbalyst://'));
-            if (deepLinkUrl) {
-                logger.main.info('[SingleInstance] Found deep link in argv:', summarizeDeepLink(deepLinkUrl));
-                handleDeepLink(deepLinkUrl);
-            }
-
-            // A file or folder path: Windows/Linux file opens, and the
-            // `nimbalyst` shell command, whose relative paths are resolved
-            // against the terminal's directory.
-            const launchTarget = resolveLaunchTarget(argv.slice(userArgsStart(app.isPackaged)), workingDirectory);
-            if (launchTarget) {
-                // A terminal launch leaves the terminal frontmost; bring
-                // Nimbalyst forward before the target window is focused.
-                if (process.platform === 'darwin') app.focus({ steal: true });
-                if (openLaunchTarget(launchTarget)) return;
-            }
-
-            // Focus an existing window so the user sees the result
-            const windows = BrowserWindow.getAllWindows();
-            if (windows.length > 0) {
-                const win = windows[0];
-                if (win.isMinimized()) win.restore();
-                win.focus();
-            }
+            handleSecondInstance(argv, workingDirectory, {
+                handleDeepLink: (deepLinkUrl) => {
+                    logger.main.info('[SingleInstance] Found deep link in argv:', summarizeDeepLink(deepLinkUrl));
+                    handleDeepLink(deepLinkUrl);
+                },
+                openLaunchTarget,
+            });
         });
     }
 }
 
-// Watch for pending open-file signals from other instances.
-// On macOS, when the packaged app is launched to open a file but a dev instance
-// holds the single-instance lock, the file path is lost because macOS delivers
-// file paths via Apple Events (not argv), and the second instance quits before
-// its event loop processes the Apple Event. In production this isn't an issue
-// because the packaged app IS the primary instance.
-//
-// Workaround for dev mode: watch a signal file that the second instance writes.
-// Currently only works for CLI invocations where the path is in argv.
-// For Finder double-click during dev, quit the packaged app first.
-{
-    const pendingOpenFilePath = path.join(app.getPath('userData'), '.pending-open-file');
+// Track pending deep link URL. Declared before the signal check below, which
+// can queue one before the app is ready.
+let pendingDeepLinkUrl: string | null = null;
 
-    // Check for a stale signal file on startup (second instance may have written
-    // it before we started watching)
-    const checkPendingFile = () => {
-        try {
-            if (existsSync(pendingOpenFilePath)) {
-                const filePath = fs.readFileSync(pendingOpenFilePath, 'utf-8').trim();
-                unlinkSync(pendingOpenFilePath);
-                if (filePath && existsSync(filePath)) {
-                    logger.main.info(`[SingleInstance] Opening file from signal: ${filePath}`);
-                    if (app.isReady()) {
-                        openFileWithWorkspaceDetection(filePath);
-                    } else {
-                        pendingFilePath = filePath;
-                    }
-                }
+// Watch for launch signals from a second instance that lost the lock: a file
+// named in its argv, or on macOS an open-file or open-url Apple Event, which
+// never reaches this process's second-instance argv. See launchRelay.ts.
+// Only the lock owner watches: a second instance would consume the signal it
+// just wrote, or one meant for the primary, and open the file itself (#1188).
+if (ownsAppLifecycle()) {
+    const userDataPath = app.getPath('userData');
+
+    // A second instance may have written a signal before we started watching.
+    const checkPendingSignals = () => consumeLaunchSignals(userDataPath, {
+        openFile: (filePath) => {
+            if (app.isReady()) {
+                openFileWithWorkspaceDetection(filePath);
+            } else {
+                pendingFilePath = filePath;
             }
-        } catch (_) {}
-    };
+        },
+        openUrl: (url) => {
+            if (app.isReady()) {
+                handleDeepLink(url);
+            } else {
+                pendingDeepLinkUrl = url;
+            }
+        },
+    });
 
     // Check immediately
-    checkPendingFile();
+    checkPendingSignals();
 
-    // Watch the userData directory for the signal file
+    // Watch the userData directory for the signal files
     try {
-        const userDataPath = app.getPath('userData');
         const signalWatcher = fs.watch(userDataPath, (eventType, filename) => {
-            if (filename === '.pending-open-file') {
+            if (isLaunchSignalFilename(filename)) {
                 // Small delay to ensure the file is fully written
-                setTimeout(checkPendingFile, 50);
+                setTimeout(checkPendingSignals, 50);
             }
         });
         // Without a listener an async watch error (EMFILE once the process
         // is out of descriptors) is an uncaught exception (#1779).
         signalWatcher.on('error', (err) => {
-            logger.main.warn('[SingleInstance] Open-file signal watcher error:', err);
+            logger.main.warn('[SingleInstance] Launch signal watcher error:', err);
         });
     } catch (err) {
-        logger.main.warn('[SingleInstance] Failed to watch for open-file signals:', err);
+        logger.main.warn('[SingleInstance] Failed to watch for launch signals:', err);
     }
 }
 
-// Track pending deep link URL
-let pendingDeepLinkUrl: string | null = null;
 
 // Shared-document, shared-folder and feedback-request links: queues, notices
 // for links that cannot be routed, and the routing itself.
@@ -1001,7 +983,7 @@ function summarizeDeepLink(url: string): { host: string; pathname: string; param
 }
 
 // Handle deep link URLs (nimbalyst://...)
-app.on('open-url', (event, url) => {
+app.on('open-url', ownerOnly('open-url', (event, url) => {
     event.preventDefault();
     logger.main.info('[DeepLink] open-url event:', summarizeDeepLink(url));
 
@@ -1011,7 +993,7 @@ app.on('open-url', (event, url) => {
         // Store the URL to handle after app is ready
         pendingDeepLinkUrl = url;
     }
-});
+}));
 
 function handleAppActionLink(
     url: string,
@@ -1321,8 +1303,8 @@ async function openTrackerFromDeepLink(
     return true;
 }
 
-// Handle file open from OS (macOS)
-app.on('open-file', (event, path) => {
+// Handle file open from OS (macOS). A second instance relays it instead (above).
+app.on('open-file', ownerOnly('open-file', (event, path) => {
     event.preventDefault();
     logger.main.info(`open-file event received: ${path}`);
 
@@ -1342,7 +1324,7 @@ app.on('open-file', (event, path) => {
         // Store the file path to open after app is ready
         pendingFilePath = path;
     }
-});
+}));
 
 /**
  * Open what a launch asked for in the running app. Returns false when there
@@ -1529,8 +1511,9 @@ BrowserWindow.prototype.focus = function(this: BrowserWindow) {
 };
 // --- END ACTIVATION DEBUGGING ---
 
-// App ready handler
-app.whenReady().then(async () => {
+// App ready handler. Electron emits ready even after an early app.quit(), so a
+// second instance must skip this explicitly (#1188).
+app.whenReady().then(ownerOnly('app initialisation', async () => {
     workspaceBackendLifecycle.observeModuleStarts();
     checkpoint('app-ready');
 
@@ -1929,9 +1912,9 @@ app.whenReady().then(async () => {
         for (const [name, config] of Object.entries(allServers)) {
             if (isMCPServerEnabledForProvider(config as MCPServerConfig, MCP_PROVIDER_IDS.CLAUDE_AGENT)) {
                 // Claude Code speaks HTTP natively, so a server with no OAuth is
-                // passed through instead of being wrapped in npx mcp-remote.
-                // A server holding an mcp-remote token still gets the wrapper --
-                // the config alone cannot tell those two apart (NIM-2433).
+                // passed through instead of being routed through the gateway.
+                // A server Nimbalyst holds a credential for still goes through
+                // it -- the config alone cannot tell those two apart (NIM-2433).
                 const claudeHttp = await mcpConfigService.resolveMcpRemoteOptions(
                     config as MCPServerConfig,
                     { nativeHttpSupported: true }
@@ -1965,7 +1948,7 @@ app.whenReady().then(async () => {
         for (const [name, config] of Object.entries(allServers)) {
             if (isMCPServerEnabledForProvider(config as MCPServerConfig, MCP_PROVIDER_IDS.CODEX)) {
                 // Codex speaks Streamable HTTP natively. Rewriting a server that is
-                // also present in ~/.codex/config.toml to an mcp-remote stdio entry
+                // also present in ~/.codex/config.toml to a stdio entry
                 // makes Codex deep-merge `command` with the persisted `url`, which
                 // is an invalid mixed-transport configuration.
                 const codexHttp = await mcpConfigService.resolveMcpRemoteOptions(
@@ -1982,7 +1965,7 @@ app.whenReady().then(async () => {
                 }
                 enabledServers[name] = mcpConfigService.processServerConfigForRuntime(
                     config as MCPServerConfig,
-                    codexHttp
+                    { ...codexHttp, useMcpRemoteForNativeOAuth: true }
                 );
             }
         }
@@ -2007,7 +1990,9 @@ app.whenReady().then(async () => {
                     logger.mcp.info(`[MCP] Skipping unauthorized OAuth server for Codex ACP: ${name}`);
                     continue;
                 }
-                enabledServers[name] = mcpConfigService.processServerConfigForRuntime(config as any);
+                enabledServers[name] = mcpConfigService.processServerConfigForRuntime(config as any, {
+                    useMcpRemoteForNativeOAuth: true,
+                });
             }
         }
         return enabledServers;
@@ -2063,7 +2048,9 @@ app.whenReady().then(async () => {
                     logger.mcp.info(`[MCP] Skipping unauthorized OAuth server for Copilot: ${name}`);
                     continue;
                 }
-                enabledServers[name] = mcpConfigService.processServerConfigForRuntime(config as any);
+                enabledServers[name] = mcpConfigService.processServerConfigForRuntime(config as any, {
+                    useMcpRemoteForNativeOAuth: true,
+                });
             }
         }
         return enabledServers;
@@ -2129,7 +2116,7 @@ app.whenReady().then(async () => {
         for (const [name, config] of Object.entries(allServers)) {
             if (isMCPServerEnabledForProvider(config as MCPServerConfig, MCP_PROVIDER_IDS.CLAUDE_AGENT)) {
                 // Same as the Agent path: the CLI speaks HTTP natively, but a
-                // server with a cached mcp-remote token still needs the wrapper.
+                // server Nimbalyst holds a credential for still needs the gateway.
                 const claudeHttp = await mcpConfigService.resolveMcpRemoteOptions(
                     config as MCPServerConfig,
                     { nativeHttpSupported: true }
@@ -2419,6 +2406,8 @@ app.whenReady().then(async () => {
     // diff text in item/completed and does not need this hook.
     OpenAICodexProvider.setPreEditHookScriptPathResolver(resolveCodexPreEditHookScriptPath);
     configureCodexShellTracking();
+    configureClaudeShellTracking();
+    setShellWindowLifecycle({ register: registerClaudeShellSession, release: releaseClaudeShellSession });
     OpenAICodexProvider.setPreEditSidecarDirResolver((sessionId: string) => {
       if (!sessionId) return undefined;
       const safeId = sessionId.replace(/[^A-Za-z0-9_-]/g, '_');
@@ -2784,6 +2773,9 @@ app.whenReady().then(async () => {
 
         // Store the actual port for providers to use
         (global as any).mcpServerPort = result.port;
+        // Remote MCP servers reach their credentials through the gateway on
+        // this same server (docs/MCP_OAUTH.md).
+        configureMcpRemoteGatewayEndpoint({ port: result.port, getToken: getMcpAuthToken });
 
         // MCP consolidation: all internal MCP-server enablement (port, per-ext
         // servers, tracker opt-out) goes through the shared registry once —
@@ -3313,16 +3305,20 @@ app.whenReady().then(async () => {
             });
         }
     });
-});
+}));
 
-initializeApplicationWindowRecovery({
-    // quit-and-install strips before-quit, so isAppQuitting never flips on that path.
-    isQuitting: () => isAppQuitting || isAppRestarting || AutoUpdaterService.isUpdatingApp(),
-    getPreferredProjectWindow: getMostRecentlyFocusedWorkspaceWindow,
-    getWorkspaceManagerWindow,
-    createWorkspaceManagerWindow,
-    wasWorkspaceManagerManuallyClosed,
-});
+// Its activate and window-all-closed handlers open the Project Manager, which a
+// second instance waiting for open-file on macOS must not do (#1188).
+if (ownsAppLifecycle()) {
+    initializeApplicationWindowRecovery({
+        // quit-and-install strips before-quit, so isAppQuitting never flips on that path.
+        isQuitting: () => isAppQuitting || isAppRestarting || AutoUpdaterService.isUpdatingApp(),
+        getPreferredProjectWindow: getMostRecentlyFocusedWorkspaceWindow,
+        getWorkspaceManagerWindow,
+        createWorkspaceManagerWindow,
+        wasWorkspaceManagerManuallyClosed,
+    });
+}
 
 let migrationQuitDraining = false;
 const shutdownForRestart = createRestartShutdown({
@@ -3342,13 +3338,22 @@ const shutdownForRestart = createRestartShutdown({
     },
     stopExternalSessions: stopExternalSessionService,
     saveSessionState,
+    // The normal quit cleanup below never runs on restart. Without this the
+    // process groups of extension-started commands outlive the app and keep
+    // their ports. A failure here must not block the restart.
+    stopCommandTerminals: () => stopAllBackendTerminals().catch((error) => {
+        console.error('[QUIT] Error stopping extension command terminals for restart:', error);
+    }),
+    restartAborted: resumeBackendTerminalsAfterAbortedQuit,
     flushPendingBackups: flushPendingCollabBackups,
     quit: () => {
         console.log('[QUIT] Session state saved for restart');
         app.quit();
     },
 });
-app.on('before-quit', async (event) => {
+// A second instance never booted the app, so it has nothing of its own to
+// clean up: this cleanup would back up and close the primary's database (#1188).
+app.on('before-quit', ownerOnly('quit cleanup', async (event) => {
     if (migrationQuitDraining || migrationNeedsQuitDrain()) {
         event.preventDefault();
         if (!migrationQuitDraining) {
@@ -3442,6 +3447,14 @@ app.on('before-quit', async (event) => {
 
     // Mark app as quitting to prevent interval operations
     isAppQuitting = true;
+
+    // Start stopping extension-started commands now (the quit can no longer be
+    // cancelled) so their grace period overlaps the rest of the cleanup instead
+    // of starting late in the force-quit budget. shutdownTerminalHandlers()
+    // awaits this same stop before destroying PTYs.
+    void stopAllBackendTerminals().catch((error) => {
+        console.error('[QUIT] Error stopping extension command terminals:', error);
+    });
 
     // Revoke source readers and drain their commits before database shutdown.
     await stopExternalSessionService();
@@ -3976,7 +3989,7 @@ app.on('before-quit', async (event) => {
         console.log(`[QUIT] [${t16}] Calling app.exit(0) (${t16-t15}ms after timeout set)`);
         try { app.exit(0); } catch {}
     }, 50);
-});
+}));
 
 // Windows-specific shutdown signal handlers
 // Windows sends different signals than Unix systems during forced shutdowns

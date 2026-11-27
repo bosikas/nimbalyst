@@ -1,4 +1,5 @@
-import { BrowserWindow, shell, clipboard, nativeImage } from 'electron';
+import { BrowserWindow, shell } from 'electron';
+import { copyImageToClipboard, copyTextToClipboard, readTextFromClipboard } from '../utils/systemClipboard';
 import { systemShell } from '../utils/systemShell';
 import { readWindowsClipboardImage } from '../utils/windowsClipboard';
 import { readFileSync, readdirSync, statSync, existsSync, promises as fsPromises } from 'fs';
@@ -8,7 +9,7 @@ import { exec, spawn } from 'child_process';
 import { promisify } from 'util';
 import { AnalyticsService } from '../services/analytics/AnalyticsService';
 import { openWorkspaceFile, openFile } from '../file/FileOpener';
-import { fuzzyMatchPath } from '@nimbalyst/runtime';
+import { fuzzyMatchPath } from '@nimbalyst/runtime/utils/fuzzyMatch';
 import { parseFileMask, matchesFileMask } from '@nimbalyst/extension-sdk/file-mask';
 import { getSyncId, removeFileFromIndex } from '../services/DocSyncService';
 
@@ -470,8 +471,9 @@ export function registerWorkspaceHandlers() {
             return [];
         }
 
-        // Filter to only existing files
-        return workspaceRecentFiles.filter(filePath => existsSync(filePath)).slice(0, 20);
+        // Filter to only existing files. No extra cut here: the store already
+        // caps the list, and the @-mention picker should show all of it (#303).
+        return workspaceRecentFiles.filter(filePath => existsSync(filePath));
     });
 
     // Add to workspace recent files
@@ -912,37 +914,12 @@ export function registerWorkspaceHandlers() {
     });
 
 
-    safeHandle('copy-to-clipboard', async (_event, text: string) => {
-        clipboard.writeText(text);
-        return { success: true };
-    });
+    safeHandle('copy-to-clipboard', async (_event, text: string) => copyTextToClipboard(text));
 
-    safeHandle('copy-image-to-clipboard', async (_event, payload: { filePath?: string; dataUrl?: string }) => {
-        try {
-            let image;
-            if (payload.filePath) {
-                image = nativeImage.createFromPath(payload.filePath);
-            } else if (payload.dataUrl) {
-                image = nativeImage.createFromDataURL(payload.dataUrl);
-            } else {
-                return { success: false, error: 'No image source provided' };
-            }
+    safeHandle('copy-image-to-clipboard', async (_event, payload: { filePath?: string; dataUrl?: string }) =>
+        copyImageToClipboard(payload));
 
-            if (image.isEmpty()) {
-                return { success: false, error: 'Failed to decode image for clipboard' };
-            }
-
-            clipboard.writeImage(image);
-            return { success: true };
-        } catch (error: any) {
-            console.error('Error copying image to clipboard:', error);
-            return { success: false, error: error.message };
-        }
-    });
-
-    safeHandle('read-from-clipboard', async () => {
-        return { success: true, text: clipboard.readText() };
-    });
+    safeHandle('read-from-clipboard', async () => readTextFromClipboard());
 
     safeHandle('read-image-from-windows-clipboard', async () => {
         return readWindowsClipboardImage();

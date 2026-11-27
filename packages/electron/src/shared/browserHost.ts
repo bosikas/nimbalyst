@@ -1,6 +1,6 @@
 import type { SessionData } from '@nimbalyst/runtime/ai/server/types';
 import type { SessionMeta } from '@nimbalyst/runtime/ai/adapters/sessionStore';
-import type { ThemeContribution } from '@nimbalyst/extension-sdk';
+import type { PanelGutterBadgeTone, ThemeContribution } from '@nimbalyst/extension-sdk';
 import type { ClaudeUsageData } from './claudeUsage';
 import type { CodexUsageData } from '../main/services/CodexUsageService';
 import type { GeminiUsageData } from '../main/services/GeminiUsageService';
@@ -13,7 +13,7 @@ export interface BrowserHostRailStatus {
   codex: CodexUsageData | null;
   gemini: GeminiUsageData | null;
   vibe: VibeUsageData;
-  badges: Record<string, { count: number; tone: 'default' | 'warning' }>;
+  badges: Record<string, { count: number; tone: PanelGutterBadgeTone }>;
 }
 
 export interface BrowserHostSessionSummary {
