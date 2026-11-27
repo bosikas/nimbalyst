@@ -4,7 +4,7 @@ export const BUILT_IN_GUIDANCE = [
   { id: 'interactive-input', title: 'Interactive questions', description: 'Use Nimbalyst question and approval widgets instead of asking in chat.' },
   { id: 'visual-communication', title: 'Visual communication', description: 'Prefer charts, diagrams, screenshots and live editor embeds when useful.' },
   { id: 'file-references', title: 'Clickable file references', description: 'Format file references as links that open in the editor.' },
-  { id: 'context-discovery', title: 'Context and skill discovery', description: 'Delegation tools do not authorize delegation, and agent reports are not human requests. Codex also gets native skill and tool discovery guidance.' },
+  { id: 'context-discovery', title: 'Context and skill discovery', description: 'Delegation tools do not authorize delegation, and agent reports are not human requests. Codex and Vibe also get native skill and tool discovery guidance.' },
   { id: 'git-commits', title: 'Git commit guidance', description: 'Follow repository delivery rules and provider-specific commit instructions.' },
   { id: 'trackers', title: 'Tracker references', description: 'Check teammate activity and format tracker links.' },
   { id: 'plan-tracking', title: 'Plan file tracking', description: 'Legacy guidance for integrations that enable plan tracking. Current built-in providers do not emit this section; planning procedures come from the applicable skill.' },

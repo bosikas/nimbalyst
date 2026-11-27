@@ -4,7 +4,66 @@ import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
+import { AISessionsRepository } from '../../../../storage/repositories/AISessionsRepository';
+import * as mcpServerConfig from '../../services/mcpServerConfig';
+import type { DocumentContext } from '../../types';
+import { buildCodexSystemPrompt } from '../codex/codexSystemPrompt';
 import { MistralVibeProvider } from '../MistralVibeProvider';
+
+it('uses the shared app guidance with Vibe tools and respects the session summary policy', async () => {
+  class TestProvider extends MistralVibeProvider {
+    guidance(context: DocumentContext, sessionId: string) {
+      return this.buildSessionSystemPrompt(context, sessionId);
+    }
+  }
+
+  const metadata = {
+    sessionDirective: 'Use the documented delivery procedure.',
+    startupSkills: ['deliver'],
+    generateSummary: false,
+  };
+  const session = vi.spyOn(AISessionsRepository, 'get').mockResolvedValue({
+    id: 'vibe-session',
+    provider: 'mistral-vibe',
+    messages: [],
+    createdAt: 0,
+    updatedAt: 0,
+    metadata,
+  });
+  const naming = vi.spyOn(mcpServerConfig, 'isInternalMcpServerEnabled').mockReturnValue(true);
+  try {
+    const context = { worktreePath: '/workspace/topic', hasBeenNamed: true } as DocumentContext;
+    const provider = new TestProvider();
+    const vibe = await provider.guidance(context, 'vibe-session');
+    const codex = buildCodexSystemPrompt({
+      documentContext: context,
+      isMetaAgent: false,
+      workflowPreset: 'default',
+      hasOutOfBandNaming: true,
+      generateSummary: false,
+    });
+    for (const section of ['## Interactive input', '## Context and discovery', '## Worktree']) {
+      expect(vibe).toContain(section);
+      expect(codex).toContain(section);
+    }
+    expect(vibe).toContain('## Worktree\nWork in /workspace/topic on its branch');
+    expect(vibe).toContain('The name is assigned out-of-band');
+    expect(vibe).toContain('Review skills: deliver.');
+    expect(vibe).toContain('skill.read');
+    expect(vibe).toContain(metadata.sessionDirective);
+    expect(vibe).not.toContain('functions.exec');
+    expect(vibe).not.toContain('search_codex_skills');
+    expect(vibe).not.toContain('Before each final response, call update_session_summary');
+
+    metadata.generateSummary = true;
+    expect(await provider.guidance(context, 'vibe-session')).toContain(
+      'Before each final response, call update_session_summary',
+    );
+  } finally {
+    session.mockRestore();
+    naming.mockRestore();
+  }
+});
 
 const probe = vi.hoisted(() => ({ home: '' }));
 vi.mock('../../protocols/MistralVibeACPProtocol', () => ({

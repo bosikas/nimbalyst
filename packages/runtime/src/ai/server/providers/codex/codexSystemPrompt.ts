@@ -1,44 +1,24 @@
 import { instructionTemplate } from '../../../instructionTemplates';
-import { buildCodexMetadataSections, buildMetaAgentSystemPrompt, type MetaAgentWorkflowPreset } from '../../../prompt';
-import type { DocumentContext } from '../../types';
-import { createGuidanceRenderer, type GuidanceRenderOptions } from '../../../builtInGuidance';
-import {
-  areTrackerToolsEnabled,
-  isInternalMcpServerEnabled,
-  resolveTrackersWorkspacePath,
-} from '../../services/mcpServerConfig';
+import { buildMetaAgentSystemPrompt, type MetaAgentWorkflowPreset } from '../../../prompt';
+import { buildCompactAgentSystemPrompt, type CompactAgentSystemPromptOptions } from '../compactAgentSystemPrompt';
 
-export interface CodexSystemPromptOptions extends GuidanceRenderOptions {
+export interface CodexSystemPromptOptions extends CompactAgentSystemPromptOptions {
   provider?: 'openai-codex' | 'openai-codex-acp';
-  documentContext?: DocumentContext;
   isMetaAgent: boolean;
   workflowPreset: MetaAgentWorkflowPreset;
   model?: string;
-  /** `metadata.sessionDirective`, frozen per session by `BaseAgentProvider.getSessionDirective`. */
-  sessionDirective?: string;
-  /** The session was titled by its caller, so the agent must not name it (frozen at the first turn). */
-  hasOutOfBandNaming: boolean;
-  generateSummary?: boolean;
-  hasSessionNaming?: boolean;
-  startupSkills?: string[];
 }
 
 export const CODEX_SESSION_NAMING_REMINDER_PROMPT =
   instructionTemplate('codexSystemPrompt.naming-reminder');
 
-/**
- * Compact Codex integration rules. Re-sent at the head of
- * every turn as developer instructions. Session inputs stay stable except for
- * deliberate changes to the app-wide guidance settings.
- */
+/** App rules re-sent to Codex as developer instructions at the head of each turn. */
 export function buildCodexSystemPrompt(options: CodexSystemPromptOptions): string {
-  const guidance = createGuidanceRenderer(options);
-  const { documentContext, sessionDirective } = options;
   if (options.isMetaAgent) {
     return buildMetaAgentSystemPrompt('codex', options.workflowPreset, {
       provider: options.provider ?? 'openai-codex',
       model: options.model,
-      sessionDirective,
+      sessionDirective: options.sessionDirective,
       generateSummary: options.generateSummary,
       hasOutOfBandNaming: options.hasOutOfBandNaming,
       guidanceSettings: options.guidanceSettings,
@@ -47,39 +27,5 @@ export function buildCodexSystemPrompt(options: CodexSystemPromptOptions): strin
     });
   }
 
-  const sections = [
-    guidance('identity', instructionTemplate('codex.identity')),
-    guidance('interactive-input', instructionTemplate('codex.interactive-input')),
-    guidance('visual-communication', instructionTemplate('codex.visual-communication')),
-    guidance('file-references', instructionTemplate('codex.file-references')),
-    guidance('context-discovery', instructionTemplate('codex.context-discovery')),
-    guidance('git-commits', instructionTemplate('codex.git-commits')),
-  ];
-
-  if (options.startupSkills) {
-    const skills = options.startupSkills.length ? 'Review skills: ' + options.startupSkills.join(', ') + '. ' : '';
-    sections.push(skills + 'Use search_codex_skills on nimbalyst-host to find other skills when needed.');
-  }
-  if (areTrackerToolsEnabled(resolveTrackersWorkspacePath(documentContext))) {
-    sections.push(guidance('trackers', instructionTemplate('codex.trackers')));
-  }
-  if (documentContext?.worktreePath) {
-    sections.push(guidance('worktree', instructionTemplate('codex.worktree', [documentContext.worktreePath])));
-  }
-  if (options.hasSessionNaming ?? isInternalMcpServerEnabled()) {
-    sections.push(...buildCodexMetadataSections(guidance, options.hasOutOfBandNaming, options.generateSummary));
-  }
-  const voiceContext = documentContext as DocumentContext & {
-    isVoiceMode?: boolean;
-    voiceModeCodingAgentPrompt?: { prepend?: string; append?: string };
-  };
-  if (voiceContext?.isVoiceMode) {
-    const voice = voiceContext.voiceModeCodingAgentPrompt;
-    if (voice?.prepend) sections.push(voice.prepend);
-    sections.push(guidance('voice-mode', instructionTemplate('codex.voice-mode')));
-    if (voice?.append) sections.push(voice.append);
-  }
-  if (sessionDirective?.trim()) sections.push(sessionDirective.trim());
-  const body = sections.filter(Boolean).join('\n\n');
-  return body ? instructionTemplate('codex.addendum', [body]) : '';
+  return buildCompactAgentSystemPrompt(options);
 }

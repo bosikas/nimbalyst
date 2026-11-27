@@ -31,6 +31,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 <!-- Changes to existing functionality go here -->
+- Mistral Vibe follows the same Nimbalyst startup guidance as Codex for questions, worktrees, commits, and session summaries.
 - Session completion notices show the final response preview and a changed-file count, with individual paths available on demand.
 - Local macOS builds offer a repeatable build-and-install command with artifact reuse, timing reports, lower process priority and a smaller heap allowance while retaining native package checks and a recoverable previous app
 - The session sidebar uses a compact toolbar, activity sections and quieter details, with separate chat navigation and child expansion and fewer redundant worktree headings

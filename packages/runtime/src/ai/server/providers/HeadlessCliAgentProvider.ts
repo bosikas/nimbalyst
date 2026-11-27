@@ -19,6 +19,9 @@ import { scrubProviderApiKeys } from '../providerApiKeyScrub';
 import { buildUserMessageAddition } from './documentContextUtils';
 import { describeUnusableWorkspacePath } from './workspacePreconditions';
 import { buildClaudeCodeSystemPrompt } from '../../prompt';
+import { readSessionPolicy } from '../../sessionPolicy';
+import { AISessionsRepository } from '../../../storage/repositories/AISessionsRepository';
+import { buildCompactAgentSystemPrompt } from './compactAgentSystemPrompt';
 import type {
   ProviderConfig,
   DocumentContext,
@@ -249,9 +252,7 @@ export abstract class HeadlessCliAgentProvider extends BaseAgentProvider {
       return;
     }
 
-    const systemPrompt = this.buildSystemPrompt(
-      documentContext, await this.getSessionDirective(sessionId), this.isNamedOutOfBand(sessionId, documentContext),
-    );
+    const systemPrompt = await this.buildSessionSystemPrompt(documentContext, sessionId);
     const { userMessageAddition, messageWithContext } = buildUserMessageAddition(message, documentContext);
 
     if (sessionId && (systemPrompt || userMessageAddition)) {
@@ -515,11 +516,24 @@ export abstract class HeadlessCliAgentProvider extends BaseAgentProvider {
 
   protected abstract getDefaultModelId(): string;
 
-  protected buildSystemPrompt(
+  protected async buildSessionSystemPrompt(
     documentContext?: DocumentContext,
-    sessionDirective?: string,
-    hasOutOfBandNaming: boolean = false,
-  ): string {
+    sessionId?: string,
+  ): Promise<string> {
+    const { directive: sessionDirective, startupSkills } = await this.sessionDirectives.selection(sessionId);
+    const hasOutOfBandNaming = this.isNamedOutOfBand(sessionId, documentContext);
+    if (this.descriptor.providerName === 'mistral-vibe') {
+      const session = sessionId ? await AISessionsRepository.get(sessionId) : undefined;
+      return buildCompactAgentSystemPrompt({
+        provider: 'mistral-vibe',
+        documentContext,
+        sessionDirective,
+        hasOutOfBandNaming,
+        startupSkills,
+        generateSummary: readSessionPolicy(session?.metadata).generateSummary,
+      });
+    }
+
     return buildClaudeCodeSystemPrompt({
       hasSessionNaming: isInternalMcpServerEnabled(),
       hasOutOfBandNaming,
