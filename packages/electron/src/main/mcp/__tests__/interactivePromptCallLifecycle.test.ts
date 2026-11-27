@@ -18,13 +18,13 @@ import { attachInteractivePromptCall } from '../tools/interactivePromptKeepalive
 import { settleReasonFromResponse, shouldTerminalizePrompt } from '../tools/interactivePromptAbandonment';
 
 type FakeWindow = { isDestroyed: () => boolean; webContents: { send: (channel: string, data: unknown) => void } };
-const seams = vi.hoisted(() => ({ persistResult: vi.fn(), pending: vi.fn(), activity: vi.fn(), cli: true, windows: [] as FakeWindow[] }));
+const seams = vi.hoisted(() => ({ persistResult: vi.fn(), pending: vi.fn(), activity: vi.fn(), cli: true, vibe: false, windows: [] as FakeWindow[] }));
 vi.mock('electron', async () => {
   const { EventEmitter } = await import('node:events');
   return { ipcMain: new EventEmitter(), BrowserWindow: { getAllWindows: () => seams.windows } };
 });
 vi.mock('@nimbalyst/runtime/storage/repositories/AgentMessagesRepository', () => ({ AgentMessagesRepository: { listTail: async () => [] } }));
-vi.mock('@nimbalyst/runtime/storage/repositories/AISessionsRepository', () => ({ AISessionsRepository: { get: async () => ({ provider: seams.cli ? 'claude-code-cli' : 'claude-code' }) } }));
+vi.mock('@nimbalyst/runtime/storage/repositories/AISessionsRepository', () => ({ AISessionsRepository: { get: async () => ({ provider: seams.vibe ? 'mistral-vibe' : seams.cli ? 'claude-code-cli' : 'claude-code' }) } }));
 vi.mock('@nimbalyst/runtime/ai/server/SessionStateManager', () => ({ getSessionStateManager: () => ({ updateActivity: async (...args: unknown[]) => { seams.activity(...args); }, isSessionActive: () => true }) }));
 vi.mock('../../services/ai/pendingPromptPersistence', () => ({ setSessionPendingPrompt: async (...args: unknown[]) => { seams.pending(...args); } }));
 vi.mock('../tools/interactivePromptTranscript', () => ({ isClaudeCliSession: async () => seams.cli, persistInteractivePromptToolResult: seams.persistResult }));
@@ -155,7 +155,7 @@ describe('attachInteractivePromptCall', () => {
 // Real production handler, real protocol cancellation and real stream transport;
 // repositories, transcript writes and desktop IPC delivery are in-memory seams.
 describe('connected AskUserQuestion lifecycle', () => {
-  it.each(['answer', 'cancel', 'delete'] as const)('settles once on %s after progress and ignores late desktop/mobile answers', async reason => {
+  it.each(['answer', 'cancel', 'delete', 'vibe-timeout'] as const)('settles once on %s after progress and ignores late desktop/mobile answers', async reason => {
     vi.clearAllMocks();
     vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] });
     const ipc = ipcMain as unknown as EventEmitter;
@@ -174,6 +174,8 @@ describe('connected AskUserQuestion lifecycle', () => {
       return result;
     });
     try {
+      seams.vibe = reason === 'vibe-timeout';
+      seams.cli = !seams.vibe;
       await server.connect(transport);
       await (await transport.handleRequest(req({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {
         protocolVersion: '2025-03-26', capabilities: {}, clientInfo: { name: 'fixture', version: '1' },
@@ -197,7 +199,7 @@ describe('connected AskUserQuestion lifecycle', () => {
       expect(settlements).toBe(0);
       if (reason === 'answer') {
         ipc.emit(`ask-user-question-response:${sessionId}:2`, null, { answers: { Choice: 'A' }, respondedBy: 'desktop' });
-      } else if (reason === 'cancel') {
+      } else if (reason === 'cancel' || reason === 'vibe-timeout') {
         expect((await transport.handleRequest(req({ jsonrpc: '2.0', method: 'notifications/cancelled', params: { requestId: 2, reason: 'fixture cancellation' } }))).status).toBe(202);
       } else {
         expect((await transport.handleRequest(req(undefined, 'DELETE'))).status).toBe(200);
@@ -208,6 +210,12 @@ describe('connected AskUserQuestion lifecycle', () => {
       expect(ipc.listenerCount(`ask-user-question-response:${sessionId}:2`)).toBe(0);
       expect(ipc.listenerCount(`ask-user-question:${sessionId}`)).toBe(0);
       expect(seams.pending.mock.calls.filter(args => args[0] === sessionId && args[1] === false)).toHaveLength(1);
+      if (reason === 'vibe-timeout') {
+        expect(seams.activity.mock.calls).toEqual([
+          [{ sessionId, status: 'waiting_for_input' }],
+          [{ sessionId, status: 'running', isStreaming: true }],
+        ]);
+      }
       // Abandonment must retire the waiter without writing an answered widget.
       expect(seams.persistResult).toHaveBeenCalledTimes(reason === 'answer' ? 1 : 0);
       ipc.emit(`ask-user-question-response:${sessionId}:2`, null, { answers: { Choice: 'late' }, respondedBy: 'desktop' });
@@ -216,6 +224,8 @@ describe('connected AskUserQuestion lifecycle', () => {
       expect(settlements).toBe(1);
       expect(seams.persistResult).toHaveBeenCalledTimes(reason === 'answer' ? 1 : 0);
     } finally {
+      seams.vibe = false;
+      seams.cli = true;
       await reader?.cancel();
       await server.close();
       ipc.removeAllListeners();

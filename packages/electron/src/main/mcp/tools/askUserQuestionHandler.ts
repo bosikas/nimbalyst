@@ -160,9 +160,8 @@ export async function handleAskUserQuestion(
   // synthetic tool_result (below) to flip the widget to answered. `isCliSession`
   // is still needed by the settle path (CLI defers turn-state to the PID watcher).
   const isCliSession = await isClaudeCliSession(sessionId);
-  const isCodex = sessionId
-    ? (await AISessionsRepository.get(sessionId))?.provider === "openai-codex"
-    : false;
+  const provider = sessionId ? (await AISessionsRepository.get(sessionId))?.provider : undefined;
+  const isCodex = provider === "openai-codex";
   if (isCodex && !questionTurn?.active) {
     return {
       content: [
@@ -261,9 +260,11 @@ export async function handleAskUserQuestion(
       // Restore the running indicator as the turn resumes. CLI sessions defer to
       // the PID-state watcher (NIM-806 Defect A — forcing 'running' here would
       // race the watcher's turn-ending 'idle' and stick the indicator on).
+      // Vibe's MCP timeout ends the tool call while its turn can keep running.
       if (
         sessionId &&
-        reason === "user-responded" &&
+        (reason === "user-responded" ||
+          (provider === "mistral-vibe" && reason === "client-abandoned" && !hasLiveInteractivePrompt(sessionId))) &&
         (!isCodex ||
           (questionTurn?.active && !hasLiveInteractivePrompt(sessionId)))
       ) {
