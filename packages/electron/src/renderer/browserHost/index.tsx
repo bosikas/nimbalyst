@@ -130,7 +130,8 @@ function PanelSession({ token, workspacePath, sessionId, ...props }:
 
 const sessionComponentCommands = new Set([
   'action-prompts:list', 'ai:compactSession', 'ai:deleteQueuedPrompt', 'ai:sendQueuedVibePromptNow',
-  'claude-code:answer-tool-permission', 'mcp-config:get-context-inspection',
+  'claude-code:answer-tool-permission', 'claude-code:answer-question', 'claude-code:cancel-question',
+  'mcp-config:get-context-inspection',
   'messages:respond-to-prompt', 'sessions:list-children', 'sessions:update-metadata',
 ]);
 
@@ -217,20 +218,16 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
         }
         if (channel === 'workspace:get-state') return {};
         if (channel === 'workspace:update-state') return { success: true };
-        if (channel === 'claude-code:answer-tool-permission' || channel === 'messages:respond-to-prompt') {
+        if (channel === 'claude-code:answer-tool-permission' || (channel === 'messages:respond-to-prompt' &&
+            (args[0] as { promptType?: string } | undefined)?.promptType === 'permission_request')) {
           const response = args[0] as {
-            sessionId: string; promptId?: string; requestId?: string; promptType?: string; response: { decision: string };
+            sessionId: string; promptId?: string; requestId?: string; response: { decision: string };
           };
-          if (channel === 'messages:respond-to-prompt' && response?.promptType !== 'permission_request') {
-            throw new Error('This interactive prompt is unavailable in the browser');
-          }
           return (await extensionRequest('/sessions/' + encodeURIComponent(response.sessionId) + '/permission',
             postJson({ requestId: response.requestId ?? response.promptId, decision: response.response.decision }))).json();
         }
-        if (!channel.startsWith('sessions:') && ![
-          'worktree:get-batch', 'ai:getModels', 'ai:compactSession', 'ai:deleteQueuedPrompt', 'action-prompts:list',
-          'mcp-config:get-context-inspection', 'worktree:update-pinned', 'ai:sendQueuedVibePromptNow',
-        ].includes(channel)) {
+        if (!channel.startsWith('sessions:') && !sessionComponentCommands.has(channel) &&
+            !['worktree:get-batch', 'worktree:update-pinned', 'ai:getModels'].includes(channel)) {
           throw new Error('This desktop action is unavailable in the browser');
         }
         return workspaceCommand(channel, ...args);

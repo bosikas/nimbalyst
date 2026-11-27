@@ -5,7 +5,7 @@ import { SessionCommitService } from "../services/SessionCommitService";
 import { TranscriptMigrationRepository } from "@nimbalyst/runtime/storage/repositories/TranscriptMigrationRepository";
 import { AISessionsRepository } from "@nimbalyst/runtime/storage/repositories/AISessionsRepository";
 import { parseCodexToolLookupId } from "@nimbalyst/runtime/ai/server/toolLookupIds";
-import { safeHandle } from "../utils/ipcRegistry";
+import { registerBrowserPanelCommand } from "../browserHost/browserPanelCommands";
 import { TrayManager } from "../tray/TrayManager";
 import { resolveRequestUserInputPromptTargets } from "../mcp/tools/codexToolCallResolver";
 import {
@@ -23,11 +23,13 @@ import {
 } from "../mcp/tools/interactivePromptFallback";
 
 export function registerSessionPromptResponseHandler(): void {
+  const formResponsesInProgress = new Set<string>();
+
   /**
    * Respond to an interactive prompt.
    * Creates a response message and optionally updates the request status.
    */
-  safeHandle(
+  registerBrowserPanelCommand(
     "messages:respond-to-prompt",
     async (
       event,
@@ -44,6 +46,7 @@ export function registerSessionPromptResponseHandler(): void {
         respondedBy: "desktop" | "mobile";
       }
     ) => {
+      let formResponseKey: string | undefined;
       try {
         const { sessionId, promptId, promptType, response, respondedBy } =
           params;
@@ -68,11 +71,16 @@ export function registerSessionPromptResponseHandler(): void {
         // A form closed by a newer user turn (or already answered) must not be
         // answered again, and must never reach the session fallback channel
         // where it could settle a newer form with these answers.
-        if (
-          promptType === "request_user_input_request" &&
-          (await isInteractivePromptClosed(sessionId, promptId))
-        ) {
-          return { success: false, error: "This form is already closed." };
+        if (promptType === "request_user_input_request") {
+          const key = JSON.stringify([sessionId, promptId]);
+          if (formResponsesInProgress.has(key)) {
+            return { success: false, error: "A response to this form is already in progress." };
+          }
+          formResponsesInProgress.add(key);
+          formResponseKey = key;
+          if (await isInteractivePromptClosed(sessionId, promptId)) {
+            return { success: false, error: "This form is already closed." };
+          }
         }
         const { database } = await import("../database/PGLiteDatabaseWorker");
         const timestamp = Date.now();
@@ -401,6 +409,8 @@ export function registerSessionPromptResponseHandler(): void {
       } catch (error) {
         console.error("[SessionHandlers] Failed to respond to prompt:", error);
         return { success: false, error: String(error) };
+      } finally {
+        if (formResponseKey !== undefined) formResponsesInProgress.delete(formResponseKey);
       }
     }
   );

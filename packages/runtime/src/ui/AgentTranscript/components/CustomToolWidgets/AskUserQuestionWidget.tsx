@@ -194,6 +194,7 @@ export const AskUserQuestionWidget: React.FC<CustomToolWidgetProps> = ({
   }, [questions, parsedAnswers, draft, setDraft]);
 
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [responseError, setResponseError] = useState<string>();
   const [hasResponded, setHasResponded] = useState(false);
   const [localResult, setLocalResult] = useState<{ answers: Record<string, string>; cancelled?: boolean } | null>(null);
   const otherInputRefs = useRef<Record<string, HTMLTextAreaElement | null>>({});
@@ -287,6 +288,7 @@ export const AskUserQuestionWidget: React.FC<CustomToolWidgetProps> = ({
     }
 
     setIsSubmitting(true);
+    setResponseError(undefined);
     setLocalResult({ answers });
     setHasResponded(true);
 
@@ -295,7 +297,7 @@ export const AskUserQuestionWidget: React.FC<CustomToolWidgetProps> = ({
       // Resolved: drop the draft atom so we don't leak memory for completed questions.
       clearAskUserQuestionDraft(questionId);
     } catch (error) {
-      console.error('[AskUserQuestionWidget] Failed to submit:', error);
+      setResponseError(error instanceof Error ? error.message : 'Could not submit the answer.');
       setLocalResult(null);
       setHasResponded(false);
     } finally {
@@ -308,6 +310,7 @@ export const AskUserQuestionWidget: React.FC<CustomToolWidgetProps> = ({
     if (!host || hasResponded || !isPending) return;
 
     setIsSubmitting(true);
+    setResponseError(undefined);
     setLocalResult({ answers: {}, cancelled: true });
     setHasResponded(true);
 
@@ -315,7 +318,9 @@ export const AskUserQuestionWidget: React.FC<CustomToolWidgetProps> = ({
       await host.askUserQuestionCancel(questionId);
       clearAskUserQuestionDraft(questionId);
     } catch (error) {
-      console.error('[AskUserQuestionWidget] Failed to cancel:', error);
+      setResponseError(error instanceof Error ? error.message : 'Could not cancel the question.');
+      setLocalResult(null);
+      setHasResponded(false);
     } finally {
       setIsSubmitting(false);
     }
@@ -569,7 +574,7 @@ export const AskUserQuestionWidget: React.FC<CustomToolWidgetProps> = ({
           );
         })}
 
-        {/* Action buttons */}
+        {responseError && <p role="alert" className="px-3 text-sm text-nim-error">{responseError}</p>}
         <WidgetFooter>
           <WidgetActionButton
             variant="secondary"

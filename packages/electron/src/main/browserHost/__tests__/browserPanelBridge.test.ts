@@ -1,11 +1,13 @@
 // @vitest-environment node
 import { beforeEach, expect, it, vi } from 'vitest';
+import { createBrowserHostHandler, type BrowserHostServices } from '../browserHost';
 import { invokeBrowserPanel } from '../browserPanelBridge';
 import { invokeBrowserSessionHistory } from '../browserSessionHistory';
 
 const mocks = vi.hoisted(() => ({
   extension: vi.fn(),
   getSession: vi.fn(),
+  getViewMessages: vi.fn(),
   inspectContext: vi.fn(),
   listSessions: vi.fn(),
   invoke: vi.fn(),
@@ -41,9 +43,104 @@ vi.mock('../../services/WorktreeStore', () => ({
 vi.mock('@nimbalyst/runtime/storage/repositories/AISessionsRepository', () => ({
   AISessionsRepository: { get: mocks.getSession, list: mocks.listSessions },
 }));
+vi.mock('@nimbalyst/runtime/storage/repositories/TranscriptMigrationRepository', () => ({
+  TranscriptMigrationRepository: { getService: () => ({ getViewMessages: mocks.getViewMessages }) },
+}));
 
 const dispatch = (channel: string, args: unknown[]) => invokeBrowserPanel('/workspace', 'archive', channel, args);
 const sessionHistory = (channel: string, args: unknown[]) => invokeBrowserSessionHistory('/workspace', channel, args, 'codex');
+
+function postSessionCommand(channel: string, payload: object, authenticated = true) {
+  const handle = createBrowserHostHandler({ token: 'test-token', workspacePath: '/workspace', rendererPath: '/renderer' }, {
+    invokeSessionHistory: sessionHistory,
+  } as BrowserHostServices);
+  return handle(new Request('http://127.0.0.1/api/session-history/command', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', ...(authenticated ? { authorization: 'Bearer test-token' } : {}) },
+    body: JSON.stringify({ channel, args: [payload] }),
+  }));
+}
+
+it.each(['answer-question', 'cancel-question'])('dispatches browser %s only for a pending question in the connected workspace', async (action) => {
+  const channel = `claude-code:${action}`;
+  const input = { sessionId: 'local', questionId: 'question-1',
+    ...(action === 'answer-question' ? { answers: { 'Pick one': 'A' } } : {}) };
+  const post = (payload: object, authenticated?: boolean) => postSessionCommand(channel, payload, authenticated);
+  expect((await post(input, false)).status).toBe(401);
+  expect(mocks.getSession).not.toHaveBeenCalled();
+
+  mocks.getSession.mockResolvedValueOnce({ workspacePath: '/outside' });
+  expect(await (await post(input)).json()).toEqual({ error: 'Session not found in this workspace' });
+  expect(mocks.getViewMessages).not.toHaveBeenCalled();
+
+  mocks.getSession.mockResolvedValue({ workspacePath: '/workspace', provider: 'claude-code' });
+  const toolCall = { providerToolCallId: input.questionId, toolName: 'mcp__nimbalyst__AskUserQuestion' };
+  mocks.getViewMessages.mockResolvedValueOnce([{ type: 'tool_call', toolCall: { ...toolCall, result: 'Already answered' } }]);
+  expect(await (await post(input)).json()).toEqual({ error: 'Question is no longer pending' });
+  expect(mocks.invoke).not.toHaveBeenCalled();
+
+  mocks.getViewMessages.mockResolvedValue([{ type: 'tool_call', toolCall }]);
+  if (action === 'answer-question') {
+    const malformed = await post({ ...input, answers: { 'Pick one': true } });
+    expect(await malformed.json()).toEqual({ error: 'Invalid question answers' });
+    expect(mocks.invoke).not.toHaveBeenCalled();
+  }
+  mocks.invoke.mockResolvedValue({ success: true });
+  const response = await post(input);
+  expect(response.status).toBe(200);
+  expect(await response.json()).toEqual({ result: { success: true } });
+  expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith(channel, mocks.sender, [input]);
+});
+
+it.each(['claude-code', 'openai-codex', 'mistral-vibe'])('submits and cancels %s structured forms through the browser', async (provider) => {
+  const channel = 'messages:respond-to-prompt';
+  const input = { sessionId: 'local', promptId: 'form-1', promptType: 'request_user_input_request' };
+  const tool = { providerToolCallId: input.promptId, toolName: 'mcp__nimbalyst__PromptForUserInput' };
+  const answers = {
+    choices: { type: 'multiSelect', selectedIds: ['a', 'b'] },
+    choice: { type: 'singleSelect', selectedId: '__other__', otherText: 'Different' },
+    order: { type: 'reorder', orderedIds: ['b'], removedIds: ['a'] },
+    draft: { type: 'editText', text: 'Edited\ntext', edited: true },
+    accept: { type: 'confirm', value: false },
+  };
+  const form = { ...input, response: { answers, cancelled: false } };
+  mocks.getSession.mockResolvedValue({ workspacePath: '/workspace', provider });
+  mocks.getViewMessages.mockResolvedValue([{ type: 'tool_call', toolCall: tool }]);
+  mocks.invoke.mockResolvedValue({ success: true });
+
+  const submitted = await postSessionCommand(channel, form);
+  expect(submitted.status).toBe(200);
+  expect(await submitted.json()).toEqual({ result: { success: true } });
+  expect(mocks.invoke).toHaveBeenCalledExactlyOnceWith(channel, mocks.sender, [{ ...form, respondedBy: 'desktop' }]);
+
+  const cancelled = { ...input, response: { answers: {}, cancelled: true } };
+  mocks.getViewMessages.mockResolvedValue([{ type: 'tool_call', toolCall: { ...tool, toolName: 'RequestUserInput' } }]);
+  expect((await postSessionCommand(channel, cancelled)).status).toBe(200);
+  expect(mocks.invoke).toHaveBeenLastCalledWith(channel, mocks.sender, [{ ...cancelled, respondedBy: 'desktop' }]);
+});
+
+it('rejects browser form replies outside the connected session’s pending forms', async () => {
+  const channel = 'messages:respond-to-prompt';
+  const input = { sessionId: 'local', promptId: 'form-1', promptType: 'request_user_input_request',
+    response: { answers: {}, cancelled: true } };
+  expect((await postSessionCommand(channel, input, false)).status).toBe(401);
+  expect((await postSessionCommand(channel, { ...input, promptType: 'git_commit_proposal_request' })).status).toBe(400);
+  expect((await postSessionCommand(channel, { ...input, response: { answers: { a: { type: 'confirm', value: 'yes' } }, cancelled: false } })).status).toBe(400);
+  expect(mocks.getSession).not.toHaveBeenCalled();
+
+  mocks.getSession.mockResolvedValueOnce({ workspacePath: '/outside' });
+  expect(await (await postSessionCommand(channel, input)).json()).toEqual({ error: 'Session not found in this workspace' });
+  expect(mocks.getViewMessages).not.toHaveBeenCalled();
+
+  mocks.getSession.mockResolvedValue({ workspacePath: '/workspace', provider: 'openai-codex' });
+  mocks.getViewMessages.mockResolvedValueOnce([{ type: 'tool_call', toolCall: { providerToolCallId: input.promptId, toolName: 'AskUserQuestion' } }]);
+  expect(await (await postSessionCommand(channel, input)).json()).toEqual({ error: 'Question is no longer pending' });
+  mocks.getViewMessages.mockResolvedValueOnce([{ type: 'tool_call', toolCall: {
+    providerToolCallId: input.promptId, toolName: 'PromptForUserInput', result: 'Already answered',
+  } }]);
+  expect(await (await postSessionCommand(channel, input)).json()).toEqual({ error: 'Question is no longer pending' });
+  expect(mocks.invoke).not.toHaveBeenCalled();
+});
 
 it('limits browser steering requests to the connected workspace', async () => {
   const channel = 'ai:sendQueuedVibePromptNow';

@@ -9,6 +9,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import type { WebContents } from 'electron';
 
 const h = vi.hoisted(() => {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -63,6 +64,8 @@ vi.mock('../../RepositoryManager', () => ({
 }));
 
 import { registerSessionPromptResponseHandler } from '../../../ipc/sessionPromptResponseHandler';
+import { invokeBrowserPanelCommand } from '../../../browserHost/browserPanelCommands';
+import { database } from '../../../database/PGLiteDatabaseWorker';
 import { registerAskUserQuestionAnswerHandler } from '../ipc/registerAskUserQuestionAnswerHandler';
 import { configureRequestUserInputResume } from '../requestUserInputOrphanedAnswer';
 import { registerInteractivePromptHandlers } from '../ipc/registerInteractivePromptHandlers';
@@ -98,6 +101,26 @@ const answerQuestion = (sendMessageHandler: () => unknown, questionId: string) =
   registerAskUserQuestionAnswerHandler({ sendMessageHandler } as any);
   return h.handlers.get('claude-code:answer-question')!({}, { questionId, answers: { Q: 'stale' }, sessionId: sid });
 };
+
+it.each([false, true])('delivers a browser form response once during a concurrent desktop reply (cancelled: %s)', async (cancelled) => {
+  const channel = 'messages:respond-to-prompt';
+  const promptId = 'form-1';
+  const answers = cancelled ? {} : { accept: { type: 'confirm', value: true } };
+  const response = { answers, cancelled };
+  const request = { sessionId: sid, promptId, promptType: 'request_user_input_request', response, respondedBy: 'desktop' };
+  const sender = { send: vi.fn() } as unknown as WebContents;
+  const waiter = vi.fn();
+  h.ipcMain.on(`request-user-input-response:${sid}:${promptId}`, waiter);
+  registerSessionPromptResponseHandler();
+
+  const browser = invokeBrowserPanelCommand(channel, sender, [request]);
+  const desktop = h.handlers.get(channel)!({ sender }, { ...request, response: { answers: {}, cancelled: !cancelled } });
+  await expect(browser).resolves.toMatchObject({ success: true });
+  await expect(desktop).resolves.toMatchObject({ success: false });
+  const inserts = vi.mocked(database.query).mock.calls.filter(([sql]) => sql.includes('INSERT INTO ai_agent_messages'));
+  expect(inserts).toHaveLength(1);
+  expect(waiter).toHaveBeenCalledExactlyOnceWith(null, { ...response, respondedBy: 'desktop' });
+});
 
 describe('an answer for a card with no live waiter', () => {
   it('closes its own form and leaves the live form and its turn alone', async () => {

@@ -6,7 +6,7 @@ import {
   isAskUserQuestionProvider,
 } from "@nimbalyst/runtime/ai/server";
 import type { AIProviderType } from "@nimbalyst/runtime/ai/server/types";
-import { safeHandle } from "../../../utils/ipcRegistry";
+import { registerBrowserPanelCommand } from "../../../browserHost/browserPanelCommands";
 import { logger } from "../../../utils/logger";
 import {
   hasTerminalizedAskUserQuestion,
@@ -24,7 +24,7 @@ export function registerAskUserQuestionAnswerHandler(
 ): void {
   // Handle AskUserQuestion answer response from renderer
   // Used when Claude's AskUserQuestion tool needs user input
-  safeHandle(
+  registerBrowserPanelCommand(
     "claude-code:answer-question",
     async (
       event,

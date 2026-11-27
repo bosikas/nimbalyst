@@ -5,6 +5,7 @@ import { AISessionsRepository } from '@nimbalyst/runtime/storage/repositories/AI
 import { configureCodexQuestionDelivery, deliverCodexQuestionAnswer } from '../codexQuestionDelivery';
 import { configureRequestUserInputResume } from '../requestUserInputOrphanedAnswer';
 import { TrayManager } from '../../../tray/TrayManager';
+import { registerBrowserPanelCommand } from '../../../browserHost/browserPanelCommands';
 import { safeHandle } from '../../../utils/ipcRegistry';
 import { logger } from '../../../utils/logger';
 import { getSyncProvider } from '../../SyncManager';
@@ -101,7 +102,7 @@ export function registerInteractivePromptHandlers(ctx: AIServiceContext): void {
 
   // Handle AskUserQuestion cancel from renderer
   // Rejects the pending promise and aborts the AI request
-  safeHandle('claude-code:cancel-question', async (event, { questionId, sessionId }: { questionId: string; sessionId?: string }) => {
+  registerBrowserPanelCommand('claude-code:cancel-question', async (event, { questionId, sessionId }: { questionId: string; sessionId?: string }) => {
     logger.main.info(`[AIService] AskUserQuestion cancel received: questionId=${questionId}`);
 
     // sessionId can be passed directly or extracted from legacy questionId format (ask-{sessionId}-{timestamp})

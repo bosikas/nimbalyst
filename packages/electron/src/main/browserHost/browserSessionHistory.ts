@@ -1,11 +1,25 @@
 import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
+import { partitionUnansweredQuestions } from '@nimbalyst/runtime/ai/server/interactivePromptTools';
 import { AISessionsRepository } from '@nimbalyst/runtime/storage/repositories/AISessionsRepository';
+import { TranscriptMigrationRepository } from '@nimbalyst/runtime/storage/repositories/TranscriptMigrationRepository';
 import { database } from '../database/PGLiteDatabaseWorker';
 import { createWorktreeStore } from '../services/WorktreeStore';
 import { findWindowByWorkspace } from '../window/WindowManager';
 import { getQueuedPromptsStore } from '../services/RepositoryManager';
 import { getSessionContextInspection } from '../mcp/sessionContextInspection';
 import { invokeBrowserPanelCommand, type BrowserPanelCommand } from './browserPanelCommands';
+
+const formResponseSchema = z.object({
+  answers: z.record(z.string(), z.discriminatedUnion('type', [
+    z.object({ type: z.literal('multiSelect'), selectedIds: z.array(z.string()) }),
+    z.object({ type: z.literal('singleSelect'), selectedId: z.string(), otherText: z.string().optional() }),
+    z.object({ type: z.literal('reorder'), orderedIds: z.array(z.string()), removedIds: z.array(z.string()) }),
+    z.object({ type: z.literal('editText'), text: z.string(), edited: z.boolean() }),
+    z.object({ type: z.literal('confirm'), value: z.boolean() }),
+  ])),
+  cancelled: z.boolean(),
+});
 
 export async function invokeBrowserSessionHistory(
   workspacePath: string, channel: string, args: unknown[], defaultProvider: unknown,
@@ -17,14 +31,58 @@ export async function invokeBrowserSessionHistory(
     return invokeBrowserPanelCommand(command, owner.webContents, params);
   }
 
-  async function requireSession(id: unknown) {
+  async function requireWorkspaceSession(id: unknown) {
     if (typeof id !== 'string' || !id || id.length > 128) throw new Error('Invalid session ID');
     const session = await AISessionsRepository.get(id);
     if (session?.workspacePath !== workspacePath) throw new Error('Session not found in this workspace');
+    return { id, session };
+  }
+
+  async function requireSession(id: unknown) {
+    return (await requireWorkspaceSession(id)).id;
+  }
+
+  async function requireOpenQuestion(sessionId: unknown, promptId: unknown, ...toolNames: string[]) {
+    if (typeof promptId !== 'string' || !promptId || promptId.length > 512) {
+      throw new Error('Invalid question ID');
+    }
+    const { id, session } = await requireWorkspaceSession(sessionId);
+    const messages = await TranscriptMigrationRepository.getService().getViewMessages(id, session.provider);
+    const { open } = partitionUnansweredQuestions(messages);
+    if (!open.some((question) => question.id === promptId && toolNames.includes(question.toolName))) {
+      throw new Error('Question is no longer pending');
+    }
     return id;
   }
 
   switch (channel) {
+    case 'claude-code:answer-question':
+    case 'claude-code:cancel-question': {
+      const { sessionId, questionId, answers } = (first ?? {}) as {
+        sessionId?: unknown; questionId?: unknown; answers?: unknown;
+      };
+      if (channel === 'claude-code:answer-question' &&
+          (!answers || typeof answers !== 'object' || Array.isArray(answers) ||
+           Object.values(answers).some((value) => typeof value !== 'string'))) {
+        throw new Error('Invalid question answers');
+      }
+      const id = await requireOpenQuestion(sessionId, questionId, 'AskUserQuestion');
+      return invoke(channel, channel === 'claude-code:answer-question'
+        ? { sessionId: id, questionId, answers }
+        : { sessionId: id, questionId });
+    }
+    case 'messages:respond-to-prompt': {
+      const { sessionId, promptId, promptType, response } = (first ?? {}) as {
+        sessionId?: unknown; promptId?: unknown; promptType?: unknown; response?: unknown;
+      };
+      if (promptType !== 'request_user_input_request') {
+        throw new Error('This interactive prompt is unavailable in the browser');
+      }
+      const parsed = formResponseSchema.safeParse(response);
+      if (!parsed.success) throw new Error('Invalid form response');
+      const id = await requireOpenQuestion(sessionId, promptId, 'PromptForUserInput', 'RequestUserInput');
+      return invoke(channel, { sessionId: id, promptId, promptType, response: parsed.data, respondedBy: 'desktop' });
+    }
     case 'mcp-config:get-context-inspection':
       return getSessionContextInspection(await requireSession(first), workspacePath, { audience: 'browser' });
     case 'ai:getModels':

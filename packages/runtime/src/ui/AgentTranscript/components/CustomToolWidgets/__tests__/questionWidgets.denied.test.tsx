@@ -10,7 +10,7 @@
 
 import React from 'react';
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { render, screen, act } from '@testing-library/react';
+import { render, screen, act, fireEvent } from '@testing-library/react';
 import { Provider as JotaiProvider } from 'jotai';
 import { store } from '../../../../../store/store';
 import { setInteractiveWidgetHost } from '../../../../../store/atoms/interactiveWidgetHost';
@@ -96,6 +96,23 @@ describe('question widgets with a hook-denied (errored) result', () => {
     await renderAsk('ask-answered', JSON.stringify({ answers: { 'Which color?': 'Blue' } }), false);
     expect(screen.getByTestId('ask-user-question-widget').getAttribute('data-state')).toBe('completed');
     expect(screen.queryByTestId('ask-user-question-completed')).not.toBeNull();
+  });
+
+  it('shows a failed question submission and preserves the answer for a retry', async () => {
+    const submit = vi.fn()
+      .mockRejectedValueOnce(new Error('Could not reach the session'))
+      .mockResolvedValueOnce(undefined);
+    setInteractiveWidgetHost(SESSION_ID, { askUserQuestionSubmit: submit } as unknown as InteractiveWidgetHost);
+    await renderAsk('ask-retry', undefined, false);
+    fireEvent.click(screen.getByText('Blue'));
+    await act(async () => fireEvent.click(screen.getByTestId('ask-user-question-submit')));
+    expect(screen.getByRole('alert').textContent).toContain('Could not reach the session');
+    await act(async () => fireEvent.click(screen.getByTestId('ask-user-question-submit')));
+    expect(submit.mock.calls).toEqual([
+      ['ask-retry', { 'Which color?': 'Blue' }],
+      ['ask-retry', { 'Which color?': 'Blue' }],
+    ]);
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 
   it('PromptForUserInput: a denied call is blocked, not submitted, and offers no submit', async () => {

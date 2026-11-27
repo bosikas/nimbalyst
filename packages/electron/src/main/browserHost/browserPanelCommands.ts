@@ -8,6 +8,8 @@ export type BrowserPanelCommand =
   | 'ai-session-state:get-running' | 'ai-session-state:get-state'
   | 'ai:getModels' | 'ai:listPendingPrompts' | 'ai:createQueuedPrompt' | 'ai:triggerQueueProcessing'
   | 'ai:compactSession' | 'ai:deleteQueuedPrompt' | 'ai:sendQueuedVibePromptNow'
+  | 'claude-code:answer-question' | 'claude-code:cancel-question'
+  | 'messages:respond-to-prompt'
   | 'action-prompts:list'
   | 'worktree:list' | 'worktree:create' | 'worktree:archive' | 'worktree:get-batch' | 'worktree:update-pinned'
   | 'git:list-workspace-repos' | 'git:status' | 'git:branches' | 'git:log'
