@@ -1,4 +1,4 @@
-import { copyFile, mkdtemp, rm } from 'node:fs/promises';
+import { copyFile, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DEFAULT_MODELS } from '../../modelConstants';
@@ -17,7 +17,7 @@ import {
 
 export class MistralVibeProvider extends HeadlessCliAgentProvider {
   static readAccountUsage() {
-    return MistralVibeACPProtocol.readAccountUsage();
+    return this.withIsolatedProtocol(null, (protocol, workspace) => protocol.readAccountUsage(workspace));
   }
 
   private static loaders: HeadlessCliEnvironmentLoaders = {
@@ -37,6 +37,13 @@ export class MistralVibeProvider extends HeadlessCliAgentProvider {
       name: 'Mistral Vibe (CLI default)',
       provider: 'mistral-vibe',
     }];
+    return this.withIsolatedProtocol(fallback, (protocol) => protocol.discoverModels(workspacePath));
+  }
+
+  private static async withIsolatedProtocol<T>(
+    fallback: T,
+    read: (protocol: MistralVibeACPProtocol, workspace: string) => Promise<T>,
+  ): Promise<T> {
     const provider = new MistralVibeProvider();
     const executable = provider.resolveExecutable();
     if (!executable) return fallback;
@@ -45,9 +52,11 @@ export class MistralVibeProvider extends HeadlessCliAgentProvider {
     let protocol: MistralVibeACPProtocol | undefined;
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
-      // Vibe persists ACP model selections. Inspect the model options in a
-      // private copy of the settings so browsing the picker cannot change them.
-      probeHome = await mkdtemp(join(tmpdir(), 'nimbalyst-vibe-catalog-'));
+      // Vibe persists ACP state. Use a private copy of the signed-in settings
+      // so account and model lookups leave the user's settings intact.
+      probeHome = await mkdtemp(join(tmpdir(), 'nimbalyst-vibe-probe-'));
+      const workspace = join(probeHome, 'workspace');
+      await mkdir(workspace);
       const vibeHome = env.VIBE_HOME || join(homedir(), '.vibe');
       for (const file of [
         'config.toml', '.env', 'trusted_folders.toml', 'model_catalog_cache.json',
@@ -59,10 +68,10 @@ export class MistralVibeProvider extends HeadlessCliAgentProvider {
           if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
         }
       }
-      protocol = new MistralVibeACPProtocol({ command: executable, env: { ...env, VIBE_HOME: probeHome } });
+      protocol = new MistralVibeACPProtocol({ command: executable, initialCwd: workspace, env: { ...env, VIBE_HOME: probeHome } });
       return await Promise.race([
-        protocol.discoverModels(workspacePath),
-        new Promise<AIModel[]>((resolve) => {
+        read(protocol, workspace),
+        new Promise<T>((resolve) => {
           timeout = setTimeout(() => resolve(fallback), 8_000);
         }),
       ]);

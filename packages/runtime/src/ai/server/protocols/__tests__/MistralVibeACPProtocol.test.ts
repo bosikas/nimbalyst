@@ -68,46 +68,16 @@ describe('Mistral Vibe ACP', () => {
     }
   });
 
-  it('reads only the usage and reset date from a live native account', async () => {
-    const protocol = new MistralVibeACPProtocol({ command: process.execPath, args: [fixture] });
+  it.each(['current', 'legacy'])('reads %s native account fields with no app session', async (format) => {
+    const args = format === 'current' ? [fixture, '--camel-case-budget'] : [fixture];
+    const protocol = new MistralVibeACPProtocol({ command: process.execPath, args });
     try {
-      await protocol.createSession(options);
-      expect(await MistralVibeACPProtocol.readAccountUsage()).toEqual({
+      expect(await protocol.readAccountUsage(options.workspacePath)).toEqual({
         utilization: 23.4, resetsAt: '2027-01-01T00:00:00Z',
       });
     } finally {
       protocol.destroy();
     }
-    expect(await MistralVibeACPProtocol.readAccountUsage()).toBeNull();
-  });
-
-  it('reads the current Vibe ACP account budget fields', async () => {
-    const protocol = new MistralVibeACPProtocol({ command: process.execPath, args: [fixture, '--camel-case-budget'] });
-    try {
-      await protocol.createSession(options);
-      expect(await MistralVibeACPProtocol.readAccountUsage()).toEqual({
-        utilization: 23.4, resetsAt: '2027-01-01T00:00:00Z',
-      });
-    } finally {
-      protocol.destroy();
-    }
-  });
-
-  it('reads account usage from a remaining live session after another session closes', async () => {
-    const first = new MistralVibeACPProtocol({ command: process.execPath, args: [fixture] });
-    const second = new MistralVibeACPProtocol({ command: process.execPath, args: [fixture] });
-    try {
-      await first.createSession(options);
-      await second.createSession(options);
-      second.destroy();
-      expect(await MistralVibeACPProtocol.readAccountUsage()).toEqual({
-        utilization: 23.4, resetsAt: '2027-01-01T00:00:00Z',
-      });
-    } finally {
-      second.destroy();
-      first.destroy();
-    }
-    expect(await MistralVibeACPProtocol.readAccountUsage()).toBeNull();
   });
 
   it.each(['grant', 'create', 'declined', 'untrusted-source', 'unrelated', 'older-cli'])(

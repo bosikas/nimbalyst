@@ -77,30 +77,17 @@ async function inheritWorktreeTrust(connection: ClientSideConnection, cwd: strin
 }
 
 export class MistralVibeACPProtocol extends AcpStdioAgentProtocol {
-  private static readonly accountProtocols = new Set<WeakRef<MistralVibeACPProtocol>>();
-  private readonly accountProtocol = new WeakRef(this);
-  private accountSession?: { connection: ClientSideConnection; id: string };
-
-  static async readAccountUsage(): Promise<MistralVibeAccountUsage | null> {
-    for (const protocol of [...this.accountProtocols].reverse()) {
-      const session = protocol.deref()?.accountSession;
-      if (!session) {
-        this.accountProtocols.delete(protocol);
-        continue;
-      }
-      try {
-        const { budget } = await session.connection.extMethod('_account/read', { sessionId: session.id }) as {
-          budget?: { usagePercentage?: unknown; resetAt?: unknown; usage_percentage?: unknown; reset_at?: unknown } | null;
-        };
-        const utilization = budget?.usagePercentage ?? budget?.usage_percentage;
-        if (typeof utilization !== 'number' || !Number.isFinite(utilization) || utilization < 0) continue;
-        const reset = budget?.resetAt ?? budget?.reset_at;
-        return { utilization, resetsAt: typeof reset === 'string' && Number.isFinite(Date.parse(reset)) ? reset : null };
-      } catch {
-        // Another live session may still be able to read the account.
-      }
-    }
-    return null;
+  /** Vibe's ACP account read needs a native session ID. It requires no model turn. */
+  async readAccountUsage(workspacePath: string): Promise<MistralVibeAccountUsage | null> {
+    const connection = await this.getConnection();
+    const { sessionId } = await connection.newSession({ cwd: workspacePath, mcpServers: [] });
+    const { budget } = await connection.extMethod('_account/read', { sessionId }) as {
+      budget?: { usagePercentage?: unknown; resetAt?: unknown; usage_percentage?: unknown; reset_at?: unknown } | null;
+    };
+    const utilization = budget?.usagePercentage ?? budget?.usage_percentage;
+    if (typeof utilization !== 'number' || !Number.isFinite(utilization) || utilization < 0) return null;
+    const reset = budget?.resetAt ?? budget?.reset_at;
+    return { utilization, resetsAt: typeof reset === 'string' && Number.isFinite(Date.parse(reset)) ? reset : null };
   }
 
   constructor(deps?: GrokACPProtocolDeps) {
@@ -178,28 +165,12 @@ export class MistralVibeACPProtocol extends AcpStdioAgentProtocol {
   /** Query the CLI's workspace catalog without starting a model turn. */
   override async createSession(options: SessionOptions): Promise<ProtocolSession> {
     await this.prepareWorktree(options);
-    const session = await super.createSession(options);
-    return this.rememberAccountSession(session);
+    return super.createSession(options);
   }
 
   override async resumeSession(sessionId: string, options: SessionOptions): Promise<ProtocolSession> {
     await this.prepareWorktree(options);
-    const session = await super.resumeSession(sessionId, options);
-    return this.rememberAccountSession(session);
-  }
-
-  private async rememberAccountSession(session: ProtocolSession): Promise<ProtocolSession> {
-    const connection = await this.getConnection();
-    this.accountSession = { connection, id: session.id };
-    MistralVibeACPProtocol.accountProtocols.delete(this.accountProtocol);
-    MistralVibeACPProtocol.accountProtocols.add(this.accountProtocol);
-    return session;
-  }
-
-  override destroy(): void {
-    this.accountSession = undefined;
-    MistralVibeACPProtocol.accountProtocols.delete(this.accountProtocol);
-    super.destroy();
+    return super.resumeSession(sessionId, options);
   }
 
   private async prepareWorktree(options: SessionOptions): Promise<void> {

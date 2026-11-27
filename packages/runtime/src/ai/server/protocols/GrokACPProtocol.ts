@@ -136,6 +136,7 @@ export interface GrokACPProtocolDeps {
   command?: string;
   args?: string[];
   env?: Record<string, string>;
+  initialCwd?: string;
   onPermissionRequest?: (
     request: GrokACPPermissionRequest,
   ) => Promise<GrokACPPermissionDecision>;
@@ -210,6 +211,7 @@ export class AcpStdioAgentProtocol implements AgentProtocol {
   readonly platform: string;
 
   private readonly spawnProcess: typeof spawn;
+  private readonly initialCwd?: string;
   private readonly commandWasInjected: boolean;
   private command: string;
   private readonly args: string[];
@@ -229,6 +231,7 @@ export class AcpStdioAgentProtocol implements AgentProtocol {
   constructor(private readonly agent: AcpAgentBehavior, deps?: GrokACPProtocolDeps) {
     this.platform = agent.platform;
     this.spawnProcess = deps?.spawnProcess ?? spawn;
+    this.initialCwd = deps?.initialCwd;
     this.commandWasInjected = deps?.command !== undefined;
     this.command = deps?.command ?? agent.command;
     this.args = deps?.args ?? agent.args;
@@ -525,7 +528,7 @@ export class AcpStdioAgentProtocol implements AgentProtocol {
     const child = this.spawnProcess(launch.command, launch.args, {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: scrubProviderApiKeys({ ...process.env, ...this.extraEnv }),
-      cwd: process.cwd(),
+      cwd: this.initialCwd ?? process.cwd(),
     });
     this.childProcess = child;
 

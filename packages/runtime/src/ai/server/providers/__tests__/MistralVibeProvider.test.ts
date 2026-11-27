@@ -1,6 +1,6 @@
 // @vitest-environment node
 
-import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { expect, it, vi } from 'vitest';
@@ -50,6 +50,10 @@ it('uses the shared app guidance with Vibe tools and respects the session summar
     expect(vibe).toContain('The name is assigned out-of-band');
     expect(vibe).toContain('Review skills: deliver.');
     expect(vibe).toContain('skill.read');
+    expect(vibe).toContain('call skill.read with its name and follow the full skill it returns');
+    expect(vibe).toContain('load coordinate before spawning or directing Nimbalyst workers');
+    expect(vibe).toContain('end your turn so the completion message can resume it');
+    expect(codex).not.toContain('call skill.read');
     expect(vibe).toContain(metadata.sessionDirective);
     expect(vibe).not.toContain('functions.exec');
     expect(vibe).not.toContain('search_codex_skills');
@@ -79,9 +83,34 @@ vi.mock('../../protocols/MistralVibeACPProtocol', () => ({
       await writeFile(config, 'active_model = "last-model-in-catalog"\n');
       return [{ id: 'mistral-vibe:discovered', name: 'Discovered', provider: 'mistral-vibe' }];
     }
+    async readAccountUsage(workspace: string) {
+      expect(workspace).toBe(join(probe.home, 'workspace'));
+      expect(await readdir(workspace)).toEqual([]);
+      expect(await readFile(join(probe.home, 'config.toml'), 'utf8')).toBe('active_model = "preferred"\n');
+      return { utilization: 23.4, resetsAt: '2027-01-01T00:00:00Z' };
+    }
     destroy() {}
   },
 }));
+
+it('reads Vibe account usage without an active app session', async () => {
+  const userHome = await mkdtemp(join(tmpdir(), 'vibe-test-home-'));
+  vi.stubEnv('VIBE_HOME', userHome);
+  MistralVibeProvider.configureLoaders({
+    mcpConfigLoader: null, shellEnvironmentLoader: null, enhancedPathLoader: null,
+    executablePathLoader: () => 'vibe-acp',
+  });
+  try {
+    await writeFile(join(userHome, 'config.toml'), 'active_model = "preferred"\n');
+    expect(await MistralVibeProvider.readAccountUsage()).toEqual({
+      utilization: 23.4, resetsAt: '2027-01-01T00:00:00Z',
+    });
+    await expect(readdir(probe.home)).rejects.toMatchObject({ code: 'ENOENT' });
+  } finally {
+    vi.unstubAllEnvs();
+    await rm(userHome, { recursive: true, force: true });
+  }
+});
 
 it('uses the signed-in settings to discover Vibe models without changing the active model', async () => {
   const userHome = await mkdtemp(join(tmpdir(), 'vibe-test-home-'));
