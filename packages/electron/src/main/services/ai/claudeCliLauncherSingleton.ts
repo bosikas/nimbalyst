@@ -33,7 +33,7 @@ import { resolveClaudePermissionHookScriptPath } from './claudeCliPermissionHook
 import { getPermissionService } from '../PermissionService';
 import { startClaudeCliProxyObservation, fireClaudeCliTurnCompletion } from './claudeCliObservationSingleton';
 import { flushNextClaudeCliQueuedPromptForSession } from './claudeCliQueueFlushSingleton';
-import { maybeAutoNameClaudeCliSessionProduction } from './claudeCliSessionAutoNameSingleton';
+import { maybeAutoNameSessionProduction } from './sessionAutoNameSingleton';
 import type { ClaudeTurnState } from './claudeCliPidState';
 
 interface ClaudeCliLauncherConfig {
@@ -360,7 +360,7 @@ export async function ensureClaudeCliSession(
             // NIM-822: deterministic host-driven naming — if the agent's
             // opportunistic update_session_meta call didn't name the session by
             // its first completed turn, derive a title from the first prompt.
-            void maybeAutoNameClaudeCliSessionProduction(input.sessionId);
+            void maybeAutoNameSessionProduction(input.sessionId);
             // Flush the next queued prompt (if any) into the now-idle CLI. The
             // write restarts the CLI, so the following idle drains the next one.
             void flushNextClaudeCliQueuedPromptForSession(input.sessionId, input.workspacePath);

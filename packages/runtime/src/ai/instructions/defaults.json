@@ -49,6 +49,7 @@
   "codex.trackers": "## Trackers\nBefore tracker work, use work_radar(issueKey) when available to avoid conflicting work. Link only created/looked-up items as [NIM-123](nimbalyst://NIM-123); never invent keys.",
   "codex.worktree": "## Worktree\nWork in {{0}} on its branch; do not edit the main checkout unless asked. Other sessions may share this worktree; preserve their changes.",
   "codex.session-name": "Set name once.{{0}}",
+  "vibe.session-name": "Include `name` in that first call. Use a descriptive 2–5 word title and set it once.{{0}}",
   "codex.session-metadata": "Once the first-turn task is understood, call update_session_meta with tags and phase. {{0}} Update phase when work changes. After edits mark uncommitted; after committing those edits mark committed. Reverse the previous tag each time.",
   "codex.session-summary": "Before each final response, call update_session_summary. Preserve outstanding user requests.",
   "codex.voice-mode": "## Voice\nA GPT-4 Realtime voice assistant relays requests. Answer [VOICE] questions briefly, answer first, without preamble, caveats or padding; they are spoken aloud. Handle coding tasks normally.",

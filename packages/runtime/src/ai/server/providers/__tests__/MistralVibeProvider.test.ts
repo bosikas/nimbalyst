@@ -48,6 +48,9 @@ it('uses the shared app guidance with Vibe tools and respects the session summar
     }
     expect(vibe).toContain('## Worktree\nWork in /workspace/topic on its branch');
     expect(vibe).toContain('The name is assigned out-of-band');
+    expect(vibe).not.toContain('Include `name` in that first call');
+    const unnamedVibe = await provider.guidance({ ...context, hasBeenNamed: false }, 'unnamed-session');
+    expect(unnamedVibe).toContain('Include `name` in that first call');
     expect(vibe).toContain('Review skills: deliver.');
     expect(vibe).toContain('skill.read');
     expect(vibe).toContain('call skill.read with its name and follow the full skill it returns');

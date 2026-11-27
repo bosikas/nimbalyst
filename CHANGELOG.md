@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 <!-- Bug fixes go here -->
+- Mistral Vibe sessions get a title from the opening prompt when the agent leaves them unnamed.
 - Browser sessions can submit or cancel agent questions and forms, including questions still pending after a restart.
 - Mistral Vibe interrupts turns that get stuck repeating their reasoning and keeps completed edits.
 - Workers given a separate worktree stay grouped under their coordinator while opening files and terminals in their own checkout; explicitly standalone sessions remain separate

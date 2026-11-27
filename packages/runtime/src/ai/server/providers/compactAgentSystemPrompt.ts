@@ -53,7 +53,9 @@ export function buildCompactAgentSystemPrompt(options: CompactAgentSystemPromptO
     sections.push(guidance('worktree', instructionTemplate('codex.worktree', [documentContext.worktreePath])));
   }
   if (options.hasSessionNaming ?? isInternalMcpServerEnabled()) {
-    sections.push(...buildCodexMetadataSections(guidance, options.hasOutOfBandNaming, options.generateSummary));
+    sections.push(...buildCodexMetadataSections(
+      guidance, options.hasOutOfBandNaming, options.generateSummary, isVibe ? 'vibe.session-name' : 'codex.session-name',
+    ));
   }
   const voiceContext = documentContext as DocumentContext & {
     isVoiceMode?: boolean;

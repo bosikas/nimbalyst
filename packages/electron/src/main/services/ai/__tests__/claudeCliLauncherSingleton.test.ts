@@ -16,8 +16,8 @@ vi.mock('../HooklessAgentFileWatcher', () => ({
     scheduleStop = vi.fn();
   },
 }));
-vi.mock('../claudeCliSessionAutoNameSingleton', () => ({
-  maybeAutoNameClaudeCliSessionProduction: vi.fn(async () => undefined),
+vi.mock('../sessionAutoNameSingleton', () => ({
+  maybeAutoNameSessionProduction: vi.fn(async () => undefined),
 }));
 // #1465: the CLI's `--plugin-dir` inputs come from `getClaudeProviderPluginPaths`
 // (extension + generated plugins), NOT from the picker's discovery aggregate.

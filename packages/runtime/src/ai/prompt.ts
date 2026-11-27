@@ -212,10 +212,11 @@ export type MetaAgentWorkflowPreset = 'default' | 'implement-review-test' | 'res
 
 export function buildCodexMetadataSections(
   guidance: ReturnType<typeof createGuidanceRenderer>, hasOutOfBandNaming = false, generateSummary = true,
+  nameInstruction: 'codex.session-name' | 'vibe.session-name' = 'codex.session-name',
 ): string[] {
   const language = getPreferredAgentLanguage();
   const naming = hasOutOfBandNaming ? instructionTemplate('codex.session-name-assigned')
-    : instructionTemplate('codex.session-name', [language ? instructionTemplate('codex.language', [language]) : '']);
+    : instructionTemplate(nameInstruction, [language ? instructionTemplate('codex.language', [language]) : '']);
   const sections = [guidance('session-metadata', instructionTemplate('codex.session-metadata', [naming]))];
   if (generateSummary) sections.push(guidance('session-summary', instructionTemplate('codex.session-summary')));
   return sections;

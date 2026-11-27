@@ -1,7 +1,7 @@
 import { BrowserWindow } from 'electron';
 import { SessionManager, setPreferredAgentLanguage as setRuntimePreferredAgentLanguage } from '@nimbalyst/runtime/ai/server';
 import { AISessionsRepository } from '@nimbalyst/runtime';
-import { setClaudeCliAutoNameApplyTitleFn } from './ai/claudeCliSessionAutoNameSingleton';
+import { setAutoNameApplyTitleFn } from './ai/sessionAutoNameSingleton';
 import {
   setUpdateSessionTitleFn,
   setUpdateSessionMetadataFn,
@@ -63,13 +63,13 @@ export class SessionNamingService {
         setRuntimePreferredAgentLanguage(getPreferredAgentLanguage());
 
         // Set the update function that will be called by the MCP server.
-        // The body lives in applySessionTitle so the CLI auto-namer (NIM-822)
+        // The body lives in applySessionTitle so the auto-namer
         // can reuse the exact same broadcast/propagation path.
         setUpdateSessionTitleFn((sessionId: string, title: string) =>
           this.applySessionTitle(sessionId, title)
         );
-        setClaudeCliAutoNameApplyTitleFn((sessionId: string, title: string) =>
-          this.applySessionTitle(sessionId, title)
+        setAutoNameApplyTitleFn((sessionId: string, title: string) =>
+          this.applySessionTitle(sessionId, title, { onlyIfUnnamed: true })
         );
 
         // Set the metadata update function (for tags, phase, etc.). The body
@@ -152,7 +152,7 @@ export class SessionNamingService {
    * auto-namer (NIM-822). Renames are allowed; the agent prompt instructs the
    * agent not to rename a named session unless the user asks.
    */
-  public async applySessionTitle(sessionId: string, title: string): Promise<void> {
+  public async applySessionTitle(sessionId: string, title: string, options?: { onlyIfUnnamed?: boolean }): Promise<void> {
     const sessionManager = this.sessionManager;
     if (!sessionManager) {
       console.warn('[SessionNamingService] applySessionTitle before start(); skipping');
@@ -166,6 +166,7 @@ export class SessionNamingService {
 
     try {
       const session = await AISessionsRepository.get(sessionId);
+      if (options?.onlyIfUnnamed && session?.hasBeenNamed) return;
       worktreeId = session?.worktreeId;
 
       if (session?.parentSessionId) {
@@ -202,7 +203,7 @@ export class SessionNamingService {
     }
 
     // Normal (non-blitz) session: update title and propagate to worktree.
-    await sessionManager.updateSessionTitle(sessionId, title, { force: true, markAsNamed: true });
+    await sessionManager.updateSessionTitle(sessionId, title, { force: !options?.onlyIfUnnamed, markAsNamed: true });
     for (const window of windows) {
       window.webContents.send('session:title-updated', { sessionId, title });
     }

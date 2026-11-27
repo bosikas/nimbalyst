@@ -217,7 +217,13 @@ vi.mock("../../externalSessions/ExternalSessionService", () => ({
   claimExternalSessionForLocalExecution: mocks.claim,
 }));
 
+vi.mock("../sessionAutoNameSingleton", () => ({
+  maybeAutoNameSessionProduction: vi.fn(async () => undefined),
+}));
+vi.mock("../ensureVibeWorktree", () => ({ ensureVibeWorktree: vi.fn(async () => undefined) }));
+
 import { MessageStreamingHandler } from "../MessageStreamingHandler";
+import { maybeAutoNameSessionProduction } from "../sessionAutoNameSingleton";
 import { logger } from "../../../utils/logger";
 import { resolveClaudeCodeParentContextWindow } from "@nimbalyst/runtime/ai/modelConstants";
 import { resetPushOutcomeWarnings } from "@nimbalyst/runtime/sync/pushOutcome";
@@ -318,6 +324,15 @@ describe("MessageStreamingHandler external ownership", () => {
     vi.clearAllMocks();
     mocks.providerFactory.getProvider.mockReturnValue(null);
     mocks.claim.mockResolvedValue(undefined);
+  });
+  it("runs fallback naming on a completed Vibe turn", async () => {
+    const session = openCodeSession({ provider: "mistral-vibe", model: "glm-5.3-flash" });
+    const provider = new RecordingProvider([{ type: "complete" }]);
+
+    await runTurn({ session, provider });
+
+    expect(maybeAutoNameSessionProduction).toHaveBeenCalledOnce();
+    expect(maybeAutoNameSessionProduction).toHaveBeenCalledWith(session.id);
   });
   it("refuses to run a turn on a workstream container before any provider or transcript side effect", async () => {
     const provider = new RecordingProvider();

@@ -1,18 +1,6 @@
 /**
- * Deterministic host-driven auto-naming for `claude-code-cli` sessions (NIM-822).
- *
- * The SDK path names sessions from inside the provider loop
- * (ClaudeCodeProvider.maybeFireSessionNamingSideQuestion). The PTY-spawned CLI
- * never enters that loop; its only naming hook is an --append-system-prompt
- * nudge asking the model to call update_session_meta — opportunistic and
- * usually ignored, leaving sessions stuck on "New Session".
- *
- * On the FIRST completed CLI turn (the launcher's PID idle transition), if the
- * agent hasn't named the session itself, derive a title from the first user
- * prompt. Deliberately heuristic — NO model call: CLI users may be
- * subscription-only with no API key configured, and reading keys from
- * process.env is forbidden (repo rule). The agent nudge stays in place and a
- * later agent rename still wins (renames are allowed via update_session_meta).
+ * After a completed turn, derive a title from the first user prompt when the
+ * session still lacks an assigned name. This requires no model request.
  */
 
 const MAX_TITLE_CHARS = 48;
@@ -23,7 +11,7 @@ const MAX_TITLE_WORDS = 8;
  * isn't usable as a topic (empty, a /slash command, a # memory note).
  */
 export function deriveSessionTitleFromPrompt(rawPrompt: string | null | undefined): string | null {
-  const prompt = (rawPrompt ?? '').trim();
+  const prompt = (rawPrompt ?? '').replace(/<NIMBALYST_SYSTEM_MESSAGE>[\s\S]*?<\/NIMBALYST_SYSTEM_MESSAGE>/g, '').trim();
   if (!prompt) return null;
   if (prompt.startsWith('/') || prompt.startsWith('#')) return null;
 
@@ -52,7 +40,7 @@ export interface AutoNameDeps {
   applyTitle: (sessionId: string, title: string) => Promise<void>;
 }
 
-export async function maybeAutoNameClaudeCliSession(
+export async function maybeAutoNameSession(
   sessionId: string,
   deps: AutoNameDeps,
 ): Promise<AutoNameOutcome> {

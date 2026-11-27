@@ -54,6 +54,7 @@ import { AISessionsRepository } from '@nimbalyst/runtime/storage/repositories/AI
 import { resolveClaudeCodeParentContextWindow } from '@nimbalyst/runtime/ai/modelConstants';
 import { accumulateClaudeCodeTurnUsage, accumulateProviderTurnUsage } from './tokenUsageAccumulation';
 import { provisionalTitleForFirstMessage } from './provisionalSessionTitle';
+import { maybeAutoNameSessionProduction } from './sessionAutoNameSingleton';
 import { sessionNotFoundMessage } from './sessionNotFoundMessage';
 import {
   buildMcpSessionStatusSnapshot,
@@ -2561,6 +2562,9 @@ export class MessageStreamingHandler {
             // Send complete response. A replaced turn sends none: the renderer
             // reads `isComplete` as the end of the session's live turn.
             if (!replacedByNewerTurn) {
+              if (session.provider === 'mistral-vibe' && !hadError) {
+                void maybeAutoNameSessionProduction(session.id);
+              }
               safeSend(event, 'ai:streamResponse', {
                 sessionId: session.id,
                 content: fullResponse,

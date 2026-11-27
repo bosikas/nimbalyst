@@ -42,8 +42,8 @@ vi.mock("../HooklessAgentFileWatcher", () => ({
     scheduleStop = vi.fn();
   },
 }));
-vi.mock("../claudeCliSessionAutoNameSingleton", () => ({
-  maybeAutoNameClaudeCliSessionProduction: vi.fn(async () => undefined),
+vi.mock("../sessionAutoNameSingleton", () => ({
+  maybeAutoNameSessionProduction: vi.fn(async () => undefined),
 }));
 vi.mock("../../AgentWorkflowService", () => ({
   getAgentWorkflowService: () => ({
