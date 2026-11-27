@@ -35,7 +35,7 @@ export function VibeUsageIndicator({ onRefresh = refreshVibeUsage }: { onRefresh
           </button>
         </div>
         <p className="mt-2 text-nim-muted">{percent === null
-          ? 'Monthly allowance is unavailable. Start a Vibe session to load it.'
+          ? 'Vibe didn’t report a monthly allowance.'
           : `${Math.round(percent)}% of the monthly allowance used`}</p>
         {usage?.resetsAt && <p className="mt-1 text-nim-muted">Resets {new Date(usage.resetsAt).toLocaleString()}</p>}
       </div>

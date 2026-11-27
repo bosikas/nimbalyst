@@ -81,6 +81,35 @@ describe('Mistral Vibe ACP', () => {
     expect(await MistralVibeACPProtocol.readAccountUsage()).toBeNull();
   });
 
+  it('reads the current Vibe ACP account budget fields', async () => {
+    const protocol = new MistralVibeACPProtocol({ command: process.execPath, args: [fixture, '--camel-case-budget'] });
+    try {
+      await protocol.createSession(options);
+      expect(await MistralVibeACPProtocol.readAccountUsage()).toEqual({
+        utilization: 23.4, resetsAt: '2027-01-01T00:00:00Z',
+      });
+    } finally {
+      protocol.destroy();
+    }
+  });
+
+  it('reads account usage from a remaining live session after another session closes', async () => {
+    const first = new MistralVibeACPProtocol({ command: process.execPath, args: [fixture] });
+    const second = new MistralVibeACPProtocol({ command: process.execPath, args: [fixture] });
+    try {
+      await first.createSession(options);
+      await second.createSession(options);
+      second.destroy();
+      expect(await MistralVibeACPProtocol.readAccountUsage()).toEqual({
+        utilization: 23.4, resetsAt: '2027-01-01T00:00:00Z',
+      });
+    } finally {
+      second.destroy();
+      first.destroy();
+    }
+    expect(await MistralVibeACPProtocol.readAccountUsage()).toBeNull();
+  });
+
   it.each(['grant', 'create', 'declined', 'untrusted-source', 'unrelated', 'older-cli'])(
     'inherits native trust only for an eligible checkout (%s)', async (trustCase) => {
       const root = await realpath(await mkdtemp(path.join(tmpdir(), 'vibe-worktree-trust-')));

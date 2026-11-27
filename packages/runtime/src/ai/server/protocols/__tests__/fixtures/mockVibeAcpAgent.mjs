@@ -32,7 +32,9 @@ for await (const line of input) {
   switch (method) {
     case '_account/read':
       write({ id, result: params.sessionId === sessionId ? {
-        budget: { usage_percentage: 23.4, reset_at: '2027-01-01T00:00:00Z' },
+        budget: process.argv.includes('--camel-case-budget')
+          ? { usagePercentage: 23.4, resetAt: '2027-01-01T00:00:00Z' }
+          : { usage_percentage: 23.4, reset_at: '2027-01-01T00:00:00Z' },
         api_key: { has_key: true },
       } : {} });
       break;

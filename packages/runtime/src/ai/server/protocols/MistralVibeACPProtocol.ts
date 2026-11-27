@@ -77,23 +77,30 @@ async function inheritWorktreeTrust(connection: ClientSideConnection, cwd: strin
 }
 
 export class MistralVibeACPProtocol extends AcpStdioAgentProtocol {
-  private static latestAccountProtocol?: WeakRef<MistralVibeACPProtocol>;
+  private static readonly accountProtocols = new Set<WeakRef<MistralVibeACPProtocol>>();
+  private readonly accountProtocol = new WeakRef(this);
   private accountSession?: { connection: ClientSideConnection; id: string };
 
   static async readAccountUsage(): Promise<MistralVibeAccountUsage | null> {
-    const session = this.latestAccountProtocol?.deref()?.accountSession;
-    if (!session) return null;
-    try {
-      const { budget } = await session.connection.extMethod('_account/read', { sessionId: session.id }) as {
-        budget?: { usage_percentage?: unknown; reset_at?: unknown } | null;
-      };
-      const utilization = budget?.usage_percentage;
-      if (typeof utilization !== 'number' || !Number.isFinite(utilization) || utilization < 0) return null;
-      const reset = budget?.reset_at;
-      return { utilization, resetsAt: typeof reset === 'string' && Number.isFinite(Date.parse(reset)) ? reset : null };
-    } catch {
-      return null;
+    for (const protocol of [...this.accountProtocols].reverse()) {
+      const session = protocol.deref()?.accountSession;
+      if (!session) {
+        this.accountProtocols.delete(protocol);
+        continue;
+      }
+      try {
+        const { budget } = await session.connection.extMethod('_account/read', { sessionId: session.id }) as {
+          budget?: { usagePercentage?: unknown; resetAt?: unknown; usage_percentage?: unknown; reset_at?: unknown } | null;
+        };
+        const utilization = budget?.usagePercentage ?? budget?.usage_percentage;
+        if (typeof utilization !== 'number' || !Number.isFinite(utilization) || utilization < 0) continue;
+        const reset = budget?.resetAt ?? budget?.reset_at;
+        return { utilization, resetsAt: typeof reset === 'string' && Number.isFinite(Date.parse(reset)) ? reset : null };
+      } catch {
+        // Another live session may still be able to read the account.
+      }
     }
+    return null;
   }
 
   constructor(deps?: GrokACPProtocolDeps) {
@@ -184,12 +191,14 @@ export class MistralVibeACPProtocol extends AcpStdioAgentProtocol {
   private async rememberAccountSession(session: ProtocolSession): Promise<ProtocolSession> {
     const connection = await this.getConnection();
     this.accountSession = { connection, id: session.id };
-    MistralVibeACPProtocol.latestAccountProtocol = new WeakRef(this);
+    MistralVibeACPProtocol.accountProtocols.delete(this.accountProtocol);
+    MistralVibeACPProtocol.accountProtocols.add(this.accountProtocol);
     return session;
   }
 
   override destroy(): void {
     this.accountSession = undefined;
+    MistralVibeACPProtocol.accountProtocols.delete(this.accountProtocol);
     super.destroy();
   }
 
