@@ -10,6 +10,7 @@ import { AcpStdioAgentProtocol, type GrokACPProtocolDeps } from './GrokACPProtoc
 import type { ProtocolMessage, ProtocolSession, SessionOptions } from './ProtocolInterface';
 import { resolveVibeSteeringLaunch } from './headless/vibeSteeringLauncher';
 import { mapVibeSessionUpdate, readVibeUsage } from './headless/MistralVibeRecordMapper';
+import { createVibeReasoningGuard } from './headless/vibeReasoningGuard';
 
 export const MISTRAL_VIBE_EXECUTABLE = process.platform === 'win32' ? 'vibe-acp.exe' : 'vibe-acp';
 export const MISTRAL_VIBE_INSTALL_PATHS = ['.local/bin/' + MISTRAL_VIBE_EXECUTABLE];
@@ -97,6 +98,7 @@ export class MistralVibeACPProtocol extends AcpStdioAgentProtocol {
       command: MISTRAL_VIBE_EXECUTABLE,
       args: [],
       mapUpdate: (update, workspacePath) => mapVibeSessionUpdate(update, (filePath) => path.resolve(workspacePath, filePath)),
+      createTurnGuard: createVibeReasoningGuard,
       getUsage: readVibeUsage,
       onPromptPrepared: recordVibePreparedContext,
       resolveLaunch: resolveVibeSteeringLaunch,

@@ -36,6 +36,8 @@ export function buildCompactAgentSystemPrompt(options: CompactAgentSystemPromptO
     guidance('git-commits', instructionTemplate('codex.git-commits')),
   ];
 
+  if (isVibe) sections.push(instructionTemplate('vibe.edit-recovery'));
+
   if (startupSkills) {
     if (isVibe) {
       if (startupSkills.length) sections.push(`Review skills: ${startupSkills.join(', ')}. Use skill.read to load them.`);

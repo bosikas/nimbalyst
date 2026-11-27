@@ -30,6 +30,7 @@ import type {
   ChatAttachment,
 } from '../types';
 import type { AgentProtocol, ProtocolEvent, ToolResult } from '../protocols/ProtocolInterface';
+import { AgentTurnInterruptedError } from '../protocols/ProtocolInterface';
 import type { FileChangeFidelity } from '../providerFileTracking';
 import type { McpConfigService } from '../services/McpConfigService';
 import {
@@ -421,6 +422,7 @@ export abstract class HeadlessCliAgentProvider extends BaseAgentProvider {
         }
       }
     } catch (error) {
+      if (error instanceof AgentTurnInterruptedError) throw error;
       const errorMessage = error instanceof Error ? error.message : String(error);
       const isAbort = abortController.signal.aborted || /abort|cancel/i.test(errorMessage);
       if (!isAbort) {

@@ -51,6 +51,8 @@ it('uses the shared app guidance with Vibe tools and respects the session summar
     expect(vibe).toContain('Review skills: deliver.');
     expect(vibe).toContain('skill.read');
     expect(vibe).toContain('call skill.read with its name and follow the full skill it returns');
+    expect(vibe).toContain('A target-not-found result means that edit changed nothing. Keep earlier successful edits.');
+    expect(vibe).toContain('Complete the requested edit before updating cross-references.');
     expect(vibe).toContain('load coordinate before spawning or directing Nimbalyst workers');
     expect(vibe).toContain('end your turn so the completion message can resume it');
     expect(codex).not.toContain('call skill.read');

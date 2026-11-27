@@ -181,6 +181,7 @@ Twelve built-in provider lanes, plus any agent an extension contributes. Every l
 - Create isolated worktrees for AI coding sessions (Cmd+Alt+W)
 - Automatically use an isolated worktree for Mistral Vibe sessions in Git projects, including resumed sessions. When Vibe already trusts the primary checkout, it can load `AGENTS.md`, project skills and hooks natively in its registered worktree.
 - In desktop and browser Vibe sessions, Send Now can deliver a queued message to the active turn on compatible Python-based Vibe installs. Other Vibe installs use interrupt-and-send.
+- Vibe sessions automatically stop a turn when streamed reasoning repeats heavily without new output or tool activity. The session shows a recovery message and retains the work already written.
 - Per-project default base branch for new worktrees (Project Settings > Worktrees): the remote default branch, the main checkout's current branch, or a specific branch; used by the new-worktree dialog and by agent, mobile and loop worktrees
 - Multiple sessions per worktree
 - Merge worktree into base branch

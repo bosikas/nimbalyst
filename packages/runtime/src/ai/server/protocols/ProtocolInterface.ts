@@ -26,3 +26,6 @@ export type {
   MCPServerConfig,
   RawProtocolSession,
 } from '@nimbalyst/extension-sdk/agents';
+
+/** The host stopped the turn and the caller must settle it as failed. */
+export class AgentTurnInterruptedError extends Error {}

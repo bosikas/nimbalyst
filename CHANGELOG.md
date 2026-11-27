@@ -41,6 +41,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 <!-- Bug fixes go here -->
+- Mistral Vibe interrupts turns that get stuck repeating their reasoning and keeps completed edits.
 - Workers given a separate worktree stay grouped under their coordinator while opening files and terminals in their own checkout; explicitly standalone sessions remain separate
 - The session list's "Needs you" section follows pending questions and permissions instead of generated review or blocker summaries, and hiding provider icons removes their reserved space
 - Worktree sessions discover extension tools on their first start, including backend-only extensions, and retain their stored project identity when reopened

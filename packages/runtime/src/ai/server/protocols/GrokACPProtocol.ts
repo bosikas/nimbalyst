@@ -40,6 +40,7 @@ export {
 } from './headless/GrokBuildRecordMapper';
 import { buildAcpAttachmentBlocks } from './acpAttachmentBlocks';
 import { scrubProviderApiKeys } from '../providerApiKeyScrub';
+import { AgentTurnInterruptedError } from './ProtocolInterface';
 import type {
   AgentProtocol,
   MCPServerConfig,
@@ -121,6 +122,7 @@ interface AcpAgentBehavior {
   command: string;
   args: string[];
   mapUpdate(update: Record<string, unknown>, workspacePath: string): ProtocolEvent[];
+  createTurnGuard?(): (event: ProtocolEvent) => string | undefined;
   getUsage(response: PromptResponse): ProtocolEvent['usage'];
   formatError(error: unknown): string;
   configureSession?(connection: ACPClientConnection, sessionId: string, options: SessionOptions, config: SessionConfigOption[]): Promise<string | undefined>;
@@ -171,6 +173,8 @@ interface ActiveTurnState {
   permissionsPath?: string;
   signal: AbortSignal;
   queue: AsyncEventQueue<ProtocolEvent>;
+  checkInterruption?: (event: ProtocolEvent) => string | undefined;
+  interruptionError?: string;
 }
 
 class AsyncEventQueue<T> {
@@ -401,6 +405,7 @@ export class AcpStdioAgentProtocol implements AgentProtocol {
         : undefined,
       signal,
       queue,
+      checkInterruption: this.agent.createTurnGuard?.(),
     };
     this.activeTurns.set(session.id, turn);
 
@@ -408,7 +413,9 @@ export class AcpStdioAgentProtocol implements AgentProtocol {
       this.activeTurns.delete(session.id);
       return;
     }
-    const abortHandler = () => void this.cancelPrompt(session.id);
+    const abortHandler = () => {
+      if (!turn.interruptionError) void this.cancelPrompt(session.id);
+    };
     signal.addEventListener('abort', abortHandler, { once: true });
 
     const promptTask = (async () => {
@@ -430,6 +437,7 @@ export class AcpStdioAgentProtocol implements AgentProtocol {
           },
         });
 
+        if (turn.interruptionError) return;
         const usage = this.agent.getUsage(response);
         queue.push({
           type: 'complete',
@@ -441,7 +449,7 @@ export class AcpStdioAgentProtocol implements AgentProtocol {
           },
         });
       } catch (error) {
-        if (!signal.aborted) {
+        if (!signal.aborted && !turn.interruptionError) {
           queue.push({ type: 'error', error: this.formatError(error) });
         }
       } finally {
@@ -459,6 +467,9 @@ export class AcpStdioAgentProtocol implements AgentProtocol {
       }
     } finally {
       await promptTask;
+    }
+    if (turn.interruptionError && !signal.aborted) {
+      throw new AgentTurnInterruptedError(turn.interruptionError);
     }
   }
 
@@ -556,7 +567,7 @@ export class AcpStdioAgentProtocol implements AgentProtocol {
       this.sessionStates.clear();
       if (!this.destroying) {
         for (const turn of this.activeTurns.values()) {
-          turn.queue.push({ type: 'error', error: this.processExitError.message });
+          if (!turn.interruptionError) turn.queue.push({ type: 'error', error: this.processExitError.message });
           turn.queue.finish();
         }
         this.activeTurns.clear();
@@ -622,6 +633,10 @@ export class AcpStdioAgentProtocol implements AgentProtocol {
     if (!update) return;
     for (const event of this.agent.mapUpdate(update, turn.workspacePath)) {
       turn.queue.push(event);
+      if (!turn.signal.aborted && !turn.interruptionError) {
+        turn.interruptionError = turn.checkInterruption?.(event);
+        if (turn.interruptionError) void this.cancelPrompt(turn.sessionId);
+      }
     }
   }
 
@@ -738,7 +753,7 @@ export class AcpStdioAgentProtocol implements AgentProtocol {
 
   protected async requestActiveTurnExtension(sessionId: string, method: string, params: Record<string, unknown>) {
     const turn = [...this.activeTurns.values()].find(active => active.nimbalystSessionId === sessionId);
-    if (!turn || turn.signal.aborted || !this.connection) return undefined;
+    if (!turn || turn.signal.aborted || turn.interruptionError || !this.connection) return undefined;
     return this.connection.extMethod(method, { ...params, sessionId: turn.sessionId });
   }
 

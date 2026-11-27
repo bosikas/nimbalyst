@@ -29,6 +29,30 @@ const options = {
 };
 
 describe('Mistral Vibe ACP', () => {
+  it('cancels sustained reasoning repetition and leaves the ACP session reusable', async () => {
+    const protocol = new MistralVibeACPProtocol({ command: process.execPath, args: [fixture] });
+    try {
+      const session = await protocol.createSession(options);
+      const events: ProtocolEvent[] = [];
+      const stream = (async () => {
+        for await (const event of protocol.sendMessage(session, { content: '/repeat-reasoning' })) events.push(event);
+      })();
+      await expect(stream).rejects.toThrow('repeating its reasoning');
+      expect(events.find(({ type }) => type === 'complete')).toBeUndefined();
+      expect(events.some(({ metadata }) => {
+        const raw = metadata?.rawEvent as { type?: string; response?: { stopReason?: string } } | undefined;
+        return raw?.type === 'session/prompt_result' && raw.response?.stopReason === 'cancelled';
+      })).toBe(true);
+
+      const next: ProtocolEvent[] = [];
+      for await (const event of protocol.sendMessage(session, { content: '/reasoning-with-progress' })) next.push(event);
+      expect(next.find(({ type }) => type === 'error')).toBeUndefined();
+      expect(next.find(({ type }) => type === 'complete')).toBeDefined();
+    } finally {
+      protocol.destroy();
+    }
+  });
+
   it.each([true, false])('delivers to an active turn or reports missing steering support (%s)', async (supported) => {
     let permissionRequested!: () => void;
     const waitingForPermission = new Promise<void>(resolve => { permissionRequested = resolve; });

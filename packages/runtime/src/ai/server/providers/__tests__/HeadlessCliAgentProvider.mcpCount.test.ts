@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { AgentProtocol, ProtocolSession } from '../../protocols/ProtocolInterface';
+import { AgentTurnInterruptedError } from '../../protocols/ProtocolInterface';
 import type { GrokACPProtocol } from '../../protocols/GrokACPProtocol';
 import { BaseAgentProvider } from '../BaseAgentProvider';
 import { GrokBuildProvider } from '../GrokBuildProvider';
@@ -169,4 +170,13 @@ describe('HeadlessCliAgentProvider MCP delivery count', () => {
     const provider = await runProvider(protocolWithDelivery(0));
     expect(provider.getInitData()?.model).toBe('grok-build:grok-4.6');
   });
+});
+
+it('passes a host-initiated interruption to the turn owner for failure settlement', async () => {
+  const protocol = protocolWithDelivery();
+  const interruption = new AgentTurnInterruptedError('Mistral Vibe stopped after repeating its reasoning.');
+  protocol.sendMessage = async function* () {
+    throw interruption;
+  };
+  await expect(runProvider(protocol)).rejects.toBe(interruption);
 });

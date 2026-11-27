@@ -97,6 +97,31 @@ for await (const line of input) {
         break;
       }
       const text = params.prompt.filter(block => block.type === 'text').map(block => block.text).join('\n');
+      if (text === '/repeat-reasoning' || text === '/reasoning-with-progress') {
+        runningPrompt = id;
+        const phrase = 'The safety map belongs in section five point four today. ';
+        const emitThought = (thought) => {
+          for (let offset = 0; offset < thought.length; offset += 37) {
+            update({ sessionUpdate: 'agent_thought_chunk', content: { type: 'text', text: thought.slice(offset, offset + 37) } });
+          }
+        };
+        if (text === '/reasoning-with-progress') {
+          for (let i = 0; i < 4; i++) {
+            emitThought(phrase.repeat(20));
+            update({ sessionUpdate: 'tool_call', toolCallId: `read-${i}`, title: 'Read the current file', status: 'completed' });
+          }
+          write({ id, result: { stopReason: 'end_turn' } });
+          runningPrompt = undefined;
+          break;
+        }
+        emitThought(phrase.repeat(50));
+        setTimeout(() => {
+          if (runningPrompt !== id) return;
+          write({ id, result: { stopReason: 'end_turn' } });
+          runningPrompt = undefined;
+        }, 500);
+        break;
+      }
       if (text === '/report-config') {
         update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `${model}:${thinking}` } });
         write({ id, result: { stopReason: 'end_turn' } });
@@ -134,6 +159,12 @@ for await (const line of input) {
       }
       update({ sessionUpdate: 'agent_message_chunk', content: params.prompt[0] });
       write({ id, result: { accepted: true } });
+      break;
+    case 'session/cancel':
+      if (runningPrompt !== undefined && params.sessionId === sessionId) {
+        write({ id: runningPrompt, result: { stopReason: 'cancelled' } });
+        runningPrompt = undefined;
+      }
       break;
     default:
       if (id !== permissionsId) break;
