@@ -101,6 +101,7 @@ import {
   type DriveReason,
 } from './QueueDriveService';
 import { createWorkspaceWindowResolver } from './resolveWorkspaceWindow';
+import { remoteSessions } from './remoteSessions';
 import { runQueueDriveAttempt } from './queueDriveAttempt';
 import { wakeParentAfterChildSettle } from './wakeParentAfterChildSettle';
 import { clearStuckRunningState } from './clearStuckRunningState';
@@ -556,6 +557,26 @@ export class AIService {
         };
       },
       interruptSession: (id) => this.interruptCurrentTurn(id),
+      sendQueuedPromptNow: async (id, promptId) => {
+        const session = await AISessionsRepository.get(id);
+        if (session?.workspacePath !== workspacePath || session.provider === 'claude-code-cli') {
+          return { success: false, error: 'Send Now is unavailable for this session' };
+        }
+        await remoteSessions.assertLocalExecution(id);
+        const prompt = await getQueuedPromptsStore().get(promptId);
+        if (prompt?.sessionId !== id || prompt.status !== 'pending') {
+          return { success: false, error: 'The prompt is no longer queued for this session' };
+        }
+        const state = getSessionStateManager().getSessionState(id);
+        if (state?.status === 'running' || state?.isStreaming || hasLiveInteractivePrompt(id)) {
+          const result = await this.interruptCurrentTurn(id, { userSendNow: true });
+          // The commit-settlement handler owns the interrupt and drive once the commit finishes.
+          if (result.deferred) return { success: true };
+          if (!result.success) return result;
+        }
+        this.requestQueueDrive(id, workspacePath, 'send-now');
+        return { success: true };
+      },
       saveDraft: (id, draft) => this.sessionManager.saveDraftInput(id, draft, workspacePath),
       queuePrompt: async (id, prompt) => {
         const receipt = await this.queuePromptForSession(id, prompt);

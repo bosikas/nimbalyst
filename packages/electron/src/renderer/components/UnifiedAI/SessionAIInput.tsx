@@ -88,7 +88,8 @@ export const SessionAIInput = forwardRef<AIInputRef, SessionAIInputProps>(
 
     // Debounced persistence of draft input to database — survives restarts.
     useEffect(() => {
-      if (!workspacePath) return;
+      // The browser host observes local draft changes and flushes them on session switch.
+      if (!workspacePath || (rest.remoteSession && !persistDraft)) return;
       if (!canPersistSessionDraft(draftHydrated, draftLocalModifiedAt)) return;
       const timeoutId = setTimeout(() => {
         (persistDraft
@@ -112,6 +113,7 @@ export const SessionAIInput = forwardRef<AIInputRef, SessionAIInputProps>(
       workspacePath,
       draftAttachments,
       persistDraft,
+      rest.remoteSession,
     ]);
 
     return (

@@ -1,4 +1,4 @@
-import { randomBytes, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 import { constants } from 'node:fs';
 import { open, readFile, realpath, stat } from 'node:fs/promises';
 import { createServer } from 'node:http';
@@ -33,6 +33,7 @@ export interface BrowserHostServices {
   hasSession: (id: string) => Promise<boolean>;
   getSession: (id: string) => Promise<(BrowserHostSession & Pick<SessionData, 'metadata'>) | null>;
   interruptSession: (id: string) => Promise<{ success: boolean }>;
+  sendQueuedPromptNow: (id: string, promptId: string) => Promise<{ success: boolean; error?: string }>;
   queuePrompt: (id: string, prompt: string) => Promise<BrowserHostPromptReceipt>;
   saveDraft?: (id: string, draft: string) => Promise<boolean>;
   respondToPermission: (id: string, requestId: string, decision: BrowserHostApproval) => Promise<{ success: boolean }>;
@@ -271,7 +272,7 @@ export function createBrowserHostHandler(config: BrowserHostConfig, services: Br
       }
     }
 
-    const match = /^\/api\/sessions\/([\w-]{1,128})(?:\/(interrupt|prompt|permission|draft))?$/.exec(pathname);
+    const match = /^\/api\/sessions\/([\w-]{1,128})(?:\/(interrupt|prompt|permission|draft|send-now))?$/.exec(pathname);
     if (!match) return failure('Not found', 404);
     const [, id, action] = match;
     if (request.method !== (action ? 'POST' : 'GET')) return failure('Method denied', 405);
@@ -281,6 +282,14 @@ export function createBrowserHostHandler(config: BrowserHostConfig, services: Br
     if (action === 'interrupt') {
       const result = await services.interruptSession(id);
       return result.success ? json({ success: true }) : failure('Session could not be interrupted', 409);
+    }
+    if (action === 'send-now') {
+      const { promptId } = await readBody(request) ?? {};
+      if (typeof promptId !== 'string' || !promptId.trim() || promptId.length > 128) {
+        return failure('Invalid queued prompt', 400);
+      }
+      const result = await services.sendQueuedPromptNow(id, promptId);
+      return result.success ? json({ success: true }, 202) : failure(result.error ?? 'Queued prompt could not be sent', 409);
     }
     if (action === 'prompt') {
       const input = await readBody(request);
@@ -315,7 +324,7 @@ export function createBrowserHostHandler(config: BrowserHostConfig, services: Br
       title, provider, messages, createdAt, updatedAt, model, mode, isArchived,
       parentSessionId, worktreeId, worktreePath, tokenUsage, draftInput, processing, queuedPrompts, executingPromptIds, metadata,
     } = session;
-    return json({
+    const body = JSON.stringify({
       id, title, provider, messages, createdAt, updatedAt, model, mode, isArchived,
       parentSessionId, worktreeId, worktreePath, draftInput, processing, queuedPrompts, executingPromptIds,
       tokenUsage: tokenUsage ?? (metadata?.tokenUsage as BrowserHostSession['tokenUsage']),
@@ -326,6 +335,12 @@ export function createBrowserHostHandler(config: BrowserHostConfig, services: Br
         currentTodos: metadata.currentTodos,
       },
     } satisfies BrowserHostSession);
+    const etag = `"${createHash('sha256').update(body).digest('base64url')}"`;
+    const headers = { ...securityHeaders, ETag: etag };
+    if (request.headers.get('if-none-match') === etag) {
+      return new Response(null, { status: 304, headers });
+    }
+    return new Response(body, { headers: { ...headers, 'Content-Type': 'application/json' } });
   };
 }
 

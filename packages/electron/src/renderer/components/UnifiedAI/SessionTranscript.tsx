@@ -246,7 +246,7 @@ export interface SessionTranscriptProps {
   browserSession?: {
     submit: (prompt: string) => Promise<void>;
     interrupt: () => Promise<void>;
-    persistDraft: (draft: string) => Promise<void>;
+    sendQueuedPromptNow: (promptId: string) => Promise<void>;
     error: string;
   };
 
@@ -1603,6 +1603,10 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
         if (result?.steered) setQueuedPrompts(current => current.filter(prompt => prompt.id !== promptId));
         return;
       }
+      if (browserSession) {
+        await browserSession.sendQueuedPromptNow(promptId);
+        return;
+      }
       // Two-step send-now: (1) interrupt the current turn (graceful for
       // Claude Code, hard abort for other providers via the BaseAIProvider
       // default); (2) explicitly trigger queue processing. The natural
@@ -1617,7 +1621,7 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
     } catch (error) {
       setSendNowError({ sessionId, message: error instanceof Error ? error.message : 'Send Now failed' });
     }
-  }, [provider, sessionId, setQueuedPrompts, workspacePath]);
+  }, [browserSession, provider, sessionId, setQueuedPrompts, workspacePath]);
 
   const handleCloseAndArchive = useCallback(async () => {
     // The helper shows an error message itself if the save fails. Stop here so the screen never says "archived" when it was not saved.
@@ -2829,7 +2833,6 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
         sessionId={sessionId}
         enableAttachments={!browserSession && enableAttachments}
         remoteSession={!!browserSession}
-        persistDraft={browserSession?.persistDraft}
         disabled={!!browserSession && isQueueing}
         onAttachmentAdd={handleAttachmentAdd}
         onAttachmentRemove={handleAttachmentRemove}

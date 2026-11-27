@@ -37,7 +37,7 @@ function setup() {
       ? {
         id, provider: 'openai-codex', createdAt: 1, updatedAt: 1,
         messages: [{
-          id: 1, sequence: 1, createdAt: new Date(), type: 'interactive_prompt', subagentId: null,
+          id: 1, sequence: 1, createdAt: new Date(0), type: 'interactive_prompt', subagentId: null,
           interactivePrompt: {
             promptType: 'permission_request', requestId: 'pending', status: 'pending', toolName: 'Read',
             rawCommand: 'read README.md', pattern: 'README.md', patternDisplayName: 'README.md',
@@ -47,6 +47,7 @@ function setup() {
       }
       : null),
     interruptSession: vi.fn(async () => ({ success: true })),
+    sendQueuedPromptNow: vi.fn(async () => ({ success: true })),
     queuePrompt: vi.fn(async () => ({ id: 'queued-1', createdAt: 1234 })),
     saveDraft: vi.fn(async () => true),
     respondToPermission: vi.fn(async () => ({ success: true })),
@@ -235,6 +236,40 @@ describe('browser host', () => {
     const response = await (await request('/api/sessions/local')).json();
     expect(response.tokenUsage).toEqual(tokenUsage);
     expect(response.metadata).toEqual({});
+  });
+
+  it('returns an empty response for unchanged session snapshots and delivers updates', async () => {
+    const { handle, request, services } = setup();
+    const initial = await request('/api/sessions/local');
+    const etag = initial.headers.get('etag');
+    expect(etag).toBeTruthy();
+    const conditional = (authorized = true) => handle(new Request('http://127.0.0.1:17864/api/sessions/local', {
+      headers: { 'if-none-match': etag!, ...(authorized ? { authorization: `Bearer ${token}` } : {}) },
+    }));
+    expect((await conditional(false)).status).toBe(401);
+    const unchanged = await conditional();
+    expect(unchanged.status).toBe(304);
+    expect(await unchanged.text()).toBe('');
+    expect(unchanged.headers.get('cache-control')).toBe('no-store');
+    const existing = (await services.getSession('local'))!;
+    services.getSession.mockResolvedValue({ ...existing, processing: true });
+    const changed = await conditional();
+    expect(changed.status).toBe(200);
+    expect(changed.headers.get('etag')).not.toBe(etag);
+    expect((await changed.json()).processing).toBe(true);
+  });
+
+  it('sends a queued prompt now only for a valid request in the current workspace', async () => {
+    const { request, post, services } = setup();
+    expect((await request('/api/sessions/local/send-now', 'POST', false)).status).toBe(401);
+    expect((await post('/api/sessions/outside/send-now', { promptId: 'queued-1' })).status).toBe(404);
+    expect((await post('/api/sessions/local/send-now', { promptId: '' })).status).toBe(400);
+    expect(services.sendQueuedPromptNow).not.toHaveBeenCalled();
+    expect((await post('/api/sessions/local/send-now', { promptId: 'queued-1' })).status).toBe(202);
+    expect(services.sendQueuedPromptNow).toHaveBeenCalledExactlyOnceWith('local', 'queued-1');
+    services.sendQueuedPromptNow.mockResolvedValueOnce({ success: false });
+    expect((await post('/api/sessions/local/send-now', { promptId: 'missing' })).status).toBe(409);
+    expect(services.getSession).not.toHaveBeenCalled();
   });
 
   it('serves session panel state and keeps model metadata and drafts scoped', async () => {

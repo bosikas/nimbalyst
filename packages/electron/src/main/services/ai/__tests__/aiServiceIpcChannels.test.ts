@@ -46,7 +46,8 @@ vi.mock('../../../utils/ipcRegistry', () => ({
 // Import-cost trims. Registration only stores closures, so none of these are
 // reached; loading them for real costs seconds (the provider tree, node-pty,
 // and WindowManager's own module-load singletons).
-vi.mock('@nimbalyst/runtime/ai/server', () => ({
+vi.mock('@nimbalyst/runtime/ai/server', async () => ({
+  ...await import('@nimbalyst/runtime/ai/server/services/mcpTopology'),
   AIProvider: class {},
   GeminiAntigravityProvider: class {},
   OpenAICodexProvider: class {},
@@ -84,6 +85,10 @@ import { registerProjectSettingsHandlers } from '../ipc/registerProjectSettingsH
 import { registerExtensionChatHandlers } from '../ipc/registerExtensionChatHandlers';
 import type { AIServiceContext } from '../ipc/AIServiceContext';
 import { AIService } from '../AIService';
+import { remoteSessions } from '../remoteSessions';
+import * as repositories from '../../RepositoryManager';
+import { AISessionsRepository } from '@nimbalyst/runtime/storage/repositories/AISessionsRepository';
+import { getSessionStateManager } from '@nimbalyst/runtime/ai/server/SessionStateManager';
 import { logger } from '../../../utils/logger';
 import { resetPushOutcomeWarnings } from '@nimbalyst/runtime/sync/pushOutcome';
 
@@ -97,6 +102,50 @@ const stubContext = new Proxy({} as AIServiceContext, {
   get: (_target, prop) => () => {
     throw new Error(`ctx.${String(prop)} must not be called during registration`);
   },
+});
+
+it('uses host turn controls for browser Send Now and leaves foreign or claimed prompts alone', async () => {
+  const service: AIService = Object.create(AIService.prototype);
+  const interrupt = vi.spyOn(service, 'interruptCurrentTurn').mockResolvedValue({ success: true });
+  const drive = vi.spyOn(service, 'requestQueueDrive').mockImplementation(() => {});
+  const assertLocal = vi.spyOn(remoteSessions, 'assertLocalExecution').mockResolvedValue(undefined);
+  const stateManager = getSessionStateManager();
+  const state = vi.spyOn(stateManager, 'getSessionState').mockReturnValue({
+    status: 'running',
+  } as ReturnType<typeof stateManager.getSessionState>);
+  const getSession = vi.mocked(AISessionsRepository.get).mockResolvedValueOnce({
+    id: 's1', provider: 'openai-codex', workspacePath: '/ws',
+  } as Awaited<ReturnType<typeof AISessionsRepository.get>>);
+  type QueueStore = ReturnType<typeof repositories.getQueuedPromptsStore>;
+  const pending = { id: 'queued', prompt: 'Follow-up', createdAt: 0, sessionId: 's1', status: 'pending' } as const;
+  const get = vi.fn<QueueStore['get']>()
+    .mockResolvedValueOnce({ ...pending, sessionId: 'foreign' })
+    .mockResolvedValueOnce({ ...pending, status: 'executing' })
+    .mockResolvedValue(pending);
+  const queueStub: Pick<QueueStore, 'get'> = { get };
+  const queue = vi.spyOn(repositories, 'getQueuedPromptsStore').mockReturnValue(queueStub as QueueStore);
+  try {
+    const { sendQueuedPromptNow } = service.getBrowserHostServices('/ws');
+    const claude = { id: 's1', provider: 'claude-code', workspacePath: '/ws' } as Awaited<ReturnType<typeof AISessionsRepository.get>>;
+    getSession.mockResolvedValueOnce(claude).mockResolvedValueOnce(claude).mockResolvedValueOnce(claude);
+    await expect(sendQueuedPromptNow('s1', 'foreign-queued')).resolves.toMatchObject({ success: false });
+    await expect(sendQueuedPromptNow('s1', 'claimed-queued')).resolves.toMatchObject({ success: false });
+    expect(interrupt).not.toHaveBeenCalled();
+    expect(drive).not.toHaveBeenCalled();
+
+    await expect(sendQueuedPromptNow('s1', 'queued')).resolves.toEqual({ success: true });
+    expect(interrupt).toHaveBeenCalledExactlyOnceWith('s1', { userSendNow: true });
+    expect(drive).toHaveBeenCalledExactlyOnceWith('s1', '/ws', 'send-now');
+    expect(interrupt.mock.invocationCallOrder[0]).toBeLessThan(drive.mock.invocationCallOrder[0]);
+
+    interrupt.mockResolvedValueOnce({ success: false, deferred: 'commit-in-flight' });
+    await expect(sendQueuedPromptNow('s1', 'queued')).resolves.toEqual({ success: true });
+    expect(drive).toHaveBeenCalledTimes(1);
+  } finally {
+    queue.mockRestore();
+    state.mockRestore();
+    assertLocal.mockRestore();
+  }
 });
 
 const EXPECTED_CHANNELS: Record<string, string[]> = {
@@ -149,6 +198,7 @@ const EXPECTED_CHANNELS: Record<string, string[]> = {
   registerTurnControlHandlers: [
     'ai:cancelRequest',
     'ai:interruptCurrentTurn',
+    'ai:sendQueuedVibePromptNow',
     'ai:compactSession',
   ],
   registerSettingsHandlers: [
@@ -208,12 +258,12 @@ describe('AIService IPC registrars', () => {
     });
   }
 
-  it('registers all 64 channels across the modules, with no duplicates', () => {
+  it('registers all 65 channels across the modules, with no duplicates', () => {
     for (const register of Object.values(REGISTRARS)) {
       register(stubContext);
     }
-    expect(registered).toHaveLength(64);
-    expect(new Set(registered).size).toBe(64);
+    expect(registered).toHaveLength(65);
+    expect(new Set(registered).size).toBe(65);
   });
 });
 

@@ -22,7 +22,7 @@ import type { BrowserPanelBridge, RegisterBrowserPanelBridge } from './BrowserPa
 import { useBrowserRefresh } from './useBrowserRefresh';
 import {
   applyBrowserActivity, applyBrowserTranscript, nextBrowserObservation, selectBrowserSession,
-  settleBrowserPrompt, showBrowserPrompt,
+  settleBrowserPrompt, showBrowserPrompt, watchBrowserDraft,
 } from './browserSessionState';
 import '../index.css';
 import '../styles/components.css';
@@ -39,7 +39,7 @@ async function request(token: string, path: string, init?: RequestInit): Promise
     ...init,
     headers,
   });
-  if (!response.ok) {
+  if (!response.ok && !(response.status === 304 && headers.has('if-none-match'))) {
     const data = await response.json().catch(() => null) as { error?: string } | null;
     throw new Error(data?.error ?? `Linux host request failed (${response.status})`);
   }
@@ -56,13 +56,22 @@ function Session({ token, id, workspacePath, collapseTranscript, className }: {
   const [loaded, setLoaded] = useState(false);
   const [feedback, setFeedback] = useState('');
   const [refresh, setRefresh] = useState(0);
+  const cached = React.useRef<{
+    etag: string | null;
+    snapshot: BrowserHostSession & { workspacePath: string };
+  }>(null);
   const path = '/sessions/' + encodeURIComponent(id);
   const loadSession = React.useCallback(async (signal: AbortSignal) => {
     const observedAt = nextBrowserObservation();
-    const response = await request(token, path, { signal });
+    const previous = cached.current;
+    const headers = previous?.etag ? { 'if-none-match': previous.etag } : undefined;
+    const response = await request(token, path, { signal, headers });
+    if (response.status === 304 && previous) return { ...previous, observedAt, unchanged: true };
     const data = await response.json() as BrowserHostSession;
     return {
       observedAt,
+      unchanged: false,
+      etag: response.headers.get('etag'),
       snapshot: {
         ...data,
         workspacePath,
@@ -70,18 +79,17 @@ function Session({ token, id, workspacePath, collapseTranscript, className }: {
       },
     };
   }, [token, path, workspacePath]);
-  const updateSnapshot = React.useCallback(({ snapshot, observedAt }: Awaited<ReturnType<typeof loadSession>>) => {
+  const updateSnapshot = React.useCallback(({ snapshot, etag, observedAt, unchanged }: Awaited<ReturnType<typeof loadSession>>) => {
+    cached.current = { snapshot, etag };
     if (!store.get(sessionDraftHydratedAtom(id))) {
       store.set(sessionDraftInputAtom(id), snapshot.draftInput ?? '');
       store.set(sessionDraftHydratedAtom(id), true);
     }
-    applyBrowserTranscript(snapshot, observedAt);
+    applyBrowserTranscript(snapshot, observedAt, unchanged);
     applyBrowserActivity(id, snapshot.processing, observedAt);
     setLoaded(true);
   }, [id]);
-  const error = useBrowserRefresh(loadSession, updateSnapshot, 3000, refresh);
-
-  async function mutate(action: string, input?: unknown) {
+  const mutate = React.useCallback(async (action: string, input?: unknown) => {
     try {
       const response = await request(token, path + '/' + action, postJson(input ?? {}));
       setFeedback('');
@@ -90,7 +98,9 @@ function Session({ token, id, workspacePath, collapseTranscript, className }: {
       setFeedback(err instanceof Error ? err.message : 'Session request failed');
       throw err;
     }
-  }
+  }, [token, path]);
+  useEffect(() => watchBrowserDraft(id, async (draft) => { await mutate('draft', { draft }); }), [id, mutate]);
+  const error = useBrowserRefresh(loadSession, updateSnapshot, 3000, refresh);
 
   async function submit(prompt: string) {
     const optimisticId = showBrowserPrompt(id, prompt);
@@ -116,7 +126,10 @@ function Session({ token, id, workspacePath, collapseTranscript, className }: {
             await mutate('interrupt');
             setRefresh((previous) => previous + 1);
           },
-          persistDraft: async (draft) => { await mutate('draft', { draft }); },
+          sendQueuedPromptNow: async (promptId) => {
+            await request(token, path + '/send-now', postJson({ promptId }));
+            setRefresh((previous) => previous + 1);
+          },
           error: feedback || error,
         }} />
     </section>

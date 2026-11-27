@@ -1,11 +1,11 @@
 import { store } from '@nimbalyst/runtime/store';
-import { expect, it } from 'vitest';
+import { expect, it, vi } from 'vitest';
 import type { BrowserHostSession } from '../../../shared/browserHost';
 import { sessionQueuedPromptsAtom } from '../../store/atoms/sessionTranscript';
-import { sessionProcessingAtom, sessionStoreAtom } from '../../store/atoms/sessions';
+import { sessionDraftHydratedAtom, sessionDraftInputAtom, sessionProcessingAtom, sessionStoreAtom } from '../../store/atoms/sessions';
 import {
   applyBrowserActivity, applyBrowserTranscript, nextBrowserObservation, selectBrowserSession,
-  settleBrowserPrompt, showBrowserPrompt,
+  settleBrowserPrompt, showBrowserPrompt, watchBrowserDraft,
 } from '../browserSessionState';
 
 function session(id: string): BrowserHostSession & { workspacePath: string } {
@@ -35,6 +35,59 @@ it('retains the default selection when another session moves to the top of histo
   expect(selected).toBe('first');
   expect(selectBrowserSession(selected, [second, first])).toBe('first');
   expect(selectBrowserSession('new-child', [second, first])).toBe('new-child');
+});
+
+it('keeps a hydrated draft read-only until there is an actual local edit', async () => {
+  vi.useFakeTimers();
+  const id = 'draft-hydration';
+  const draft = sessionDraftInputAtom(id);
+  const save = vi.fn(async (_text: string) => {});
+  const stop = watchBrowserDraft(id, save);
+  try {
+    store.set(draft, 'Old draft read from the host');
+    store.set(sessionDraftHydratedAtom(id), true);
+    await vi.advanceTimersByTimeAsync(6_000);
+    expect(save).not.toHaveBeenCalled();
+    store.set(draft, 'Typed in the browser');
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(save).toHaveBeenCalledExactlyOnceWith('Typed in the browser');
+    await vi.advanceTimersByTimeAsync(6_000);
+    expect(save).toHaveBeenCalledTimes(1);
+  } finally {
+    stop();
+    vi.useRealTimers();
+  }
+});
+
+it('flushes a draft on session switch and saves a subsequent edit in order', async () => {
+  const id = 'draft-switch';
+  const draft = sessionDraftInputAtom(id);
+  const first = Promise.withResolvers<void>();
+  const save = vi.fn(async (_text: string) => {}).mockReturnValueOnce(first.promise);
+  store.set(sessionDraftHydratedAtom(id), true);
+  const close = watchBrowserDraft(id, save);
+  store.set(draft, 'First edit');
+  close();
+  const closeAgain = watchBrowserDraft(id, save);
+  store.set(draft, '');
+  closeAgain();
+  await Promise.resolve();
+  expect(save).toHaveBeenCalledExactlyOnceWith('First edit');
+  first.resolve();
+  await vi.waitFor(() => expect(save.mock.calls).toEqual([['First edit'], ['']]));
+});
+
+it('reconciles an optimistic prompt even if the host returns an unchanged snapshot', () => {
+  const snapshot = session('unchanged');
+  const transcript = sessionStoreAtom(snapshot.id);
+  applyBrowserTranscript(snapshot, nextBrowserObservation());
+  const optimisticId = showBrowserPrompt(snapshot.id, 'Run checks');
+  settleBrowserPrompt(snapshot.id, optimisticId, { id: 'expired', createdAt: 1_000 });
+  applyBrowserTranscript(snapshot, nextBrowserObservation(), true);
+  expect(store.get(transcript)?.messages).toEqual([]);
+  const updated = store.get(transcript);
+  applyBrowserTranscript(snapshot, nextBrowserObservation(), true);
+  expect(store.get(transcript)).toBe(updated);
 });
 
 it('shows the first prompt before the host acknowledges it, then replaces it with the saved row', () => {
