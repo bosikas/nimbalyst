@@ -28,7 +28,7 @@ afterEach(async () => {
   await rm(root, { recursive: true, force: true });
 });
 
-function setup() {
+function setup(fileLinkPaths?: string[]) {
   const services = {
     getAppearance: vi.fn(async () => ({ theme: 'dark' })),
     listSessions: vi.fn(async () => [{ id: 'local', title: 'Local session' }]),
@@ -59,7 +59,7 @@ function setup() {
     listAutomations: vi.fn(async () => 'No automations'),
     createAutomation: vi.fn(async () => 'Automation scheduled'),
   };
-  const handle = createBrowserHostHandler({ token, workspacePath, pdfPath: 'example.pdf', rendererPath }, services);
+  const handle = createBrowserHostHandler({ token, workspacePath, pdfPath: 'example.pdf', rendererPath, fileLinkPaths }, services);
   const request = (path: string, method = 'GET', authorized = true) => handle(new Request(
     `http://127.0.0.1:17864${path}`,
     { method, headers: authorized ? { authorization: `Bearer ${token}` } : {} },
@@ -157,7 +157,7 @@ describe('browser host', () => {
     const secondToken = 'b'.repeat(64);
     const configPath = join(root, 'browser-host.json');
     await writeFile(configPath, JSON.stringify([
-      { workspacePath, port: ports[0], token },
+      { workspacePath, port: ports[0], token, fileLinkPaths: [join(workspacePath, 'example.pdf')] },
       { workspacePath: secondWorkspace, port: ports[1], token: secondToken },
     ]));
     const attached = join(root, 'attached');
@@ -174,6 +174,12 @@ describe('browser host', () => {
       expect(await (await sessions(ports[1], secondToken)).json()).toEqual([{ id: 'local', title: secondWorkspace }]);
       expect((await sessions(ports[0], secondToken)).status).toBe(401);
       expect((await sessions(ports[1], token)).status).toBe(401);
+      const fileLink = (port: number, key: string) => fetch(
+        `http://127.0.0.1:${port}/api/file-link?` + new URLSearchParams({ path: join(workspacePath, 'example.pdf') }),
+        { headers: { authorization: `Bearer ${key}` } },
+      );
+      expect(await (await fileLink(ports[0], token)).text()).toBe('%PDF-1.4');
+      expect((await fileLink(ports[1], secondToken)).status).toBe(404);
       const workspaceEvents = (port: number, key: string) =>
         fetch(`http://127.0.0.1:${port}/api/workspace-events`, { headers: { authorization: `Bearer ${key}` } });
       expect((await workspaceEvents(ports[0], secondToken)).status).toBe(401);
@@ -197,6 +203,31 @@ describe('browser host', () => {
     expect(services.listSessions).not.toHaveBeenCalled();
     expect(await (await request('/api/sessions')).json()).toEqual([{ id: 'local', title: 'Local session' }]);
     expect(await (await request('/api/pdf')).text()).toBe('%PDF-1.4');
+  });
+
+  it('downloads only files shared with the authenticated browser workspace', async () => {
+    await mkdir(join(root, 'shared'));
+    const shared = await realpath(join(root, 'shared'));
+    const mock = join(shared, 'AWM mock.html');
+    const privateFile = join(workspacePath, 'example.pdf');
+    const escaped = join(shared, 'escaped.pdf');
+    await writeFile(mock, '<h1>AWM mock</h1>');
+    await symlink(privateFile, escaped);
+    const { request } = setup([shared]);
+    const link = (path: string) => '/api/file-link?' + new URLSearchParams({ path });
+
+    expect((await request(link(mock), 'GET', false)).status).toBe(401);
+    expect((await setup().request(link(mock))).status).toBe(404);
+    expect((await request(link(privateFile))).status).toBe(404);
+    expect((await request(link(escaped))).status).toBe(404);
+    expect((await request(link(shared))).status).toBe(404);
+    expect((await request(link('AWM mock.html'))).status).toBe(404);
+    const downloaded = await request(link(mock));
+    expect(downloaded.headers.get('content-disposition')).toBe('attachment');
+    expect(downloaded.headers.get('content-type')).toBe('application/octet-stream');
+    expect(downloaded.headers.get('cache-control')).toBe('no-store');
+    expect(await downloaded.text()).toBe('<h1>AWM mock</h1>');
+    expect((await setup([await realpath(privateFile)]).request(link(privateFile))).status).toBe(200);
   });
 
   it('serves the native session list model only after authentication', async () => {

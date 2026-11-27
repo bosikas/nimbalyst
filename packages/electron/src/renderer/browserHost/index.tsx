@@ -18,6 +18,7 @@ import type { BrowserHostInfo, BrowserHostPromptReceipt, BrowserHostSession, Bro
 import { getTheme, registerThemeContribution } from '@nimbalyst/runtime';
 import { applyThemeToDOM } from '../hooks/useTheme';
 import { BrowserWorkspaceViews } from './BrowserExtensions';
+import { downloadBrowserFile } from './downloadBrowserFile';
 import type { BrowserPanelBridge, RegisterBrowserPanelBridge } from './BrowserPanel';
 import { useBrowserRefresh } from './useBrowserRefresh';
 import {
@@ -120,6 +121,11 @@ function Session({ token, id, workspacePath, collapseTranscript, className }: {
   return (
     <section className={className ? `browser-host-session ${className}` : 'browser-host-session'}>
       <AgentSessionPanel sessionId={id} workspacePath={workspacePath} collapseTranscript={collapseTranscript}
+        onFileClick={(filePath) => {
+          setFeedback('');
+          void downloadBrowserFile((path) => request(token, path), filePath)
+            .catch((error: Error) => setFeedback(error.message));
+        }}
         browserSession={{
           submit,
           interrupt: async () => {

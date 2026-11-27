@@ -20,6 +20,7 @@ export type BrowserHostConfig = BrowserHostAccess & {
   workspacePath: string;
   rendererPath: string;
   pdfPath?: string;
+  fileLinkPaths?: string[];
 };
 
 export interface BrowserHostServices {
@@ -45,7 +46,7 @@ export interface BrowserHostServices {
   createAutomation: (automation: BrowserHostAutomation) => Promise<string>;
 }
 
-const maxPdfBytes = 32 * 1024 * 1024;
+const maxFileBytes = 32 * 1024 * 1024;
 const maxBodyBytes = 64 * 1024;
 const scheduleTime = /^(?:[01]\d|2[0-3]):[0-5]\d$/;
 const weekdays = new Set(['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']);
@@ -128,12 +129,43 @@ async function readPdf(config: BrowserHostConfig): Promise<Response> {
   try {
     const info = await file.stat();
     if (!info.isFile()) return failure('PDF unavailable', 404);
-    if (info.size > maxPdfBytes) return failure('PDF exceeds 32 MB', 413);
+    if (info.size > maxFileBytes) return failure('PDF exceeds 32 MB', 413);
     const data = Buffer.alloc(info.size + 1);
     const { bytesRead } = await file.read(data, 0, data.length, 0);
     if (bytesRead !== info.size) return failure('PDF changed while reading', 409);
     return new Response(new Uint8Array(data.subarray(0, bytesRead)), {
       headers: { ...securityHeaders, 'Content-Type': 'application/pdf' },
+    });
+  } finally {
+    await file.close();
+  }
+}
+
+async function readLinkedFile(path: string | null, allowedPaths: string[]): Promise<Response> {
+  const unavailable = () => failure('This file has not been shared with this browser workspace', 404);
+  if (!path || !isAbsolute(path) || !allowedPaths.length) return unavailable();
+  const filePath = await realpath(path).catch(() => null);
+  if (!filePath || !allowedPaths.some((allowed) => filePath === allowed || isInside(allowed, filePath))) {
+    return unavailable();
+  }
+  const file = await open(filePath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK).catch(() => null);
+  if (!file) return unavailable();
+  try {
+    const info = await file.stat();
+    const currentPath = await realpath(filePath).catch(() => null);
+    const currentInfo = currentPath === filePath ? await stat(currentPath).catch(() => null) : null;
+    if (!info.isFile() || currentInfo?.dev !== info.dev || currentInfo?.ino !== info.ino) return unavailable();
+    if (info.size > maxFileBytes) return failure('File exceeds 32 MB', 413);
+    const data = Buffer.alloc(info.size + 1);
+    const { bytesRead } = await file.read(data, 0, data.length, 0);
+    if (bytesRead !== info.size) return failure('File changed while reading', 409);
+    return new Response(new Uint8Array(data.subarray(0, bytesRead)), {
+      headers: {
+        ...securityHeaders,
+        'Content-Type': 'application/octet-stream',
+        'Content-Disposition': 'attachment',
+        'Cache-Control': 'no-store',
+      },
     });
   } finally {
     await file.close();
@@ -215,6 +247,9 @@ export function createBrowserHostHandler(config: BrowserHostConfig, services: Br
     }
     if (request.method === 'GET' && pathname === '/api/pdf') {
       return readPdf(config);
+    }
+    if (request.method === 'GET' && pathname === '/api/file-link') {
+      return readLinkedFile(url.searchParams.get('path'), config.fileLinkPaths ?? []);
     }
     if (request.method === 'GET' && pathname === '/api/extensions') {
       return json(await services.listExtensions());
@@ -416,7 +451,15 @@ async function resolveBrowserHostConfig(input: unknown, rendererPath: string) {
   const workspacePath = config.workspacePath;
   const workspaceRoot = await realpath(workspacePath);
   if (!(await stat(workspaceRoot)).isDirectory()) throw new Error('Browser host workspace must be a directory');
-  return { ...access, port, workspacePath, workspaceRoot, pdfPath: config.pdfPath, rendererPath };
+  const fileLinkPaths = config.fileLinkPaths === undefined ? [] : config.fileLinkPaths;
+  if (!Array.isArray(fileLinkPaths) || !fileLinkPaths.every((path) => typeof path === 'string' && isAbsolute(path))) {
+    throw new Error('Browser host fileLinkPaths must be an array of absolute paths');
+  }
+  const resolvedFileLinkPaths = await Promise.all(fileLinkPaths.map((path) => realpath(path).catch(() => resolve(path))));
+  if (resolvedFileLinkPaths.some((path) => resolve(path, '..') === path)) {
+    throw new Error('Browser host fileLinkPaths cannot share a filesystem root');
+  }
+  return { ...access, port, workspacePath, workspaceRoot, pdfPath: config.pdfPath, rendererPath, fileLinkPaths: resolvedFileLinkPaths };
 }
 
 async function listenBrowserHost(port: number, handle: ReturnType<typeof createBrowserHostHandler>, dispose: () => void) {

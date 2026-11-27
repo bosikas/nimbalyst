@@ -5,6 +5,7 @@ import type { BrowserHostExtension, BrowserHostSchedule } from '../../shared/bro
 import { BrowserPanel, type RegisterBrowserPanelBridge } from './BrowserPanel';
 import { BrowserUsageIndicators, useBrowserRailStatus } from './BrowserRailStatus';
 import { PanelGutterBadgeBubble } from '../extensions/panels/PanelGutterBadgeBubble';
+import { downloadBrowserFile } from './downloadBrowserFile';
 
 type Request = (path: string, init?: RequestInit) => Promise<Response>;
 const week = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
@@ -122,8 +123,12 @@ export function BrowserWorkspaceViews({ request, pdf, pdfName, workspacePath, op
   const openFile = useCallback((path: string) => {
     if (path.startsWith('session://')) goToSession(path.slice('session://'.length).split('/')[0]);
     else if (pdfName && path === `${workspacePath}/${pdfName}`) setView('pdf');
-    else setNavigationError('This file cannot be opened in the browser');
-  }, [goToSession, pdfName, workspacePath]);
+    else {
+      setNavigationError('');
+      const filePath = path.startsWith('/') ? path : `${workspacePath}/${path}`;
+      void downloadBrowserFile(request, filePath).catch((error: Error) => setNavigationError(error.message));
+    }
+  }, [goToSession, pdfName, request, workspacePath]);
   const close = useCallback(() => setView('sessions'), []);
   useEffect(() => setNavigationError(''), [view]);
 
