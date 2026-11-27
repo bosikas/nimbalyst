@@ -15,6 +15,7 @@ import { trackCreateAiSession } from '../../analytics/sessionLaunchAnalytics';
 import { captureTutorialMilestone } from '../../tutorial/tutorialAnalytics';
 import { bucketAgeInDays, bucketCount, extractModelForProvider } from '.././aiServiceUtils';
 import { resolveProviderAuthRequirement } from '.././providerAuthRequirement';
+import { readSessionTokenUsageForDisplay } from '../vibeSessionTokenUsage';
 import { isExtensionAgentProvider, resolveExtensionAgentRef } from '.././providerResolution';
 import { getLocalHostDeviceId, stampSessionHost } from '.././sessionHostAttribution';
 import { type AIServiceContext } from './AIServiceContext';
@@ -411,7 +412,8 @@ export function registerSessionHandlers(ctx: AIServiceContext): void {
     // the index for pendingExecution flags. We do NOT call watchSession() here because
     // it creates a WebSocket connection per session, causing performance issues.
 
-    return session;
+    const tokenUsage = await readSessionTokenUsageForDisplay(session);
+    return tokenUsage === session.tokenUsage ? session : { ...session, tokenUsage };
     })();
 
     loadSessionInFlight.set(sessionId, loadPromise);

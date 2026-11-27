@@ -1546,7 +1546,7 @@ export class MessageStreamingHandler {
             // during a long agentic turn. Must not touch cumulative
             // input/output counters -- those settle on the 'complete' chunk.
             const partialContextFill: number | undefined = chunk.contextFillTokens;
-            const partialContextWindow = selectedModelContextWindow || session.tokenUsage?.contextWindow;
+            const partialContextWindow = chunk.contextWindow || selectedModelContextWindow || session.tokenUsage?.contextWindow;
             if (partialContextFill !== undefined && partialContextWindow) {
               const currentUsage = session.tokenUsage ?? {
                 inputTokens: 0,

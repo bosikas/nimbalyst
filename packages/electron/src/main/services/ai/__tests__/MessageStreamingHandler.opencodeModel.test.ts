@@ -65,6 +65,8 @@ vi.mock("@nimbalyst/runtime/ai/modelConstants", () => ({
   resolveClaudeCodeParentContextWindow: vi.fn(),
 }));
 
+vi.mock('../ensureVibeWorktree', () => ({ ensureVibeWorktree: vi.fn().mockResolvedValue(undefined) }));
+
 vi.mock("@nimbalyst/runtime/types/MCPServerConfig", () => ({
   buildMcpSessionStatusSnapshot: vi.fn(() => ({})),
 }));
@@ -429,6 +431,24 @@ describe("MessageStreamingHandler OpenCode context usage", () => {
     expect(persisted.contextWindow).toBeUndefined();
     // Compaction reset the context, not what the session has spent.
     expect(persisted.totalTokens).toBe(132);
+  });
+});
+
+it('persists the context window supplied by Vibe before a turn completes', async () => {
+  vi.clearAllMocks();
+  mocks.providerFactory.getProvider.mockReturnValue(null);
+  const updateSessionTokenUsage = vi.fn();
+  await runTurn({
+    session: openCodeSession({ id: 'vibe-live-context', provider: 'mistral-vibe', model: 'zai-glm-5-3-flash' }),
+    provider: new RecordingProvider([
+      { type: 'context_usage', contextFillTokens: 91_459, contextWindow: 400_000 },
+      { type: 'complete', isComplete: true },
+    ]),
+    sessionManager: { updateSessionTokenUsage },
+  });
+  expect(updateSessionTokenUsage).toHaveBeenCalledWith('vibe-live-context', {
+    inputTokens: 0, outputTokens: 0, totalTokens: 0, contextWindow: 400_000,
+    currentContext: { tokens: 91_459, contextWindow: 400_000 },
   });
 });
 

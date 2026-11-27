@@ -70,6 +70,7 @@ import {
   safeSend,
 } from './aiServiceUtils';
 import { MessageStreamingHandler } from './MessageStreamingHandler';
+import { readSessionTokenUsageForDisplay } from './vibeSessionTokenUsage';
 import { shouldForceIdleOnCancel } from './sessionSettlePolicy';
 import { HooklessAgentFileWatcher } from './HooklessAgentFileWatcher';
 import { MobileSyncHandler } from './MobileSyncHandler';
@@ -534,13 +535,14 @@ export class AIService {
         const session = await AISessionsRepository.get(id);
         if (session?.workspacePath !== workspacePath) return null;
         const { getQueuedPromptsStore } = await import('../RepositoryManager');
-        const [messages, pending] = await Promise.all([
+        const [messages, pending, tokenUsage] = await Promise.all([
           TranscriptMigrationRepository.getService().getViewMessages(id, session.provider),
           getQueuedPromptsStore().listPending(id),
+          readSessionTokenUsageForDisplay(session),
         ]);
         const state = getSessionStateManager().getSessionState(id);
         return {
-          ...session, messages, processing: state?.status === 'running',
+          ...session, messages, tokenUsage, processing: state?.status === 'running',
           queuedPrompts: pending.map(({ id, prompt, createdAt }) => ({ id, prompt, timestamp: createdAt })),
         };
       },
