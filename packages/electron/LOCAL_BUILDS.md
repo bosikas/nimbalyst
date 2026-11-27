@@ -16,6 +16,8 @@ Omit `--install` to build and sign only. Use `--heap-mb=3072` to explicitly try 
 python3 scripts/rebuild-marilyst.py --install-only
 ```
 
+The script warns when the build volume, or the destination volume for an install-only run, has less than 25 GiB available. Review older rollback bundles and rebuildable caches if space is low.
+
 Installation stages and verifies a copy, checks its archive against the verified source, preserves the previous `/Applications/Marilyst.app` in a timestamped backup under `~/Library/Caches/Marilyst-backups/` (never inside `/Applications`, where extra copies with the same bundle id confuse macOS privacy approvals), and restores it if replacement verification fails. Failed/staged bundles remain available as evidence. A lock prevents concurrent replacements; after a killed install, its `.Marilyst-install.lock/owner.json` identifies the staging and backup paths for inspection before recovery. App configuration and user data are untouched. The script never quits, launches or restarts the app. Quit and reopen Marilyst when ready to load the new build. The receipt lives in `packages/electron/node_modules/.cache/nimbalyst-local-build/last-install.json`.
 
 The installed SDK can be selected explicitly with `NIMBALYST_SWIFT_SDK=/path/to/MacOSX.sdk`. The compatibility preflight still applies. No files under `/tmp` are required by this workflow.

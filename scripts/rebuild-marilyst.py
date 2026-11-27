@@ -25,6 +25,8 @@ LEGACY_BUNDLE_ID = 'com.nimbalyst.electron'
 # Install work bundles live outside /Applications: every extra copy there shares
 # the bundle id and LaunchServices/TCC may attribute permission checks to it.
 BACKUP_DIR = Path.home() / 'Library/Caches/Marilyst-backups'
+GIB = 1024 ** 3
+DISK_WARNING_GIB = 25
 # A stable self-signed identity keeps the designated requirement constant across
 # rebuilds, so macOS privacy approvals survive. Ad-hoc signatures change each build.
 SIGNING_IDENTITY = 'Marilyst Local Signing'
@@ -50,6 +52,17 @@ def bundle_info(app, allowed_ids=(BUNDLE_ID,)):
 def run(command, **kwargs):
     print('+ ' + ' '.join(map(str, command)), flush=True)
     return subprocess.run(list(map(str, command)), check=True, **kwargs)
+
+
+def warn_if_low_disk_space(path):
+    available = shutil.disk_usage(path).free
+    if available < DISK_WARNING_GIB * GIB:
+        print(
+            f'Low disk space on the volume containing {path} ({available / GIB:.1f} GiB available). '
+            f'Aim for {DISK_WARNING_GIB} GiB before a local rebuild. '
+            'Check old Marilyst rollbacks and rebuildable caches for space.',
+            file=sys.stderr,
+        )
 
 
 def signing_identity_exists(check_output=subprocess.check_output):
@@ -338,6 +351,7 @@ def main():
         parser.error('This local workflow is for an Apple Silicon Mac')
     if not 1024 <= args.heap_mb <= 8192:
         parser.error('--heap-mb must be between 1024 and 8192')
+    warn_if_low_disk_space(args.target.parent if args.install_only else ELECTRON)
     os.nice(max(0, 10 - os.getpriority(os.PRIO_PROCESS, 0)))
     CACHE.mkdir(parents=True, exist_ok=True)
     if not args.install_only:

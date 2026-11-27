@@ -1,4 +1,6 @@
+from contextlib import redirect_stderr
 import importlib.util
+import io
 from pathlib import Path
 import plistlib
 import shutil
@@ -173,6 +175,18 @@ class ToolchainTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
         self.root = Path(self.temp.name)
+
+    def test_warns_before_rebuilding_on_a_low_space_volume(self):
+        for free_gib, expect_warning in ((11, True), (25, False)):
+            with self.subTest(free_gib=free_gib), patch.object(m.shutil, 'disk_usage') as usage:
+                usage.return_value.free = free_gib * 1024 ** 3
+                stderr = io.StringIO()
+                with redirect_stderr(stderr):
+                    m.warn_if_low_disk_space(self.root)
+                usage.assert_called_once_with(self.root)
+                self.assertEqual(bool(stderr.getvalue()), expect_warning)
+                if expect_warning:
+                    self.assertIn('11.0 GiB available', stderr.getvalue())
 
     def sdk(self, name, version):
         sdk = self.root / name
