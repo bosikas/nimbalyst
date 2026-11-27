@@ -7,7 +7,8 @@ import {
   MISTRAL_VIBE_INSTALL_PATHS,
   MistralVibeACPProtocol,
 } from '../protocols/MistralVibeACPProtocol';
-import type { AIModel } from '../types';
+import type { AIModel, ChatAttachment, DocumentContext } from '../types';
+import { buildUserMessageAddition } from './documentContextUtils';
 import {
   HeadlessCliAgentProvider,
   type HeadlessCliAgentDescriptor,
@@ -102,6 +103,18 @@ export class MistralVibeProvider extends HeadlessCliAgentProvider {
   protected configureProtocol(executablePath: string, env: Record<string, string> | null): void {
     this.protocol.setExecutablePath(executablePath);
     this.protocol.setProcessEnv(env);
+  }
+
+  async steerTurn(sessionId: string, messageId: string, message: string, documentContext?: DocumentContext, attachments?: ChatAttachment[]) {
+    const { messageWithContext } = buildUserMessageAddition(message, documentContext);
+    const result = await this.protocol.steerTurn(sessionId, messageId, { content: messageWithContext, attachments });
+    if (result === 'accepted') {
+      await this.logAgentMessage(sessionId, this.getProviderName(), 'input', messageWithContext, {
+        ...this.withPromptProvenanceMetadata(documentContext),
+        mode: documentContext?.mode,
+      }, undefined, messageId);
+    }
+    return result;
   }
 
   async compactSession(

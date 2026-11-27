@@ -18,6 +18,7 @@ interface PromptQueueListProps {
   onCancel: (id: string) => void;
   onEdit?: (id: string, prompt: string) => void;
   onSendNow?: (id: string, prompt: string) => void;
+  sendNowLabel?: string;
 }
 
 function AttachmentIndicator({ attachments }: { attachments: QueuedPromptAttachment[] }) {
@@ -54,7 +55,7 @@ function AttachmentIndicator({ attachments }: { attachments: QueuedPromptAttachm
 /**
 - PromptQueueList - Displays queued prompts waiting to be processed
  */
-export function PromptQueueList({ queue, onCancel, onEdit, onSendNow }: PromptQueueListProps) {
+export function PromptQueueList({ queue, onCancel, onEdit, onSendNow, sendNowLabel = 'Interrupt and send now' }: PromptQueueListProps) {
   if (queue.length === 0) {
     return null;
   }
@@ -76,7 +77,8 @@ export function PromptQueueList({ queue, onCancel, onEdit, onSendNow }: PromptQu
               <button
                 className="prompt-queue-send-now shrink-0 w-5 h-5 flex items-center justify-center bg-transparent border-none rounded text-nim-muted cursor-pointer text-sm leading-none p-0 transition-all duration-150 hover:bg-nim-hover hover:text-nim-accent"
                 onClick={() => onSendNow(item.id, item.prompt)}
-                title="Interrupt and send now"
+                title={sendNowLabel}
+                aria-label={sendNowLabel}
                 type="button"
               >
                 <svg width="12" height="12" viewBox="0 0 16 16" fill="none" xmlns="http://www.w3.org/2000/svg">

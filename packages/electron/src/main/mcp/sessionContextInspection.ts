@@ -1,32 +1,41 @@
 import { AISessionsRepository } from '@nimbalyst/runtime/storage/repositories/AISessionsRepository';
 import { readCodexContext, readCodexContextEvidence } from '@nimbalyst/runtime/ai/server/providers/codex/codexContextInspection';
+import { readVibePreparedContext } from '@nimbalyst/runtime/ai/server/providers/vibeContextInspection';
 import { homedir } from 'os';
 import { join } from 'path';
 import { readCodexRecordedStartup } from './codexRolloutStartup';
 import { sameWorkspaceIdentity } from '../utils/workspaceIdentity';
 import { getToolBudgetSnapshot } from './toolBudgetService';
 import { readClaudeContextInspection } from './claudeContextInspection';
-import { readVibeContextInspection, recordedVibeStartup } from './vibeContextInspection';
+import { readVibeContextGroups, recordedVibeStartup } from './vibeContextInspection';
 
 const CLAUDE_PROVIDERS = new Set(['claude-code', 'claude-code-cli']);
 
 export async function getSessionContextInspection(
   sessionId: string,
   workspacePath: string,
-  { includeRecordedStartup = false }: { includeRecordedStartup?: boolean } = {},
+  { audience = 'agent' }: { audience?: 'agent' | 'desktop' | 'browser' } = {},
 ) {
   const session = await AISessionsRepository.get(sessionId);
   if (!session?.workspacePath || !sameWorkspaceIdentity(session.workspacePath, workspacePath)) throw new Error('Session is not in this workspace.');
   const metadata = typeof session.metadata === 'string' ? JSON.parse(session.metadata) : session.metadata;
+  const includeRecordedStartup = audience !== 'agent';
   const nativeUsage = {
     source: 'Stored provider-reported usage. Current context and cumulative spend are different quantities.',
     value: session.tokenUsage ?? metadata?.tokenUsage ?? null,
   };
   if (session.provider === 'mistral-vibe') {
+    const prepared = readVibePreparedContext(sessionId);
     return {
       sessionId,
       nativeUsage,
-      vibe: await readVibeContextInspection(sessionId, session.providerSessionId, includeRecordedStartup),
+      preparedRequest: prepared?.request ?? null,
+      unavailable: 'The latest prepared request is available after a Vibe prompt runs in this app process.',
+      vibe: {
+        groups: await readVibeContextGroups(session.providerSessionId),
+        instructions: includeRecordedStartup ? prepared?.instructions : undefined,
+      },
+      toolDefinitions: await getToolBudgetSnapshot(session.workspacePath),
       ...(includeRecordedStartup ? { recordedStartup: await recordedVibeStartup(session.providerSessionId, RECORDED_TEXT_LIMIT) } : {}),
     };
   }
@@ -35,7 +44,7 @@ export async function getSessionContextInspection(
       sessionId,
       nativeUsage,
       // Prompt and appended system prompt text are raw user content; only the local inspector opts in.
-      claude: await readClaudeContextInspection({ id: sessionId, provider: session.provider }, { includeText: includeRecordedStartup }),
+      claude: await readClaudeContextInspection({ id: sessionId, provider: session.provider }, { includeText: audience === 'desktop' }),
       unavailable: "Claude's built-in system prompt text is never exposed; only its section names and token counts are.",
     };
   }
@@ -46,7 +55,7 @@ export async function getSessionContextInspection(
     nativeEvidence: readCodexContextEvidence(sessionId),
     unavailable: 'No prepared-request snapshot until a Codex turn runs in this app process. Native context categories and active loaded-tool set are unavailable. Original transcript bytes are not current model context.',
     toolDefinitions: await getToolBudgetSnapshot(session.workspacePath),
-    // Recorded messages contain raw prompt text. The local inspector opts in to reading it.
+    // Recorded messages contain raw prompt text. User-facing inspectors opt in to reading it.
     ...(includeRecordedStartup ? { recordedStartup: await recordedCodexStartup(session) } : {}),
   };
 }

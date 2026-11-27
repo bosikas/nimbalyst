@@ -8,10 +8,11 @@ vi.mock('../../utils/workspaceIdentity', () => ({ sameWorkspaceIdentity: (a: str
 vi.mock('../toolBudgetService', () => ({ getToolBudgetSnapshot: async () => ({ groups: [{ schemaBytes: 1234, estTokens: 300, inclusionReason: 'Configured discovery' }] }) }));
 import { getSessionContextInspection } from '../sessionContextInspection';
 import { captureClaudeContextReport } from '../claudeContextReport';
-import { captureVibeInstructions } from '../vibeContextInspection';
+import { recordVibePreparedContext } from '@nimbalyst/runtime/ai/server/providers/vibeContextInspection';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
 import { join } from 'path';
+import { gzipSync } from 'node:zlib';
 beforeEach(() => {
   state.session = { workspacePath: '/project', metadata: JSON.stringify({ tokenUsage: { currentContext: { tokens: 7123, contextWindow: 100000 } } }) };
   state.snapshot = null;
@@ -19,12 +20,13 @@ beforeEach(() => {
   state.reads = [];
 });
 describe('context inspection boundary', () => {
-  it('returns Vibe character counts and keeps prepared text scoped to the inspector', async () => {
+  it.each(['plain', 'gzip', 'inline'])('returns Vibe context and scopes recorded text to the inspector (%s checkpoint)', async (format) => {
     const providerSessionId = 'c9187458-2f50-619d-9659-3e378bc79028';
     state.session = { ...state.session, provider: 'mistral-vibe', providerSessionId };
     const vibeHome = mkdtempSync(join(tmpdir(), 'vibe-context-'));
     vi.stubEnv('VIBE_HOME', vibeHome);
-    captureVibeInstructions('vibe', 'Private prompt instructions');
+    recordVibePreparedContext({ id: providerSessionId, platform: 'mistral-vibe-acp', deliveredMcpServerCount: 2 },
+      { sessionId: 'vibe', content: 'Latest prompt' }, 'Private prompt instructions', 1);
     try {
       const directory = join(vibeHome, 'logs', 'session', 'unified', providerSessionId);
       mkdirSync(directory, { recursive: true });
@@ -37,12 +39,12 @@ describe('context inspection boundary', () => {
       mkdirSync(chunks, { recursive: true });
       const digest = 'a'.repeat(64);
       writeFileSync(join(generation, 'manifest.json'), JSON.stringify({
-        session_id: providerSessionId, checkpoint: { chunks: [digest] },
+        session_id: providerSessionId, checkpoint: format === 'inline' ? { path: 'checkpoint.json' } : { chunks: [digest] },
       }));
       writeFileSync(join(generation, 'runtime-state.json'), JSON.stringify({
         session_id: providerSessionId, core_system_instructions: 'Vibe defaults\nAGENTS.md: keep é as written.',
       }));
-      writeFileSync(join(chunks, digest + '.json'), JSON.stringify([
+      const messages = [
         { turn_index: 0, source: 'instructions', message: { role: 'developer',
           content: [{ type: 'text', text: 'Recorded project instructions\n' }] } },
         { turn_index: 0, source: 'history', message: { role: 'user', content: [
@@ -51,10 +53,22 @@ describe('context inspection boundary', () => {
         ] } },
         { turn_index: 1, source: 'history', message: { role: 'user',
           content: [{ type: 'text', text: 'Later prompt' }] } },
-      ]));
-      const local = await getSessionContextInspection('vibe', '/project', { includeRecordedStartup: true });
+      ];
+      if (format === 'inline') {
+        writeFileSync(join(generation, 'checkpoint.json'), JSON.stringify({ context: { messages } }));
+      } else if (format === 'gzip') {
+        writeFileSync(join(chunks, digest + '.json.gz'), gzipSync(JSON.stringify(messages)));
+      } else {
+        writeFileSync(join(chunks, digest + '.json'), JSON.stringify(messages));
+      }
+      const local = await getSessionContextInspection('vibe', '/project', { audience: 'desktop' });
       expect(local).toMatchObject({
         nativeUsage: { value: { currentContext: { tokens: 7123 } } },
+        preparedRequest: {
+          categories: [{ name: 'Nimbalyst guidance', bytes: 27 }, { name: 'User input and document additions', bytes: 13 }],
+          configuredMcpServers: 2,
+          attachments: 1,
+        },
         vibe: {
           groups: [
             { name: 'System instructions', characters: 1200 },
@@ -75,12 +89,12 @@ describe('context inspection boundary', () => {
           snapshots: [{ name: 'Saved Vibe system instructions', text: 'Vibe defaults\nAGENTS.md: keep é as written.' }],
         } },
       });
+      await expect(getSessionContextInspection('vibe', '/project', { audience: 'browser' })).resolves.toEqual(local);
       const agentReport = await getSessionContextInspection('vibe', '/project');
       expect(agentReport).not.toHaveProperty('recordedStartup');
       expect(JSON.stringify(agentReport)).not.toContain('Private prompt instructions');
       await expect(getSessionContextInspection('vibe', '/other')).rejects.toThrow('not in this workspace');
     } finally {
-      captureVibeInstructions('vibe', null);
       vi.unstubAllEnvs();
       rmSync(vibeHome, { recursive: true, force: true });
     }
@@ -109,7 +123,7 @@ describe('context inspection boundary', () => {
     await expect(getSessionContextInspection('s', '/other')).rejects.toThrow(/workspace/);
   });
   it('reads recorded native startup only for a Codex thread and reports a missing rollout honestly', async () => {
-    const inspectStartup = async () => ((await getSessionContextInspection('s', '/project', { includeRecordedStartup: true })) as any).recordedStartup;
+    const inspectStartup = async () => ((await getSessionContextInspection('s', '/project', { audience: 'desktop' })) as any).recordedStartup;
     expect(await inspectStartup()).toEqual({ report: null, status: expect.stringContaining('Not a Codex session') });
     state.session = { ...state.session, provider: 'openai-codex', providerSessionId: 'thread-1' };
     expect(await inspectStartup()).toEqual({ report: null, status: expect.stringContaining('No local Codex rollout') });
@@ -186,7 +200,7 @@ describe('Claude context inspection', () => {
     expect(agentFacing.claude.contextReport.apiUsage).toEqual({ inputTokens: 10, outputTokens: 20, cacheCreationInputTokens: 30, cacheReadInputTokens: 40 });
     expect(agentFacing).not.toHaveProperty('preparedRequest');
 
-    const local = (await getSessionContextInspection('s', '/project', { includeRecordedStartup: true })) as any;
+    const local = (await getSessionContextInspection('s', '/project', { audience: 'desktop' })) as any;
     expect(local.claude.lastRequest.systemPromptAppend).toBe('<scope>Workspace guidance</scope>');
     expect(local.claude.lastRequest.prompt).toContain('<active-document>a.md</active-document>');
   });

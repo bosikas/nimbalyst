@@ -89,17 +89,18 @@ for await (const line of input) {
       }
       write({ id, result: { configOptions: configuration() } });
       break;
-    case 'session/prompt':
+    case 'session/prompt': {
       if (mode !== 'ask') {
         write({ id, error: { code: -32602, message: 'Expected Ask mode' } });
         break;
       }
-      if (params.prompt[0]?.text === '/report-config') {
+      const text = params.prompt.filter(block => block.type === 'text').map(block => block.text).join('\n');
+      if (text === '/report-config') {
         update({ sessionUpdate: 'agent_message_chunk', content: { type: 'text', text: `${model}:${thinking}` } });
         write({ id, result: { stopReason: 'end_turn' } });
         break;
       }
-      if (params.prompt[0]?.text === '/compact') {
+      if (text === '/compact') {
         update({ sessionUpdate: 'tool_call_update', toolCallId: 'compact', title: 'Compacted conversation history', status: 'completed' });
         write({ id, result: { stopReason: 'end_turn' } });
         break;
@@ -118,6 +119,19 @@ for await (const line of input) {
           options: [{ optionId: 'allow', kind: 'allow_once', name: 'Allow once' }],
         },
       });
+      break;
+    }
+    case '_nimbalyst/steer':
+      if (!process.env.VIBE_STEERING) {
+        write({ id, error: { code: -32601, message: 'Method not found' } });
+        break;
+      }
+      if (!runningPrompt || params.sessionId !== sessionId || params.messageId !== 'queued-id') {
+        write({ id, result: { accepted: false } });
+        break;
+      }
+      update({ sessionUpdate: 'agent_message_chunk', content: params.prompt[0] });
+      write({ id, result: { accepted: true } });
       break;
     default:
       if (id !== permissionsId) break;

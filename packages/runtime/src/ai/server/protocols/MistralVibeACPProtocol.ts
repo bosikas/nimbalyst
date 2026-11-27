@@ -5,8 +5,10 @@ import { promisify } from 'node:util';
 import path from 'path';
 import { EFFORT_LEVELS, parseEffortLevel, selectSupportedEffortLevel } from '../effortLevels';
 import type { AIModel } from '../types';
+import { recordVibePreparedContext } from '../providers/vibeContextInspection';
 import { AcpStdioAgentProtocol, type GrokACPProtocolDeps } from './GrokACPProtocol';
-import type { ProtocolSession, SessionOptions } from './ProtocolInterface';
+import type { ProtocolMessage, ProtocolSession, SessionOptions } from './ProtocolInterface';
+import { resolveVibeSteeringLaunch } from './headless/vibeSteeringLauncher';
 import { mapVibeSessionUpdate, readVibeUsage } from './headless/MistralVibeRecordMapper';
 
 export const MISTRAL_VIBE_EXECUTABLE = process.platform === 'win32' ? 'vibe-acp.exe' : 'vibe-acp';
@@ -102,6 +104,8 @@ export class MistralVibeACPProtocol extends AcpStdioAgentProtocol {
       args: [],
       mapUpdate: (update, workspacePath) => mapVibeSessionUpdate(update, (filePath) => path.resolve(workspacePath, filePath)),
       getUsage: readVibeUsage,
+      onPromptPrepared: recordVibePreparedContext,
+      resolveLaunch: resolveVibeSteeringLaunch,
       formatError: (error) => {
         const message = error instanceof Error ? error.message : String(error);
         if (/auth required|authentication required|not authenticated|unauthenticated|unauthorized|(?:invalid|missing) api key/i.test(message)) {
@@ -149,6 +153,19 @@ export class MistralVibeACPProtocol extends AcpStdioAgentProtocol {
       supportsAttachments: true,
       supportsSseMcp: false,
     }, deps);
+  }
+
+  async steerTurn(sessionId: string, messageId: string, message: ProtocolMessage): Promise<'accepted' | 'unavailable' | 'unsupported'> {
+    const prompt = await this.buildPromptBlocks(message);
+    try {
+      const result = await this.requestActiveTurnExtension(sessionId, '_nimbalyst/steer', { messageId, prompt });
+      if (result === undefined || result.accepted === false) return 'unavailable';
+      if (result.accepted === true) return 'accepted';
+      throw new Error('Vibe did not confirm steering delivery');
+    } catch (error) {
+      if (error instanceof RequestError && error.code === -32601) return 'unsupported';
+      throw error;
+    }
   }
 
   /** Query the CLI's workspace catalog without starting a model turn. */

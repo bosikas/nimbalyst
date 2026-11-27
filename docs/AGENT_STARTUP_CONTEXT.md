@@ -20,9 +20,11 @@ The Codex base prompt has its own editor and Markdown source selector. Without a
 
 The Effective setup tab previews the selected custom Codex base separately from Nimbalyst additions for a new thread. It is a configuration preview, not a capture of the base in an existing thread or proof of outbound delivery. The installed Codex 0.167.0 accepted a custom base in a validation-only `thread/start` without a model turn. It did not persist that empty thread; real-binary resume retention has not been observed. Protocol tests cover omission of the override during resume.
 
-## Inspect recorded Codex startup
+## Inspect recorded native startup
 
 In the token meter, choose **Inspect context** to open the dialog. **Recorded native startup: messages and audit snapshots** reads the local Codex startup log for the session's native thread and keeps recorded evidence separate from the prepared request and provider-reported usage. Missing files, unsupported older thread identifiers and read errors remain explicit. The lookup checks the UUIDv7 creation-day directory and its adjacent days. Archived or moved rollouts may be unavailable.
+
+Mistral Vibe uses the same inspector for the latest ACP request measurements and the startup messages and instructions retained in Vibe's session files. The authenticated browser inspector can read these records for the connected workspace. Agent tools receive measurements without raw startup text.
 
 For **Claude Agent** and **Claude Code CLI**, the same dialog shows the first user message in the available transcript and provider-reported context categories when present. Claude Agent also shows the last turn's Nimbalyst prompt additions captured in the current app window. Claude’s built-in system prompt and native instruction text are unavailable in the inspector.
 

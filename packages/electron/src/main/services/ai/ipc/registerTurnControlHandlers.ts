@@ -1,4 +1,5 @@
 import { sessionInbox } from '../sessionInboxService';
+import { remoteSessions } from '../remoteSessions';
 import { safeHandle } from '../../../utils/ipcRegistry';
 import { registerBrowserPanelCommand } from '../../../browserHost/browserPanelCommands';
 import { logger } from '../../../utils/logger';
@@ -125,6 +126,14 @@ export function registerTurnControlHandlers(ctx: AIServiceContext): void {
   safeHandle('ai:interruptCurrentTurn', (_event, sessionId: string) =>
     ctx.interruptCurrentTurn(sessionId, { userSendNow: true })
   );
+
+  registerBrowserPanelCommand('ai:sendQueuedVibePromptNow', async (_event, sessionId: string, promptId: string) => {
+    if (typeof sessionId !== 'string' || !sessionId || typeof promptId !== 'string' || !promptId || promptId.length > 128) {
+      throw new Error('A session and queued prompt are required');
+    }
+    await remoteSessions.assertLocalExecution(sessionId);
+    return ctx.sendQueuedVibePromptNow(sessionId, promptId);
+  });
 
   // #1252: compact via the provider's real RPC. The renderer used to send
   // the literal string "/compact" as a user turn, which only ever worked for

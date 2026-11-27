@@ -45,7 +45,17 @@ vi.mock('@nimbalyst/runtime/storage/repositories/AISessionsRepository', () => ({
 const dispatch = (channel: string, args: unknown[]) => invokeBrowserPanel('/workspace', 'archive', channel, args);
 const sessionHistory = (channel: string, args: unknown[]) => invokeBrowserSessionHistory('/workspace', channel, args, 'codex');
 
-it('returns context evidence only for a session in the connected workspace', async () => {
+it('limits browser steering requests to the connected workspace', async () => {
+  const channel = 'ai:sendQueuedVibePromptNow';
+  mocks.getSession.mockResolvedValueOnce({ workspacePath: '/other' });
+  await expect(sessionHistory(channel, ['foreign', 'queued'])).rejects.toThrow('Session not found');
+  expect(mocks.invoke).not.toHaveBeenCalled();
+  mocks.getSession.mockResolvedValueOnce({ workspacePath: '/workspace' });
+  await sessionHistory(channel, ['local', 'queued']);
+  expect(mocks.invoke).toHaveBeenCalledWith(channel, mocks.sender, ['local', 'queued']);
+});
+
+  it('requests user-facing context evidence only for the connected workspace', async () => {
   const channel = 'mcp-config:get-context-inspection';
   mocks.getSession.mockResolvedValue({ workspacePath: '/other' });
   await expect(sessionHistory(channel, ['outside'])).rejects.toThrow('Session not found');
@@ -55,7 +65,7 @@ it('returns context evidence only for a session in the connected workspace', asy
   const inspection = { preparedRequest: { categories: [{ name: 'Prompt', bytes: 512 }] } };
   mocks.inspectContext.mockResolvedValue(inspection);
   await expect(sessionHistory(channel, ['local'])).resolves.toEqual(inspection);
-  expect(mocks.inspectContext).toHaveBeenCalledWith('local', '/workspace');
+    expect(mocks.inspectContext).toHaveBeenCalledWith('local', '/workspace', { audience: 'browser' });
 });
 
 it('runs native Sessions operations only against the connected workspace', async () => {

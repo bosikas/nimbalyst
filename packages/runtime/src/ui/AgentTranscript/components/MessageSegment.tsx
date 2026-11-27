@@ -168,7 +168,7 @@ export const MessageSegment = React.memo(function MessageSegment({
     }
     if (!showThinking) return null;
     return (
-      <details className="rich-transcript-thinking rounded-md border border-[var(--nim-border)] bg-[var(--nim-bg-secondary)]">
+      <details className="rich-transcript-thinking rounded-md bg-[var(--nim-bg-secondary)]">
         <summary className="flex items-center gap-1.5 px-2 py-1 text-xs text-[var(--nim-text-muted)] cursor-pointer select-none">
           <MaterialSymbol icon="psychology" size={14} />
           <span>Thinking</span>

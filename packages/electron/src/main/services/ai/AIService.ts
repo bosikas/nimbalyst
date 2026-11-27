@@ -107,6 +107,9 @@ import { publishQueuedPromptsToSync } from './queuedPromptSyncPublisher';
 import { onWorkspaceWindowAvailable } from '../../window/workspaceWindowAvailability';
 import { dispatchQueuedPromptToClaudeCli } from './claudeCliQueueDispatch';
 import { publishQueuedPromptClaim } from './queuedPromptClaimEvents';
+import { steerQueuedPrompt } from './steerQueuedPrompt';
+import { MistralVibeProvider } from '@nimbalyst/runtime/ai/server/providers/MistralVibeProvider';
+import { getQueuedPromptsStore } from '../RepositoryManager';
 import { canDispatchIntoDrain, isLeadTurnPending } from './drainFollowUp';
 import { hasLiveInteractivePrompt } from '../../mcp/tools/interactivePromptLiveness';
 import { isCommitProposalInFlight } from '@nimbalyst/runtime/ai/server/commitProposalInFlight';
@@ -647,6 +650,31 @@ export class AIService {
     );
 
     return { success: true, method: result.method, forcedIdle };
+  }
+
+  public async sendQueuedVibePromptNow(sessionId: string, promptId: string): Promise<{ steered: boolean }> {
+    const session = await AISessionsRepository.get(sessionId);
+    if (session?.provider !== 'mistral-vibe' || !session.workspacePath) throw new Error('Vibe session not found');
+    const queue = getQueuedPromptsStore();
+    const pending = await queue.get(promptId);
+    if (pending?.sessionId !== sessionId || pending.status !== 'pending') return { steered: false };
+    const workspacePath = session.worktreePath || session.workspacePath;
+    const provider = ProviderFactory.getProvider('mistral-vibe', sessionId);
+
+    const outcome = provider instanceof MistralVibeProvider
+      ? await steerQueuedPrompt(queue, sessionId, promptId, (prompt) =>
+        provider.steerTurn(sessionId, prompt.id, prompt.prompt, prompt.documentContext, prompt.attachments))
+      : 'unavailable';
+
+    if (outcome === 'accepted') {
+      publishQueuedPromptClaim({ sessionId, promptId });
+      findWindowByWorkspace(session.workspacePath)?.webContents.send('ai:promptClaimed', { sessionId, promptId });
+      await this.publishQueueStateToSync(sessionId);
+      return { steered: true };
+    }
+    if (outcome === 'unsupported') await this.interruptCurrentTurn(sessionId, { userSendNow: true });
+    if (outcome !== 'already-claimed') this.requestQueueDrive(sessionId, workspacePath, 'send-now');
+    return { steered: false };
   }
 
   public async respondToInteractivePrompt(params: {
@@ -1359,6 +1387,7 @@ export class AIService {
       driveQueuedPrompts: (sessionId, workspacePath, reason) => this.driveQueuedPrompts(sessionId, workspacePath, reason),
       forceSessionIdleOnCancel: (sessionId) => this.forceSessionIdleOnCancel(sessionId),
       interruptCurrentTurn: (sessionId, options) => this.interruptCurrentTurn(sessionId, options),
+      sendQueuedVibePromptNow: (sessionId, promptId) => this.sendQueuedVibePromptNow(sessionId, promptId),
 
       createToolHandler: (webContents, documentContext, sessionId, workspaceId) =>
         this.createToolHandler(webContents, documentContext, sessionId, workspaceId),

@@ -172,6 +172,8 @@ function memoryQueue(): QueuedPromptsStore {
       return row;
     },
     async complete(id) { const row = rows.get(id); if (row) row.status = 'completed'; },
+    async claimForSteering() { throw new Error('Unexpected live steering'); },
+    async settleSteering() { throw new Error('Unexpected live steering'); },
     async fail(id, errorMessage) {
       const row = rows.get(id);
       if (row) { row.status = 'failed'; row.errorMessage = errorMessage; }

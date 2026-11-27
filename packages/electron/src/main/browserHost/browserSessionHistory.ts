@@ -26,7 +26,7 @@ export async function invokeBrowserSessionHistory(
 
   switch (channel) {
     case 'mcp-config:get-context-inspection':
-      return getSessionContextInspection(await requireSession(first), workspacePath);
+      return getSessionContextInspection(await requireSession(first), workspacePath, { audience: 'browser' });
     case 'ai:getModels':
       return invoke(channel);
     case 'action-prompts:list':
@@ -34,6 +34,8 @@ export async function invokeBrowserSessionHistory(
       return invoke(channel, { workspacePath });
     case 'ai:compactSession':
       return invoke(channel, await requireSession(first));
+    case 'ai:sendQueuedVibePromptNow':
+      return invoke(channel, await requireSession(first), second);
     case 'ai:deleteQueuedPrompt': {
       if (typeof first !== 'string' || first.length > 128) throw new Error('Invalid queued prompt');
       const prompt = await getQueuedPromptsStore().get(first);

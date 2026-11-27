@@ -619,6 +619,7 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
   const [promptAdditions, setPromptAdditions] = useAtom(sessionPromptAdditionsAtom(sessionId));
   // Queued prompts - centralized in atom, updated by sessionTranscriptListeners
   const [queuedPrompts, setQueuedPrompts] = useAtom(sessionQueuedPromptsAtom(sessionId));
+  const [sendNowError, setSendNowError] = useState<{ sessionId: string; message: string } | null>(null);
 
   // ============================================================
   // DB-derived pending prompts (durable across session switches/restarts)
@@ -1594,8 +1595,14 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
     }
   }, [setDraftInput]);
 
-  const handleSendNowQueuedPrompt = useCallback(async (_id: string, _prompt: string) => {
+  const handleSendNowQueuedPrompt = useCallback(async (promptId: string) => {
+    setSendNowError(null);
     try {
+      if (provider === 'mistral-vibe') {
+        const result = await window.electronAPI.invoke('ai:sendQueuedVibePromptNow', sessionId, promptId);
+        if (result?.steered) setQueuedPrompts(current => current.filter(prompt => prompt.id !== promptId));
+        return;
+      }
       // Two-step send-now: (1) interrupt the current turn (graceful for
       // Claude Code, hard abort for other providers via the BaseAIProvider
       // default); (2) explicitly trigger queue processing. The natural
@@ -1608,9 +1615,9 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
         await window.electronAPI.invoke('ai:triggerQueueProcessing', sessionId, workspacePath, 'send-now');
       }
     } catch (error) {
-      console.error('[SessionTranscript] Failed to interrupt for send-now:', error);
+      setSendNowError({ sessionId, message: error instanceof Error ? error.message : 'Send Now failed' });
     }
-  }, [sessionId, workspacePath]);
+  }, [provider, sessionId, setQueuedPrompts, workspacePath]);
 
   const handleCloseAndArchive = useCallback(async () => {
     // The helper shows an error message itself if the save fails. Stop here so the screen never says "archived" when it was not saved.
@@ -2797,11 +2804,15 @@ const LocalSessionTranscript = forwardRef<SessionTranscriptRef, SessionTranscrip
       {browserSession?.error && <p role="alert" className="px-4 py-2 text-[var(--nim-error)]">{browserSession.error}</p>}
 
       {/* Queue display */}
+      {sendNowError?.sessionId === sessionId && (
+        <p role="alert" className="px-3 py-2 text-sm text-[var(--nim-error)]">{sendNowError.message}</p>
+      )}
       <PromptQueueList
         queue={queuedPrompts}
         onCancel={handleCancelQueuedPrompt}
         onEdit={handleEditQueuedPrompt}
         onSendNow={isLoading && !isClaudeCliTerminalSession(provider) ? handleSendNowQueuedPrompt : undefined}
+        sendNowLabel={provider === 'mistral-vibe' ? 'Send now' : undefined}
       />
 
       {/* Note: All interactive prompts (ToolPermission, ExitPlanMode, AskUserQuestion) use inline widgets in transcript */}

@@ -1,18 +1,10 @@
 import type { ProtocolMessage } from '../../protocols/ProtocolInterface';
 import type { JsonRpcClient } from '../../protocols/codexAppServer/jsonRpcClient';
-
-export interface CodexContextInspection {
-  measuredAt: number;
-  scope: string;
-  categories: Array<{ name: string; bytes: number; reason: string }>;
-  configuredMcpServers: number;
-  attachments: number;
-  nativeContext: string;
-}
+import type { PreparedContextRequest } from '../preparedContextInspection';
 
 /** Metadata only; never keep an extra copy of prompts, transcripts or credentials. */
-const latest = new Map<string, CodexContextInspection>();
-export function measureCodexContext(guidance: string, delivery: Pick<ProtocolMessage, 'content' | 'toolOutputs'>, configuredMcpServers: number, attachments: number): CodexContextInspection {
+const latest = new Map<string, PreparedContextRequest>();
+export function measureCodexContext(guidance: string, delivery: Pick<ProtocolMessage, 'content' | 'toolOutputs'>, configuredMcpServers: number, attachments: number): PreparedContextRequest {
   return {
     measuredAt: Date.now(),
     scope: 'Last Nimbalyst-prepared Codex request, before native processing; UTF-8 text bytes, not tokens or full thread size.',
@@ -25,13 +17,13 @@ export function measureCodexContext(guidance: string, delivery: Pick<ProtocolMes
     nativeContext: 'Opaque or unavailable: native system instructions, loaded tool schemas, skill catalog, prior history/compaction state, image/document encoding and native categorization. These byte rows do not partition native token usage.',
   };
 }
-export function recordCodexContext(sessionId: string, snapshot: CodexContextInspection): void {
+export function recordCodexContext(sessionId: string, snapshot: PreparedContextRequest): void {
   latest.delete(sessionId);
   latest.set(sessionId, snapshot);
   // Diagnostic data is best-effort; bound app memory across many completed sessions.
   if (latest.size > 500) latest.delete(latest.keys().next().value!);
 }
-export function readCodexContext(sessionId: string): CodexContextInspection | null {
+export function readCodexContext(sessionId: string): PreparedContextRequest | null {
   return latest.get(sessionId) ?? null;
 }
 

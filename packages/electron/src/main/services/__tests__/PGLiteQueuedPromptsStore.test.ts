@@ -5,6 +5,43 @@ import * as os from 'os';
 import * as path from 'path';
 import { createPGLiteQueuedPromptsStore } from '../PGLiteQueuedPromptsStore';
 import { SQLiteDatabase } from '../../database/sqlite/SQLiteDatabase';
+import { steerQueuedPrompt } from '../ai/steerQueuedPrompt';
+
+describe('Vibe steering queue delivery', () => {
+  it('claims only the selected prompt, preserves declined delivery, and never replays uncertain delivery', async () => {
+    const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'nim-queued-steering-'));
+    const sqlite = new SQLiteDatabase({ dbDir: tmp, schemaDir: path.resolve(__dirname, '..', '..', 'database', 'sqlite', 'schemas') });
+    try {
+      await sqlite.initialize();
+      sqlite.getRawHandle()!.prepare("INSERT INTO ai_sessions(id, provider, title) VALUES ('s', 'mistral-vibe', 'Vibe')").run();
+      const store = createPGLiteQueuedPromptsStore(sqlite as never);
+      await store.create({ id: 'earlier', sessionId: 's', prompt: 'Earlier message' });
+      const prompt = await store.create({ id: 'chosen', sessionId: 's', prompt: 'Follow-up', documentContext: { filePath: 'notes.md' } });
+      const steer = vi.fn(async () => 'unavailable' as const);
+      await expect(steerQueuedPrompt(store, 'foreign', prompt.id, steer)).resolves.toBe('already-claimed');
+      expect(steer).not.toHaveBeenCalled();
+      await expect(steerQueuedPrompt(store, 's', prompt.id, steer)).resolves.toBe('unavailable');
+      await expect(store.get(prompt.id)).resolves.toMatchObject({ status: 'pending', documentContext: { filePath: 'notes.md' } });
+      await expect(steerQueuedPrompt(store, 's', prompt.id, async () => {
+        await expect(store.claim(prompt.id)).resolves.toBeNull();
+        return 'accepted';
+      })).resolves.toBe('accepted');
+      await expect(store.get(prompt.id)).resolves.toMatchObject({ status: 'completed' });
+      expect((await store.listPending('s')).map(row => row.id)).toEqual(['earlier']);
+
+      await expect(steerQueuedPrompt(store, 's', 'earlier', async () => { throw new Error('Disconnected'); }))
+        .rejects.toThrow('could not be confirmed');
+      await expect(store.get('earlier')).resolves.toMatchObject({ status: 'failed' });
+      await store.create({ id: 'crashed', sessionId: 's', prompt: 'In flight' });
+      await store.claimForSteering('crashed', 's');
+      await expect(store.sweepExecutingOnBoot()).resolves.toMatchObject({ failed: 1, rolledBack: 0 });
+      expect(await store.listPending('s')).toEqual([]);
+    } finally {
+      await sqlite.close();
+      fs.rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+});
 
 type DbStub = { query: <T = any>(sql: string, params?: any[]) => Promise<{ rows: T[] }> };
 

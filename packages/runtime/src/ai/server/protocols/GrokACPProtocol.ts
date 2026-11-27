@@ -124,6 +124,8 @@ interface AcpAgentBehavior {
   getUsage(response: PromptResponse): ProtocolEvent['usage'];
   formatError(error: unknown): string;
   configureSession?(connection: ACPClientConnection, sessionId: string, options: SessionOptions, config: SessionConfigOption[]): Promise<string | undefined>;
+  onPromptPrepared?(session: ProtocolSession, message: ProtocolMessage, systemPrompt: string | undefined, attachmentCount: number): void;
+  resolveLaunch?(command: string, args: string[]): { command: string; args: string[] };
   supportsFork?: boolean;
   supportsAttachments?: boolean;
   supportsSseMcp?: boolean;
@@ -408,8 +410,10 @@ export class AcpStdioAgentProtocol implements AgentProtocol {
 
     const promptTask = (async () => {
       try {
-        const prompt = await this.buildPromptBlocks(message, raw.options.systemPrompt);
+        const systemPrompt = raw.options.systemPrompt;
+        const prompt = await this.buildPromptBlocks(message, systemPrompt);
         if (signal.aborted) return;
+        this.agent.onPromptPrepared?.(session, message, systemPrompt, prompt.length - (systemPrompt ? 2 : 1));
         const response = await connection.prompt({ sessionId: session.id, prompt });
 
         queue.push({
@@ -517,7 +521,8 @@ export class AcpStdioAgentProtocol implements AgentProtocol {
     // `XAI_API_KEY` in the user's shell would then authenticate and bill
     // `grok agent stdio`. See CLAUDE.md's "never use environment variables as
     // implicit API key sources".
-    const child = this.spawnProcess(this.command, this.args, {
+    const launch = this.agent.resolveLaunch?.(this.command, this.args) ?? { command: this.command, args: this.args };
+    const child = this.spawnProcess(launch.command, launch.args, {
       stdio: ['pipe', 'pipe', 'pipe'],
       env: scrubProviderApiKeys({ ...process.env, ...this.extraEnv }),
       cwd: process.cwd(),
@@ -728,7 +733,13 @@ export class AcpStdioAgentProtocol implements AgentProtocol {
     // response while ACP's session/new or session/load remains authoritative.
   }
 
-  private async buildPromptBlocks(message: ProtocolMessage, systemPrompt?: string): Promise<ContentBlock[]> {
+  protected async requestActiveTurnExtension(sessionId: string, method: string, params: Record<string, unknown>) {
+    const turn = [...this.activeTurns.values()].find(active => active.nimbalystSessionId === sessionId);
+    if (!turn || turn.signal.aborted || !this.connection) return undefined;
+    return this.connection.extMethod(method, { ...params, sessionId: turn.sessionId });
+  }
+
+  protected async buildPromptBlocks(message: ProtocolMessage, systemPrompt?: string): Promise<ContentBlock[]> {
     const prompt: ContentBlock[] = [];
     if (systemPrompt) {
       prompt.push({

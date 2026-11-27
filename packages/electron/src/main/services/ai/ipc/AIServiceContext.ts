@@ -74,6 +74,7 @@ export interface AIServiceContext {
   ): Promise<DriveOutcome>;
   forceSessionIdleOnCancel(sessionId: string): Promise<void>;
   interruptCurrentTurn(sessionId: string, options?: { userSendNow?: boolean }): Promise<InterruptCurrentTurnResult>;
+  sendQueuedVibePromptNow(sessionId: string, promptId: string): Promise<{ steered: boolean }>;
 
   // --- misc ---------------------------------------------------------------
   createToolHandler(

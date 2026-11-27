@@ -10,6 +10,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 <!-- New features go here -->
+- Send Now can steer an active Mistral Vibe turn from the desktop app or browser on compatible Vibe installs.
 - The browser host uses the desktop session header and tabs, offers automatic sign-in through a trusted local tunnel, and puts extension panels, PDF Viewer, and Automations in an icon rail.
 - Mistral Vibe uses your signed-in CLI's model catalog in the session picker and offers the thinking controls each model supports.
 - Session summaries can include a short outcome, a write-up linked to source messages, and durable next actions for Work Overview.
@@ -32,6 +33,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Changed
 <!-- Changes to existing functionality go here -->
 - Mistral Vibe follows the same Nimbalyst startup guidance as Codex for questions, worktrees, commits, and session summaries.
+- Mistral Vibe uses the same context inspector layout as Codex, with request measurements and retained startup records in desktop and browser sessions.
 - Session completion notices show the final response preview and a changed-file count, with individual paths available on demand.
 - Local macOS builds offer a repeatable build-and-install command with artifact reuse, timing reports, lower process priority and a smaller heap allowance while retaining native package checks and a recoverable previous app
 - The session sidebar uses a compact toolbar, activity sections and quieter details, with separate chat navigation and child expansion and fewer redundant worktree headings

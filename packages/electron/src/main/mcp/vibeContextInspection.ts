@@ -10,30 +10,8 @@ const groups = [
   ['conversation', 'Conversation'],
 ] as const;
 
-const preparedInstructions = new Map<string, string>();
-const retainedSessions = 64;
-const retainedCharacters = 16384;
-
-export function captureVibeInstructions(sessionId: string, instructions: string | null): void {
-  preparedInstructions.delete(sessionId);
-  if (!instructions) return;
-  preparedInstructions.set(sessionId, instructions.length > retainedCharacters
-    ? instructions.slice(0, retainedCharacters) + '\n[Preview truncated]'
-    : instructions);
-  if (preparedInstructions.size > retainedSessions) {
-    const oldest = preparedInstructions.keys().next();
-    if (!oldest.done) preparedInstructions.delete(oldest.value);
-  }
-}
-
-export async function readVibeContextInspection(
-  sessionId: string,
-  providerSessionId: string | undefined,
-  includePreparedInstructions: boolean,
-  vibeHome = process.env.VIBE_HOME || join(homedir(), '.vibe'),
-) {
-  const instructions = includePreparedInstructions ? preparedInstructions.get(sessionId) : undefined;
-  return { groups: await readContextGroups(vibeSessionDirectory(providerSessionId, vibeHome)), instructions };
+export async function readVibeContextGroups(providerSessionId: string | undefined) {
+  return readContextGroups(vibeSessionDirectory(providerSessionId));
 }
 
 function vibeSessionDirectory(

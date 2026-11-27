@@ -107,7 +107,7 @@ function PanelSession({ token, workspacePath, sessionId, ...props }:
 }
 
 const sessionComponentCommands = new Set([
-  'action-prompts:list', 'ai:compactSession', 'ai:deleteQueuedPrompt',
+  'action-prompts:list', 'ai:compactSession', 'ai:deleteQueuedPrompt', 'ai:sendQueuedVibePromptNow',
   'claude-code:answer-tool-permission', 'mcp-config:get-context-inspection',
   'messages:respond-to-prompt', 'sessions:list-children', 'sessions:update-metadata',
 ]);
@@ -203,7 +203,7 @@ function Workspace({ token, info, disconnect }: { token: string; info: BrowserHo
         }
         if (!channel.startsWith('sessions:') && ![
           'worktree:get-batch', 'ai:getModels', 'ai:compactSession', 'ai:deleteQueuedPrompt', 'action-prompts:list',
-          'mcp-config:get-context-inspection', 'worktree:update-pinned',
+          'mcp-config:get-context-inspection', 'worktree:update-pinned', 'ai:sendQueuedVibePromptNow',
         ].includes(channel)) {
           throw new Error('This desktop action is unavailable in the browser');
         }

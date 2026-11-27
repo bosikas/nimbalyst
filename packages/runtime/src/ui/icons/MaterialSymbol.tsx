@@ -57,6 +57,17 @@ const CUSTOM_ICONS: Record<string, (size: number, className: string) => React.Re
     </svg>
   ),
 
+  // Mistral's compact pixel mark for Vibe.
+  'mistral-vibe': (size, className) => (
+    <svg width={size} height={size} viewBox="0 0 24 24" fill="none" className={className} aria-hidden="true">
+      <path fill="#FFD800" d="M1.5 4.5h3v3h-3zm18 0h3v3h-3z" />
+      <path fill="#FFAF00" d="M1.5 7.5h6v3h-6zm15 0h6v3h-6z" />
+      <path fill="#FF8205" d="M1.5 10.5h9v3h-9zm12 0h9v3h-9z" />
+      <path fill="#FA520F" d="M1.5 13.5h6v3h-6zm9 0h3v3h-3zm6 0h6v3h-6z" />
+      <path fill="#E10500" d="M1.5 16.5h6v3h-6zm15 0h6v3h-6z" />
+    </svg>
+  ),
+
   // Cursor Agent -- the Cursor cube
   'cursor-agent': (size, className) => (
     <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" className={className}>

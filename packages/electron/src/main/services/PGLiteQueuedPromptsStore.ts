@@ -84,6 +84,11 @@ export interface QueuedPromptsStore {
    */
   claim(id: string): Promise<QueuedPrompt | null>;
 
+  /** Reserve an input being delivered to a live provider turn. */
+  claimForSteering(id: string, sessionId: string): Promise<QueuedPrompt | null>;
+
+  settleSteering(prompt: QueuedPrompt, status: 'pending' | 'completed' | 'failed', error?: string): Promise<boolean>;
+
   /** Mark a prompt as completed */
   complete(id: string): Promise<void>;
 
@@ -343,6 +348,33 @@ export function createPGLiteQueuedPromptsStore(
       return rowToQueuedPrompt(rows[0]);
     },
 
+    async claimForSteering(id: string, sessionId: string): Promise<QueuedPrompt | null> {
+      const prompt = await this.get(id);
+      if (prompt?.sessionId !== sessionId || prompt.status !== 'pending') return null;
+      // In-turn input delivery cannot be replayed after a crash or interrupt.
+      // Reuse the inbox recovery marker without joining a tool's inbox batch.
+      const context = { ...prompt.documentContext, inboxDelivery: { kind: 'steering' } };
+      const { rows } = await db.query(
+        `UPDATE queued_prompts SET status = 'executing', claimed_at = CURRENT_TIMESTAMP, document_context = $3
+         WHERE id = $1 AND session_id = $2 AND status = 'pending' RETURNING id`,
+        [id, sessionId, JSON.stringify(context)],
+      );
+      return rows.length ? prompt : null;
+    },
+
+    async settleSteering(prompt: QueuedPrompt, status: 'pending' | 'completed' | 'failed', error?: string): Promise<boolean> {
+      const { rows } = await db.query(
+        `UPDATE queued_prompts SET status = $3, document_context = $4, error_message = $5,
+           claimed_at = CASE WHEN $3 = 'pending' THEN NULL ELSE claimed_at END,
+           completed_at = CASE WHEN $3 = 'pending' THEN NULL ELSE CURRENT_TIMESTAMP END
+         WHERE id = $1 AND session_id = $2 AND document_context->'inboxDelivery'->>'kind' = 'steering'
+           AND (status = 'executing' OR (status = 'failed' AND $3 = 'completed'))
+         RETURNING id`,
+        [prompt.id, prompt.sessionId, status, JSON.stringify(prompt.documentContext ?? {}), error ?? null],
+      );
+      return rows.length > 0;
+    },
+
     async complete(id: string): Promise<void> {
       await ensureReady();
 
@@ -422,7 +454,7 @@ export function createPGLiteQueuedPromptsStore(
       const inboxResult = await db.query(
         `UPDATE queued_prompts SET status = 'failed', completed_at = CURRENT_TIMESTAMP, error_message = $1
          WHERE status = 'executing' AND document_context->'inboxDelivery' IS NOT NULL RETURNING id`,
-        ['Inbox reports were recorded during an interrupted turn; delivery is uncertain and will not be replayed automatically.'],
+        ['Message delivery was interrupted before confirmation. Check the transcript before resending.'],
       );
 
 
@@ -543,7 +575,7 @@ export function createPGLiteQueuedPromptsStore(
       const inboxResult = await db.query(
         `UPDATE queued_prompts SET status = 'failed', completed_at = CURRENT_TIMESTAMP, error_message = $1
          WHERE status = 'executing' AND document_context->'inboxDelivery' IS NOT NULL AND session_id = $2 RETURNING id`,
-        ['Inbox reports were recorded during an interrupted turn; delivery is uncertain and will not be replayed automatically.', sessionId],
+        ['Message delivery was interrupted before confirmation. Check the transcript before resending.', sessionId],
       );
 
 

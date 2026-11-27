@@ -87,7 +87,6 @@ import { notificationService } from '../NotificationService';
 import { composeNotificationTitle } from '../../../shared/notificationTitle';
 import { logger } from '../../utils/logger';
 import { captureClaudeContextReport } from '../../mcp/claudeContextReport';
-import { captureVibeInstructions } from '../../mcp/vibeContextInspection';
 import { windowStates, findWindowByWorkspace } from '../../window/WindowManager';
 import { sessionFileTracker } from '../SessionFileTracker';
 import { codexEditWindowRegistry, shouldOpenCodexEditWindow } from '../CodexEditWindowRegistry';
@@ -1080,9 +1079,6 @@ export class MessageStreamingHandler {
       attachments?: Array<{ type: string; filename: string; mimeType?: string; filepath?: string }>;
       timestamp: number;
     }) => {
-      if (session.provider === 'mistral-vibe') {
-        captureVibeInstructions(data.sessionId, data.systemPromptAddition);
-      }
       safeSend(event, 'ai:promptAdditions', data);
     };
     this.installListener(provider, 'promptAdditions', onPromptAdditions);

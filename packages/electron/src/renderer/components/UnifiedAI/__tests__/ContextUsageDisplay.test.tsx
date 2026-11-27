@@ -31,6 +31,13 @@ registerContextInspectionDialog();
 it('opens Vibe context inspection with separate native token and character counts', async () => {
   Object.defineProperty(window, 'electronAPI', { configurable: true, value: {
     invoke: vi.fn(async () => ({
+      preparedRequest: {
+        measuredAt: 123456789,
+        scope: 'Vibe prepared request measured in UTF-8 bytes.',
+        categories: [{ name: 'Nimbalyst guidance', bytes: 400, reason: 'ACP resource' }],
+        configuredMcpServers: 2,
+        attachments: 1,
+      },
       vibe: {
         groups: [{ name: 'Skills', characters: 0 }],
         instructions: 'Nimbalyst prepared instructions.',
@@ -50,6 +57,8 @@ it('opens Vibe context inspection with separate native token and character count
   openInspector();
 
   expect(await screen.findByText('0 characters')).toBeTruthy();
+  expect(screen.getByText('Nimbalyst guidance: 400 bytes')).toBeTruthy();
+  expect(screen.getByText('Recorded native startup: messages and audit snapshots')).toBeTruthy();
   expect(screen.getByText('132,000 / 200,000 tokens')).toBeTruthy();
   expect(screen.getByText('Nimbalyst prepared instructions.').tagName).toBe('PRE');
   expect(screen.getByText('System rules').tagName).toBe('PRE');

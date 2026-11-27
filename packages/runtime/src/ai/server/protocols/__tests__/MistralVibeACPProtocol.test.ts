@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it, vi } from 'vitest';
 import { MistralVibeACPProtocol } from '../MistralVibeACPProtocol';
+import { readVibePreparedContext } from '../../providers/vibeContextInspection';
 import { mapVibeSessionUpdate } from '../headless/MistralVibeRecordMapper';
 import type { ProtocolEvent } from '../ProtocolInterface';
 
@@ -28,6 +29,45 @@ const options = {
 };
 
 describe('Mistral Vibe ACP', () => {
+  it.each([true, false])('delivers to an active turn or reports missing steering support (%s)', async (supported) => {
+    let permissionRequested!: () => void;
+    const waitingForPermission = new Promise<void>(resolve => { permissionRequested = resolve; });
+    let allow!: (value: { decision: 'allow'; scope: 'once' }) => void;
+    const permission = new Promise<{ decision: 'allow'; scope: 'once' }>(resolve => { allow = resolve; });
+    const protocol = new MistralVibeACPProtocol({
+      command: process.execPath,
+      args: [fixture],
+      env: { VIBE_STEERING: supported ? '1' : '' },
+      onPermissionRequest: async () => {
+        permissionRequested();
+        return permission;
+      },
+    });
+    try {
+      const session = await protocol.createSession(options);
+      const events: ProtocolEvent[] = [];
+      const streaming = (async () => {
+        for await (const event of protocol.sendMessage(session, {
+          content: 'First message',
+          sessionId: 'active-host-session',
+          attachments: [{ id: 'image', type: 'image', filename: 'fixture.png', mimeType: 'image/png', filepath: fixture, size: 1, addedAt: 0 }],
+        })) events.push(event);
+      })();
+      await waitingForPermission;
+      await expect(protocol.steerTurn('other-host-session', 'queued-id', { content: 'Wrong session' })).resolves.toBe('unavailable');
+      await expect(protocol.steerTurn('active-host-session', 'queued-id', { content: 'Follow-up' }))
+        .resolves.toBe(supported ? 'accepted' : 'unsupported');
+      allow({ decision: 'allow', scope: 'once' });
+      await streaming;
+      expect(events.filter(event => event.type === 'text').map(event => event.content))
+        .toEqual(supported ? ['Follow-up', 'Done.'] : ['Done.']);
+      await expect(protocol.steerTurn('active-host-session', 'queued-id', { content: 'After completion' })).resolves.toBe('unavailable');
+    } finally {
+      allow({ decision: 'allow', scope: 'once' });
+      protocol.destroy();
+    }
+  });
+
   it('reads only the usage and reset date from a live native account', async () => {
     const protocol = new MistralVibeACPProtocol({ command: process.execPath, args: [fixture] });
     try {
@@ -138,7 +178,7 @@ describe('Mistral Vibe ACP', () => {
 
     const resumed = createProtocol();
     try {
-      const session = await resumed.resumeSession(sessionId, options);
+      const session = await resumed.resumeSession(sessionId, { ...options, systemPrompt: '規則' });
       expect(session.id).toBe(sessionId);
       const events: ProtocolEvent[] = [];
       for await (const event of resumed.sendMessage(session, {
@@ -151,6 +191,14 @@ describe('Mistral Vibe ACP', () => {
       })) {
         events.push(event);
       }
+      expect(readVibePreparedContext('host')).toMatchObject({
+        request: {
+          categories: [{ name: 'Nimbalyst guidance', bytes: 6 }, { name: 'User input and document additions', bytes: 10 }],
+          configuredMcpServers: 2,
+          attachments: 1,
+        },
+        instructions: '規則',
+      });
       expect(onPermissionRequest).toHaveBeenCalledWith(expect.objectContaining({
         nimbalystSessionId: 'host',
         permissionsPath: '/trusted-workspace',

@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import { constants } from 'node:fs';
 import { open, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import { promisify } from 'node:util';
+import { gunzip } from 'node:zlib';
 import {
   capRecordedStartupText,
   inspectCodexStartupRecords,
@@ -11,13 +13,14 @@ import {
 
 const maxFileBytes = 1024 * 1024;
 const maxOpeningChunks = 4;
+const decompress = promisify(gunzip);
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');
 const object = (value: unknown): Record<string, unknown> | undefined =>
   value !== null && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
     : undefined;
 
-async function readSnapshot(file: string): Promise<unknown> {
+async function readSnapshot(file: string, compressed = false): Promise<unknown> {
   const handle = await open(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
   try {
     const stat = await handle.stat();
@@ -25,47 +28,58 @@ async function readSnapshot(file: string): Promise<unknown> {
     const buffer = Buffer.alloc(stat.size + 1);
     const { bytesRead } = await handle.read(buffer, 0, buffer.length, 0);
     if (bytesRead !== stat.size) return undefined;
-    return JSON.parse(buffer.toString('utf8', 0, bytesRead));
+    const bytes = buffer.subarray(0, bytesRead);
+    const contents = compressed ? await decompress(bytes, { maxOutputLength: maxFileBytes }) : bytes;
+    return JSON.parse(contents.toString('utf8'));
   } finally {
     await handle.close();
   }
 }
 
-async function openingRecords(sessionDir: string, manifest: Record<string, unknown>): Promise<CodexRolloutRecord[]> {
-  const chunks = object(manifest.checkpoint)?.chunks;
-  if (!Array.isArray(chunks)) return [];
-  const records: CodexRolloutRecord[] = [];
-  // The manifest lists checkpoint context chunks in message order. Do not
-  // scan later turns for a replacement opening input after compaction.
+async function* checkpointEntries(sessionDir: string, generationDir: string, chunks: unknown): AsyncIterable<unknown> {
+  if (!Array.isArray(chunks)) {
+    const checkpoint = object(await readSnapshot(join(generationDir, 'checkpoint.json')).catch(() => undefined));
+    const messages = object(checkpoint?.context)?.messages;
+    if (Array.isArray(messages)) yield* messages;
+    return;
+  }
   for (const digest of chunks.slice(0, maxOpeningChunks)) {
-    if (typeof digest !== 'string' || !/^[a-f0-9]{64}$/.test(digest)) return records;
-    const chunk = await readSnapshot(join(sessionDir, 'chunks', digest + '.json'));
-    if (!Array.isArray(chunk)) return records;
-    for (const item of chunk) {
-      const entry = object(item);
-      const message = object(entry?.message);
-      const role = message?.role;
-      if (!entry || !message || !Array.isArray(message.content)) continue;
-      if (typeof entry.turn_index === 'number' && entry.turn_index > 0) return records;
-      if (role !== 'system' && role !== 'developer' && role !== 'user') continue;
-      const opening = role === 'user' && entry.source === 'history' && entry.turn_index === 0;
-      const kinds: string[] = [];
-      const content = message.content.flatMap((part: unknown) => {
-        const block = object(part);
-        const resource = object(block?.resource);
-        const text = block?.text ?? resource?.text;
-        if (typeof text !== 'string') return [];
-        const kind = resource?.uri === 'nimbalyst://system-instructions'
-          ? 'Nimbalyst instructions (ACP resource)'
-          : opening && block?.type === 'text' ? 'user.text' : String(block?.type ?? 'text');
-        kinds.push(kind);
-        return [{ type: block?.type, text }];
-      });
-      records.push({ type: 'response_item', payload: {
-        type: 'message', role, content, internal_chat_message_metadata_passthrough: { content_item_kinds: kinds },
-      } });
-      if (opening) return records;
-    }
+    if (typeof digest !== 'string' || !/^[a-f0-9]{64}$/.test(digest)) return;
+    const file = join(sessionDir, 'chunks', digest + '.json');
+    const chunk = await readSnapshot(file + '.gz', true).catch(error =>
+      error?.code === 'ENOENT' ? readSnapshot(file).catch(() => undefined) : undefined);
+    if (!Array.isArray(chunk)) return;
+    yield* chunk;
+  }
+}
+
+async function openingRecords(sessionDir: string, generationDir: string, manifest: Record<string, unknown>): Promise<CodexRolloutRecord[]> {
+  const records: CodexRolloutRecord[] = [];
+  // Checkpoint entries are in message order. Stop before any later turns.
+  for await (const item of checkpointEntries(sessionDir, generationDir, object(manifest.checkpoint)?.chunks)) {
+    const entry = object(item);
+    const message = object(entry?.message);
+    const role = message?.role;
+    if (!entry || !message || !Array.isArray(message.content)) continue;
+    if (typeof entry.turn_index === 'number' && entry.turn_index > 0) return records;
+    if (role !== 'system' && role !== 'developer' && role !== 'user') continue;
+    const opening = role === 'user' && message.context !== true && entry.source === 'history' && entry.turn_index === 0;
+    const kinds: string[] = [];
+    const content = message.content.flatMap((part: unknown) => {
+      const block = object(part);
+      const resource = object(block?.resource);
+      const text = block?.text ?? resource?.text;
+      if (typeof text !== 'string') return [];
+      const kind = resource?.uri === 'nimbalyst://system-instructions'
+        ? 'Nimbalyst instructions (ACP resource)'
+        : opening && block?.type === 'text' ? 'user.text' : String(block?.type ?? 'text');
+      kinds.push(kind);
+      return [{ type: block?.type, text }];
+    });
+    records.push({ type: 'response_item', payload: {
+      type: 'message', role, content, internal_chat_message_metadata_passthrough: { content_item_kinds: kinds },
+    } });
+    if (opening) return records;
   }
   return records;
 }
@@ -89,7 +103,7 @@ export async function readVibeRecordedStartup(
       if (manifest?.session_id !== providerSessionId) continue;
       const runtime = object(await readSnapshot(join(directory, 'runtime-state.json')));
       if (runtime?.session_id !== providerSessionId) continue;
-      const records = await openingRecords(sessionDir, manifest);
+      const records = await openingRecords(sessionDir, directory, manifest);
       const report = inspectCodexStartupRecords(records, { maxTextBytes, fingerprint: hash });
       report.provider = 'mistral-vibe';
       report.session.id = providerSessionId;
