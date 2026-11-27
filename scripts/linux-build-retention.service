@@ -1,0 +1,9 @@
+[Unit]
+Description=Remove stale generated Nimbalyst build files
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 %h/.local/lib/nimbalyst/linux-build-retention.py --apply
+Nice=10
+IOSchedulingClass=idle
+UMask=0077

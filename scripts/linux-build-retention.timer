@@ -1,0 +1,9 @@
+[Unit]
+Description=Keep Linux Nimbalyst build storage under control
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+
+[Install]
+WantedBy=timers.target

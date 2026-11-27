@@ -1,5 +1,31 @@
 # Lightweight local builds
 
+## Linux staged browser builds
+
+On the Linux browser host, the user-level retention timer runs hourly against
+`~/.local/state/nimbalyst-builds`. It removes generated dependencies and
+unpacked binaries from rebuildable stages that have been inactive for two
+hours. It protects running stages, launcher and build-pointer targets, and a
+verified rollback. Source, lockfiles, logs and packaged archives stay in each
+stage.
+
+Run `python3 scripts/linux-build-retention.py` to preview the cleanup or
+add `--apply` to run it. Before starting a local Linux build, run
+`python3 scripts/linux-build-retention.py --check .` for a free-space
+warning below 25 GiB.
+
+Install the maintenance script and user timer from the checkout:
+
+```sh
+install -d ~/.local/lib/nimbalyst ~/.config/systemd/user
+install -m 644 scripts/linux-build-retention.py ~/.local/lib/nimbalyst/
+install -m 644 scripts/linux-build-retention.service scripts/linux-build-retention.timer ~/.config/systemd/user/
+systemctl --user daemon-reload
+systemctl --user enable --now linux-build-retention.timer
+```
+
+## macOS local builds
+
 For this Mac, run from the repository root:
 
 ```sh
