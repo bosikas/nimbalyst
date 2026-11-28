@@ -261,6 +261,10 @@ const CLAUDE_CLI_MCP_LOCKDOWN_APPEND = [
   'are not available in this session. Ask questions in plain text.',
 ].join(' ');
 
+export function buildClaudeCliSystemPromptAppend(mcpToolsUnavailable = false): string {
+  return mcpToolsUnavailable ? CLAUDE_CLI_MCP_LOCKDOWN_APPEND : CLAUDE_CLI_SYSTEM_PROMPT_APPEND;
+}
+
 export function buildClaudeCliSpawnConfig(input: ClaudeCliSpawnInput): ClaudeCliSpawnConfig {
   const executable = input.claudeExecutable || 'claude';
 
@@ -363,7 +367,7 @@ export function buildClaudeCliSpawnConfig(input: ClaudeCliSpawnInput): ClaudeCli
   }
   args.push(
     '--append-system-prompt',
-    input.mcpToolsUnavailable ? CLAUDE_CLI_MCP_LOCKDOWN_APPEND : CLAUDE_CLI_SYSTEM_PROMPT_APPEND,
+    buildClaudeCliSystemPromptAppend(input.mcpToolsUnavailable),
   );
   if (input.extraArgs?.length) {
     args.push(...input.extraArgs);

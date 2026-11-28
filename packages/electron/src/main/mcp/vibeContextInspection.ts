@@ -1,7 +1,6 @@
-import { readFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
-import { readVibeRecordedStartup } from './vibeRecordedStartup';
+import { readVibeRecordedStartup, readVibeSnapshot } from './vibeRecordedStartup';
 
 const groups = [
   ['system', 'System instructions'],
@@ -22,10 +21,10 @@ function vibeSessionDirectory(
   return join(vibeHome, 'logs', 'session', 'unified', providerSessionId);
 }
 
-export async function recordedVibeStartup(providerSessionId: string | undefined, maxTextBytes: number, selectedModel?: string) {
+export async function recordedVibeStartup(providerSessionId: string | undefined, maxTextBytes: number) {
   const directory = vibeSessionDirectory(providerSessionId);
   const recorded = directory && providerSessionId
-    ? await readVibeRecordedStartup(directory, providerSessionId, maxTextBytes, selectedModel).catch(() => null)
+    ? await readVibeRecordedStartup(directory, providerSessionId, maxTextBytes).catch(() => null)
     : null;
   return {
     report: recorded?.report ?? null,
@@ -42,7 +41,7 @@ async function readContextGroups(directory: string | undefined) {
     // Vibe saves raw character sizes here. Its UI uses them to estimate shares
     // of input context. They are independent of ACP usage_update token counts.
     const path = join(directory, 'context-breakdown.json');
-    const values = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown> | null;
+    const values = await readVibeSnapshot(path) as Record<string, unknown> | null;
     return groups.flatMap(([key, name]) => {
       const characters = values?.[key];
       return typeof characters === 'number' && Number.isSafeInteger(characters) && characters >= 0

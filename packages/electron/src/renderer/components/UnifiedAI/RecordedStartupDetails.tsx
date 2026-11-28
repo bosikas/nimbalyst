@@ -31,8 +31,8 @@ export function RecordedStartupDetails({ recorded }: { recorded: RecordedStartup
     {report && <>
       <p className="mt-2">
         {vibe
-          ? `Mistral Vibe · ${report.session.model ? `Selected model: ${report.session.model}` : 'CLI model selection'}`
-          : `${report.session.role === 'automatic-approval-reviewer' ? 'Automatic approval reviewer' : 'Agent'} · ${report.session.model ?? 'model unavailable'} · Codex ${report.session.runtimeVersion ?? 'version unavailable'}`}
+          ? `Model saved in Vibe checkpoint metadata: ${report.session.model ?? 'unavailable'}. This field can retain the CLI default after an ACP model change.`
+          : `${report.session.role === 'automatic-approval-reviewer' ? 'Automatic approval reviewer' : 'Agent'} · Recorded opening model: ${report.session.model ?? 'unavailable'} · Recorded effort: ${report.session.effort ?? 'unavailable'} · Codex ${report.session.runtimeVersion ?? 'version unavailable'}`}
       </p>
       <p className="mt-2 font-medium">Recorded messages</p>
       <p>
@@ -40,8 +40,9 @@ export function RecordedStartupDetails({ recorded }: { recorded: RecordedStartup
         Roles and kinds are transport labels, not proof of authorship.
       </p>
       <RecordedMessages messages={report.messages} label={recordLabel} />
+      <p className="mt-2 text-[var(--nim-text-muted)]">Project instructions and skill definitions are visible in the retained message text when the runtime recorded them. The complete loaded skill catalog is unavailable.</p>
       <p className="mt-2 font-medium">Audit snapshots, excluded from message totals</p>
-      {report.snapshots.length ? <ul className="mt-1 space-y-1">{report.snapshots.map(snapshot => <li key={snapshot.line}>
+      {report.snapshots.length ? <ul className="mt-1 space-y-1">{report.snapshots.map(snapshot => <li key={`${snapshot.line}:${snapshot.name}`}>
         {snapshot.text !== undefined ? <details>
           <summary className="cursor-pointer">{snapshot.name} · {snapshot.bytes.toLocaleString()} bytes</summary>
           <pre className="select-text whitespace-pre-wrap break-words mt-1">{snapshot.text}</pre>

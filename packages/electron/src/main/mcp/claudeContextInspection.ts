@@ -1,6 +1,7 @@
 import { ProviderFactory } from '@nimbalyst/runtime/ai/server/ProviderFactory';
 import type { AIProviderType } from '@nimbalyst/runtime/ai/server/types';
 import { getDatabase } from '../database/initialize';
+import { readClaudeCliContextEvidence, type ClaudeCliRequestEvidence } from './claudeCliContextEvidence';
 import {
   asObject, isLiveContextCapable, list, readRecordedClaudeContextReport, str, strings, summarizeClaudeContextReport,
   type ClaudeContextReport,
@@ -28,6 +29,8 @@ export interface ClaudeLastRequest {
   model: string | null;
   permissionMode: string | null;
   thinking: unknown;
+  effort: string | null;
+  resumed: boolean;
   settingSources: string[];
   mcpServers: string[];
   allowedTools: string[];
@@ -36,6 +39,7 @@ export interface ClaudeLastRequest {
   attachments: string[];
   /** Only when raw text is requested (the local inspector). */
   systemPromptAppend?: string | null;
+  customSystemPrompt?: string | null;
   prompt?: string | null;
 }
 
@@ -60,6 +64,8 @@ export interface ClaudeContextInspection {
   startup: ClaudeStartup | null;
   contextReport: ClaudeContextReport | null;
   liveError: string | null;
+  cli?: ReturnType<typeof readClaudeCliContextEvidence>;
+  responseModel: string | null;
 }
 
 const capText = (text: unknown): string | null => {
@@ -85,6 +91,8 @@ export function summarizeClaudeRequest(row: Row, includeText: boolean): ClaudeLa
     model: str(options.model),
     permissionMode: str(options.permissionMode),
     thinking: options.thinking ?? null,
+    effort: str(options.effort),
+    resumed: typeof options.resume === 'string' && options.resume.length > 0,
     settingSources: strings(options.settingSources),
     mcpServers: strings(options.mcpServers),
     allowedTools: strings(options.allowedTools),
@@ -93,7 +101,8 @@ export function summarizeClaudeRequest(row: Row, includeText: boolean): ClaudeLa
     attachments: list(metadata.attachments).map(a => str(a.filename) ?? str(a.filepath)?.split(/[\\/]/).pop() ?? 'attachment'),
   };
   if (includeText) {
-    request.systemPromptAppend = capText(typeof systemPrompt === 'string' ? systemPrompt : systemObject?.append);
+    request.systemPromptAppend = capText(systemObject?.append);
+    request.customSystemPrompt = capText(typeof systemPrompt === 'string' ? systemPrompt : systemObject?.prompt);
     request.prompt = capText(parsed.prompt);
   }
   return request;
@@ -133,13 +142,17 @@ async function latestRow(sessionId: string, where: string): Promise<Row | null> 
 
 export async function readClaudeContextInspection(
   session: { id: string; provider?: string },
-  { includeText = false, live = true }: { includeText?: boolean; live?: boolean } = {},
+  { includeText = false, live = true, redactPaths = false }: { includeText?: boolean; live?: boolean; redactPaths?: boolean } = {},
 ): Promise<ClaudeContextInspection> {
-  const [requestRow, startupRow, reportRow] = await Promise.all([
+  const isCli = session.provider === 'claude-code-cli';
+  const cli = isCli ? readClaudeCliContextEvidence(session.id, includeText) : undefined;
+  const [requestRow, startupRow, reportRow, cliRequestRow, responseRow] = await Promise.all([
     // Hidden turns are auto-commands like /context; they are not the user's request.
-    latestRow(session.id, `direction = 'input' AND content LIKE '{"prompt":%' AND (hidden = FALSE OR hidden IS NULL)`),
+    isCli ? null : latestRow(session.id, `direction = 'input' AND content LIKE '{"prompt":%' AND (hidden = FALSE OR hidden IS NULL)`),
     latestRow(session.id, `direction = 'output' AND content LIKE '{"type":"system"%' AND content LIKE '%"subtype":"init"%'`),
     latestRow(session.id, `direction = 'output' AND content LIKE '%"context_usage":{%'`),
+    cli && !cli.request ? latestRow(session.id, `direction = 'output' AND content LIKE '{"type":"nimbalyst_claude_cli_request",%'`) : null,
+    latestRow(session.id, `direction = 'output' AND content LIKE '{"type":"assistant",%' AND (hidden = FALSE OR hidden IS NULL)`),
   ]);
 
   let contextReport: ClaudeContextReport | null = null;
@@ -158,10 +171,32 @@ export async function readClaudeContextInspection(
     contextReport = summarizeClaudeContextReport(asObject(reportRow.content)?.context_usage, 'stored', timestamp(reportRow.created_at));
   }
 
+  const startup = startupRow ? summarizeClaudeStartup(startupRow) : null;
+  if (startup && redactPaths) {
+    startup.cwd = null;
+    startup.plugins = startup.plugins.map(plugin => ({ ...plugin, path: null }));
+  }
+  if (contextReport && redactPaths) {
+    contextReport.memoryFiles = contextReport.memoryFiles.map(file => ({ ...file, path: file.path.split(/[\\/]/).pop() ?? '' }));
+  }
+  if (cliRequestRow && cli) {
+    const stored = asObject(cliRequestRow.content);
+    if (stored) {
+      cli.request = {
+        recordedAt: str(stored.recordedAt) ?? '',
+        model: str(stored.model),
+        effort: str(stored.effort),
+        blocks: list(stored.blocks).flatMap(({ role, bytes }) =>
+          (role === 'system' || role === 'user') && typeof bytes === 'number' ? [{ role, bytes }] : []),
+      } satisfies ClaudeCliRequestEvidence;
+    }
+  }
   return {
     lastRequest: requestRow ? summarizeClaudeRequest(requestRow, includeText) : null,
-    startup: startupRow ? summarizeClaudeStartup(startupRow) : null,
+    startup,
     contextReport,
     liveError,
+    cli,
+    responseModel: str(asObject(asObject(responseRow?.content)?.message)?.model),
   };
 }

@@ -29,7 +29,7 @@ export interface CodexAuditSnapshot {
 export interface CodexRecordedStartup {
   provider?: 'mistral-vibe';
   source?: string;
-  session: { id?: string; role: 'agent' | 'automatic-approval-reviewer'; model?: string; runtimeVersion?: string; approvalsReviewer?: string };
+  session: { id?: string; role: 'agent' | 'automatic-approval-reviewer'; model?: string; effort?: string; runtimeVersion?: string; approvalsReviewer?: string };
   /** Recorded in the rollout log. Not proof of what was transmitted to the model. */
   messages: CodexRecordedMessage[];
   recordedMessageBytes: number;
@@ -95,8 +95,15 @@ export function inspectCodexStartupRecords(records: Iterable<CodexRolloutRecord>
       }
     } else if (record.type === 'world_state') {
       report.snapshots.push({ line, name: 'Native state snapshot', bytes: bytes(JSON.stringify(payload)) });
+      const text = payload.state?.agents_md?.text;
+      if (typeof text === 'string') {
+        const snapshot: CodexAuditSnapshot = { line, name: 'Native state: AGENTS.md text', bytes: bytes(text), sha256: digest?.(text) };
+        snapshotText.set(snapshot, text);
+        report.snapshots.push(snapshot);
+      }
     } else if (record.type === 'turn_context') {
-      report.session.model = payload.model;
+      if (typeof payload.model === 'string') report.session.model = payload.model;
+      if (typeof payload.effort === 'string') report.session.effort = payload.effort;
       report.session.approvalsReviewer = payload.approvals_reviewer;
       report.snapshots.push({ line, name: 'Turn settings snapshot', bytes: bytes(JSON.stringify(payload)) });
     } else if (record.type === 'event_msg' && payload.type === 'thread_settings_applied') {
@@ -135,6 +142,11 @@ export function inspectCodexStartupRecords(records: Iterable<CodexRolloutRecord>
   for (const [snapshot, text] of snapshotText) {
     const match = report.messages.find(message => singleText.get(message) === text);
     if (match) snapshot.sameTextAsMessageLine = match.line;
+    else {
+      const preview = capRecordedStartupText(text, maxTextBytes);
+      snapshot.text = preview.text;
+      snapshot.textTruncated = preview.truncated;
+    }
   }
   const groups = new Map<string, CodexRecordedMessage[]>();
   for (const entry of report.messages) {

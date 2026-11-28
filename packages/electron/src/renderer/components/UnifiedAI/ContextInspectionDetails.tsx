@@ -2,11 +2,15 @@ import React, { useEffect, useState } from 'react';
 import type { CodexContextEvidence } from '@nimbalyst/runtime/ai/server/providers/codex/codexContextInspection';
 import type { PreparedContextRequest } from '@nimbalyst/runtime/ai/server/providers/preparedContextInspection';
 import { RecordedStartupDetails, type RecordedStartup } from './RecordedStartupDetails';
+import { StartupSelectionDetails, type StartupInstructionSelection, type StartupSelection } from './StartupSelectionDetails';
 
 interface Inspection {
   preparedRequest?: PreparedContextRequest | null;
+  preparedGuidance?: string;
+  selection?: StartupSelection;
+  instructionSelection?: StartupInstructionSelection | null;
   unavailable?: string;
-  vibe?: { groups: Array<{ name: string; characters: number }>; instructions?: string };
+  vibe?: { groups: Array<{ name: string; characters: number }>; instructions?: string; acceptedModel?: string | null };
   nativeEvidence?: CodexContextEvidence;
   recordedStartup?: RecordedStartup;
   toolDefinitions?: { groups: Array<{ configKey: string; displayName: string; enabled: boolean; loadPolicy: string; toolCount: number }> };
@@ -30,6 +34,8 @@ export function ContextInspectionDetails({ sessionId }: { sessionId: string }) {
     <button type="button" onClick={() => setRevision(value => value + 1)} className="text-[var(--nim-link)] hover:underline">Refresh evidence</button>
     {error && <p role="status">{error}</p>}
     {!inspection && !error && <p role="status">Loading measurements…</p>}
+    {inspection && <StartupSelectionDetails selection={inspection.selection} instructions={inspection.instructionSelection} />}
+    {inspection?.vibe && <p className="mt-2">Last model accepted by Vibe ACP: {inspection.vibe.acceptedModel ?? 'Unavailable for this session'} · Accepted thinking effort: unavailable.</p>}
     {inspection?.preparedRequest && <>
       <p className="mt-2">Last prepared request: {new Date(inspection.preparedRequest.measuredAt).toLocaleString()}</p>
       <p className="text-[var(--nim-text-muted)]">{inspection.preparedRequest.scope}</p>
@@ -39,13 +45,14 @@ export function ContextInspectionDetails({ sessionId }: { sessionId: string }) {
       </div>)}</dl>
       <p className="mt-2">{inspection.preparedRequest.configuredMcpServers} configured MCP servers; {inspection.preparedRequest.attachments} attachments. Attachment encoding and native tool-schema costs are unavailable.</p>
       <p className="mt-2">{inspection.preparedRequest.nativeContext}</p>
-      {inspection.vibe?.instructions && <details className="mt-2">
-        <summary className="cursor-pointer">Nimbalyst guidance for the latest prompt</summary>
-        <pre className="mt-2 whitespace-pre-wrap break-words">{inspection.vibe.instructions}</pre>
+      {(inspection.vibe?.instructions || inspection.preparedGuidance) && <details className="mt-2">
+        <summary className="cursor-pointer">{inspection.vibe ? 'Prepared Nimbalyst ACP resource' : 'Prepared Nimbalyst developer instructions'}</summary>
+        <pre className="mt-2 whitespace-pre-wrap break-words">{inspection.vibe?.instructions ?? inspection.preparedGuidance}</pre>
       </details>}
     </>}
     {inspection?.unavailable && !inspection.preparedRequest && <p className="mt-2">{inspection.unavailable}</p>}
     {inspection?.recordedStartup && <RecordedStartupDetails recorded={inspection.recordedStartup} />}
+    {inspection && !inspection.recordedStartup && <p className="mt-2">Native startup text is available in the local desktop inspector when provider records exist.</p>}
     {!!inspection?.vibe?.groups.length && <details className="mt-3">
       <summary className="cursor-pointer">Vibe’s recorded input size</summary>
       <dl className="mt-2">

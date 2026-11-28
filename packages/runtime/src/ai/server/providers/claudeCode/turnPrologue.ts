@@ -421,7 +421,8 @@ export async function buildTurnQuery(
         allowedTools: options.allowedTools,
         disallowedTools: options.disallowedTools,
         permissionMode: options.permissionMode,
-        thinking: options.thinking
+        thinking: options.thinking,
+        effort: options.env?.CLAUDE_CODE_EFFORT_LEVEL,
       }
     }), metadataToLog, state.hideMessages, undefined, true /* searchable */);
 

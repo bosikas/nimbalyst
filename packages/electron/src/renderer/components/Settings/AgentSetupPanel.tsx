@@ -65,6 +65,8 @@ function EffectiveSetupPanel({ workspacePath }: { workspacePath: string | null }
       <label className="text-xs">Provider <select aria-label="Guidance preview provider" value={provider} onChange={event => setProvider(event.target.value as AgentSetupProvider)} className="ml-2 rounded border border-[var(--nim-border)] bg-[var(--nim-bg)] px-2 py-1">
         <option value="openai-codex">Codex</option>
         <option value="claude-code">Claude Agent</option>
+        <option value="claude-code-cli">Claude CLI</option>
+        <option value="mistral-vibe">Mistral Vibe</option>
       </select></label>
       <button type="button" disabled={loading || !workspacePath} onClick={() => setRevision(value => value + 1)} className="text-xs text-[var(--nim-link)] disabled:opacity-50">Refresh preview</button>
     </div>

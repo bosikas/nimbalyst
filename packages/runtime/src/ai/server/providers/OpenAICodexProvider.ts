@@ -1376,7 +1376,17 @@ export class OpenAICodexProvider extends BaseAgentProvider {
         ? await buildCodexContextDelivery(prompt, documentContext)
         : { content: prompt };
       if (sessionId && this.transport === 'app-server') {
-        recordCodexContext(sessionId, measureCodexContext(systemPrompt, delivery, Object.keys(mcpServers).length, attachments?.length ?? 0));
+        const snapshot = measureCodexContext(systemPrompt, delivery, Object.keys(mcpServers).length, attachments?.length ?? 0);
+        snapshot.categories.push({
+          name: 'Base instructions',
+          bytes: Buffer.byteLength(baseInstructions ?? ''),
+          reason: isResumedThread
+            ? 'The existing thread retains its base instructions.'
+            : baseInstructions === undefined
+              ? 'No app override was prepared. The native runtime supplies the base.'
+              : 'The app loaded a configured Markdown override for the fresh thread.',
+        });
+        recordCodexContext(sessionId, snapshot, systemPrompt);
       }
       // Send message using protocol -- adapter parses all events
       for await (const event of this.protocol.sendMessage(session, {

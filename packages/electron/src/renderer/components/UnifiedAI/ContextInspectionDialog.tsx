@@ -5,7 +5,7 @@ import type { TokenUsageCategory } from '@nimbalyst/runtime/ai/server/types';
 import { registerDialog } from '../../contexts/DialogContext';
 import type { DialogComponentProps } from '../../contexts/DialogContext.types';
 import { DIALOG_IDS } from '../../dialogs/registry';
-import { sessionPromptAdditionsAtom, sessionStoreAtom } from '../../store/atoms/sessions';
+import { sessionStoreAtom } from '../../store/atoms/sessions';
 import { ContextInspectionDetails } from './ContextInspectionDetails';
 import { ClaudeContextInspectionDetails } from './ClaudeContextInspectionDetails';
 
@@ -37,8 +37,7 @@ function PromptText({ title, text }: { title: string; text: string }) {
   </details>;
 }
 
-function ClaudeContextDetails({ sessionId, provider }: Pick<ContextInspectionDialogData, 'sessionId' | 'provider'>) {
-  const additions = useAtomValue(sessionPromptAdditionsAtom(sessionId));
+function ClaudeContextDetails({ sessionId }: Pick<ContextInspectionDialogData, 'sessionId'>) {
   const session = useAtomValue(sessionStoreAtom(sessionId));
   const firstUserMessage = session?.messages?.find(message => message.type === 'user_message');
   return <div className="claude-context-details space-y-4">
@@ -47,17 +46,6 @@ function ClaudeContextDetails({ sessionId, provider }: Pick<ContextInspectionDia
       {firstUserMessage?.text
         ? <PromptText title="First user message in the transcript" text={firstUserMessage.text} />
         : <p className="text-[var(--nim-text-muted)]">No opening text is available in this transcript.</p>}
-    </section>
-    <section>
-      <h3 className="font-semibold">Nimbalyst prompt additions</h3>
-      {provider === 'claude-code-cli' ? <p className="text-[var(--nim-text-muted)]">Prompt additions are unavailable for terminal-driven sessions.</p>
-        : additions ? <>
-          <p className="text-[var(--nim-text-muted)]">Last captured turn · {new Date(additions.timestamp).toLocaleString()}</p>
-          {additions.systemPromptAddition && <PromptText title="System prompt addition" text={additions.systemPromptAddition} />}
-          {additions.userMessageAddition && <PromptText title="User message addition" text={additions.userMessageAddition} />}
-          {!!additions.attachments?.length && <p className="mt-2">Attachments · {additions.attachments.map(attachment => attachment.filename).join(', ')}</p>}
-        </> : <p className="text-[var(--nim-text-muted)]">The split between your text and Nimbalyst’s additions is captured live; the full prompt as sent is under Last request.</p>}
-      <p className="mt-2 text-[var(--nim-text-muted)]">Claude’s built-in system prompt text is unavailable; its sections and token counts are listed under Context breakdown.</p>
     </section>
     <ClaudeContextInspectionDetails sessionId={sessionId} />
   </div>;
@@ -88,7 +76,7 @@ export function ContextInspectionDialog({ isOpen, onClose, data }: DialogCompone
               </ul>}
             </section>}
             {provider === 'claude-code' || provider === 'claude-code-cli'
-              ? <ClaudeContextDetails sessionId={sessionId} provider={provider} />
+              ? <ClaudeContextDetails key={sessionId} sessionId={sessionId} />
               : <ContextInspectionDetails key={sessionId} sessionId={sessionId} />}
           </div>
         </section>

@@ -503,7 +503,7 @@ export const SESSION_CONTEXT_TOOL_SCHEMAS = [
   },
   {
     name: 'get_session_context_inspection',
-    description: 'Inspect context provenance: last prepared Codex request text bytes and inclusion reasons, provider-reported usage, configured tool-schema bytes/estimates. Native history, instructions and loaded schemas can be opaque; local measurements do not partition native tokens. Bounded output with full file when needed.',
+    description: 'Inspect bounded context evidence for Claude Agent, Claude CLI, Codex, and Vibe. Includes app selection, prepared request summaries, provider-reported usage and available model observations. Raw startup text is available through the local desktop inspector.',
     inputSchema: { type: 'object', properties: { sessionId: { type: 'string' } }, required: [] },
   },
   {

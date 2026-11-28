@@ -28,6 +28,7 @@ import { randomUUID } from 'crypto';
 import os from 'os';
 import path from 'path';
 import { buildClaudeCliSpawnConfig } from './claudeCliSpawnConfig';
+import { recordPreparedClaudeCliLaunch } from '../../mcp/claudeCliContextEvidence';
 import {
   buildPermissionHookSettingsJson,
   buildElectronNodeHookCommand,
@@ -367,6 +368,8 @@ export class ClaudeCliSessionLauncher {
         pluginDirs,
         mcpToolsUnavailable,
       });
+
+      recordPreparedClaudeCliLaunch(sessionId, spawnConfig.args, spawnConfig.env.CLAUDE_CODE_EFFORT_LEVEL, mcpToolsUnavailable === true);
 
       // 4. Spawn the genuine interactive CLI in the terminal strip. Tear the proxy
       // down and delete the settings file when the PTY exits (composed with the

@@ -1,13 +1,21 @@
 // @vitest-environment node
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-const state = vi.hoisted(() => ({ session: null as any, snapshot: null as any, recorded: null as any, reads: [] as any[] }));
+const state = vi.hoisted(() => ({ session: null as any, snapshot: null as any, recorded: null as any, reads: [] as any[], writes: [] as any[] }));
 vi.mock('@nimbalyst/runtime/storage/repositories/AISessionsRepository', () => ({ AISessionsRepository: { get: async () => state.session } }));
-vi.mock('@nimbalyst/runtime/ai/server/providers/codex/codexContextInspection', () => ({ readCodexContext: () => state.snapshot, readCodexContextEvidence: () => ({ compactions: [], observedTools: [], omittedToolCalls: 0 }) }));
+vi.mock('@nimbalyst/runtime/storage/repositories/AgentMessagesRepository', () => ({
+  AgentMessagesRepository: { create: async (row: unknown) => { state.writes.push(row); } },
+}));
+vi.mock('@nimbalyst/runtime/ai/server/providers/codex/codexContextInspection', () => ({
+  readCodexContext: () => state.snapshot,
+  readCodexPreparedGuidance: () => 'Private prepared Codex guidance',
+  readCodexContextEvidence: () => ({ compactions: [], observedTools: [], omittedToolCalls: 0 }),
+}));
 vi.mock('../codexRolloutStartup', () => ({ readCodexRecordedStartup: async (...args: any[]) => { state.reads.push(args); if (state.recorded instanceof Error) throw state.recorded; return state.recorded; } }));
 vi.mock('../../utils/workspaceIdentity', () => ({ sameWorkspaceIdentity: (a: string, b: string) => a === b }));
 vi.mock('../toolBudgetService', () => ({ getToolBudgetSnapshot: async () => ({ groups: [{ schemaBytes: 1234, estTokens: 300, inclusionReason: 'Configured discovery' }] }) }));
 import { getSessionContextInspection } from '../sessionContextInspection';
 import { captureClaudeContextReport } from '../claudeContextReport';
+import { recordObservedClaudeCliRequest, recordPreparedClaudeCliLaunch } from '../claudeCliContextEvidence';
 import { recordVibePreparedContext } from '@nimbalyst/runtime/ai/server/providers/vibeContextInspection';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs';
 import { tmpdir } from 'os';
@@ -18,15 +26,17 @@ beforeEach(() => {
   state.snapshot = null;
   state.recorded = null;
   state.reads = [];
+  state.writes = [];
 });
 describe('context inspection boundary', () => {
   it.each(['plain', 'gzip', 'inline'])('returns Vibe context and scopes recorded text to the inspector (%s checkpoint)', async (format) => {
+    const sessionId = `vibe-${format}`;
     const providerSessionId = 'c9187458-2f50-619d-9659-3e378bc79028';
     state.session = { ...state.session, provider: 'mistral-vibe', providerSessionId, model: 'mistral-vibe:zai-glm-5-3' };
     const vibeHome = mkdtempSync(join(tmpdir(), 'vibe-context-'));
     vi.stubEnv('VIBE_HOME', vibeHome);
-    recordVibePreparedContext({ id: providerSessionId, platform: 'mistral-vibe-acp', deliveredMcpServerCount: 2 },
-      { sessionId: 'vibe', content: 'Latest prompt' }, 'Private prompt instructions', 1);
+    recordVibePreparedContext({ id: providerSessionId, platform: 'mistral-vibe-acp', deliveredMcpServerCount: 2, appliedModel: 'mistral-vibe:zai-glm-5-3' },
+      { sessionId, content: 'Latest prompt' }, 'Private prompt instructions', 1);
     try {
       const directory = join(vibeHome, 'logs', 'session', 'unified', providerSessionId);
       mkdirSync(directory, { recursive: true });
@@ -68,9 +78,10 @@ describe('context inspection boundary', () => {
       } else {
         writeFileSync(join(chunks, digest + '.json'), JSON.stringify(messages));
       }
-      const local = await getSessionContextInspection('vibe', '/project', { audience: 'desktop' });
+      const local = await getSessionContextInspection(sessionId, '/project', { audience: 'desktop' });
       expect(local).toMatchObject({
         nativeUsage: { value: { currentContext: { tokens: 7123 } } },
+        selection: { model: 'mistral-vibe:zai-glm-5-3' },
         preparedRequest: {
           categories: [{ name: 'Nimbalyst guidance', bytes: 27 }, { name: 'User input and document additions', bytes: 13 }],
           configuredMcpServers: 2,
@@ -84,10 +95,11 @@ describe('context inspection boundary', () => {
             { name: 'Conversation', characters: 8100 },
           ],
           instructions: 'Private prompt instructions',
+          acceptedModel: 'mistral-vibe:zai-glm-5-3',
         },
         recordedStartup: { report: {
           provider: 'mistral-vibe',
-          session: { model: 'zai-glm-5-3' },
+          session: { model: 'mistral-large-4-0' },
           boundaryLine: 2,
           messages: [
             { role: 'developer', text: 'Recorded project instructions\n' },
@@ -101,14 +113,26 @@ describe('context inspection boundary', () => {
           { role: 'user', text: 'Later prompt' },
         ] } },
       });
-      await expect(getSessionContextInspection('vibe', '/project', { audience: 'browser' })).resolves.toEqual(local);
+      const browser = await getSessionContextInspection(sessionId, '/project', { audience: 'browser' });
+      expect(browser).not.toHaveProperty('recordedStartup');
+      expect(JSON.stringify(browser)).not.toContain('Private prompt instructions');
+      expect(JSON.stringify(browser)).not.toContain('Recorded project instructions');
       await expect(getSessionContextInspection('restored-vibe', '/project', { audience: 'browser' })).resolves.toMatchObject({
-        preparedRequest: null, recordedStartup: 'recordedStartup' in local && local.recordedStartup,
+        selection: { model: 'mistral-vibe:zai-glm-5-3' },
+        vibe: { acceptedModel: null },
       });
-      const agentReport = await getSessionContextInspection('vibe', '/project');
+      expect(state.writes[0]).toMatchObject({ hidden: true, searchable: false, content: expect.stringContaining('nimbalyst_vibe_model_ack') });
+      expect(JSON.stringify(state.writes)).not.toContain('Private prompt instructions');
+      claude.rows.vibe = { content: JSON.stringify({ type: 'nimbalyst_vibe_model_ack', sessionId: providerSessionId, model: 'mistral-vibe:zai-glm-5-3' }) };
+      await expect(getSessionContextInspection('restored-vibe', '/project', { audience: 'desktop' })).resolves.toMatchObject({
+        preparedRequest: null, recordedStartup: 'recordedStartup' in local && local.recordedStartup,
+        vibe: { acceptedModel: 'mistral-vibe:zai-glm-5-3' },
+      });
+      delete claude.rows.vibe;
+      const agentReport = await getSessionContextInspection(sessionId, '/project');
       expect(agentReport).not.toHaveProperty('recordedStartup');
       expect(JSON.stringify(agentReport)).not.toContain('Private prompt instructions');
-      await expect(getSessionContextInspection('vibe', '/other')).rejects.toThrow('not in this workspace');
+      await expect(getSessionContextInspection(sessionId, '/other')).rejects.toThrow('not in this workspace');
     } finally {
       vi.unstubAllEnvs();
       rmSync(vibeHome, { recursive: true, force: true });
@@ -155,7 +179,11 @@ vi.mock('electron', () => ({ app: { getPath: () => claude.userData } }));
 vi.mock('../../database/initialize', () => ({
   getDatabase: () => ({
     query: async (sql: string) => {
-      const kind = sql.includes('"prompt"') ? 'request' : sql.includes('"subtype":"init"') ? 'startup' : 'report';
+      const kind = sql.includes('"prompt"') ? 'request'
+        : sql.includes('"subtype":"init"') ? 'startup'
+        : sql.includes('nimbalyst_vibe_model_ack') ? 'vibe'
+        : sql.includes('nimbalyst_claude_cli_request') ? 'cli'
+        : sql.includes('"type":"assistant"') ? 'response' : 'report';
       return { rows: claude.rows[kind] ? [claude.rows[kind]] : [] };
     },
   }),
@@ -218,6 +246,49 @@ describe('Claude context inspection', () => {
     const local = (await getSessionContextInspection('s', '/project', { audience: 'desktop' })) as any;
     expect(local.claude.lastRequest.systemPromptAppend).toBe('<scope>Workspace guidance</scope>');
     expect(local.claude.lastRequest.prompt).toContain('<active-document>a.md</active-document>');
+    const browser = await getSessionContextInspection('s', '/project', { audience: 'browser' });
+    expect(JSON.stringify(browser)).not.toContain('Workspace guidance');
+    expect(JSON.stringify(browser)).not.toContain('/p/CLAUDE.md');
+  });
+
+  it('separates CLI launch, observed request and response, with text confined to local inspection', async () => {
+    state.session = { ...state.session, provider: 'claude-code-cli', model: 'claude-code-cli:opus', metadata: { effortLevel: 'max' } };
+    claude.rows.startup = undefined;
+    claude.rows.response = { content: JSON.stringify({ type: 'assistant', message: { model: 'claude-opus-real' } }) };
+    recordPreparedClaudeCliLaunch('cli', ['--model', 'opus', '--resume', 'native', '--append-system-prompt', 'Private app append'], 'max', true);
+    recordObservedClaudeCliRequest('cli', {
+      model: 'claude-opus-request', output_config: { effort: 'high' },
+      system: [{ type: 'text', text: 'Private native rules' }],
+      messages: [{ role: 'user', content: [
+        { type: 'text', text: 'Private opening input' }, { type: 'tool_result', content: 'Tool result never copied' },
+      ] }],
+    });
+    const desktop = await getSessionContextInspection('cli', '/project', { audience: 'desktop' });
+    expect(desktop).toMatchObject({
+      selection: { model: 'claude-code-cli:opus', effort: 'max' },
+      claude: {
+        lastRequest: null, startup: null, responseModel: 'claude-opus-real',
+        cli: {
+          launch: { resumed: true, model: 'opus', effort: 'max', enterpriseMcpLockdown: true, append: 'Private app append' },
+          request: { model: 'claude-opus-request', effort: 'high', blocks: [
+            { role: 'system', text: 'Private native rules' }, { role: 'user', text: 'Private opening input' },
+          ] },
+        },
+      },
+    });
+    expect(JSON.stringify(desktop)).not.toContain('Tool result never copied');
+    expect(state.writes[0]).toMatchObject({ hidden: true, searchable: false, content: expect.stringContaining('nimbalyst_claude_cli_request') });
+    expect(JSON.stringify(state.writes)).not.toContain('Private');
+    for (const audience of ['agent', 'browser'] as const) {
+      expect(JSON.stringify(await getSessionContextInspection('cli', '/project', { audience }))).not.toContain('Private');
+    }
+    claude.rows.cli = { content: JSON.stringify({
+      type: 'nimbalyst_claude_cli_request', recordedAt: '2026-11-19T19:00:00.000Z', model: 'claude-opus-request', effort: 'high',
+      blocks: [{ role: 'system', bytes: 20, text: 'Private unexpected field' }],
+    }) };
+    const restored = await getSessionContextInspection('restored-cli', '/project', { audience: 'desktop' });
+    expect(restored).toMatchObject({ claude: { cli: { launch: null, request: { blocks: [{ role: 'system', bytes: 20 }] } } } });
+    expect(JSON.stringify(restored)).not.toContain('Private');
   });
 
   it('prefers a live report from a running provider and falls back to the stored one when the live call has nothing', async () => {
@@ -254,6 +325,6 @@ describe('Claude context inspection', () => {
   it('reports nothing rather than guessing when a session has no recorded Claude rows', async () => {
     claude.rows = {};
     const report = (await getSessionContextInspection('s', '/project')) as any;
-    expect(report.claude).toEqual({ lastRequest: null, startup: null, contextReport: null, liveError: null });
+    expect(report.claude).toEqual({ lastRequest: null, startup: null, contextReport: null, liveError: null, responseModel: null, cli: undefined });
   });
 });

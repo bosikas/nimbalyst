@@ -23,7 +23,7 @@ const object = (value: unknown): Record<string, unknown> | undefined =>
     ? value as Record<string, unknown>
     : undefined;
 
-async function readSnapshot(file: string, compressed = false): Promise<unknown> {
+export async function readVibeSnapshot(file: string, compressed = false): Promise<unknown> {
   const handle = await open(file, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
   try {
     const stat = await handle.stat();
@@ -41,7 +41,7 @@ async function readSnapshot(file: string, compressed = false): Promise<unknown> 
 
 async function* checkpointEntries(sessionDir: string, generationDir: string, chunks: unknown): AsyncIterable<unknown> {
   if (!Array.isArray(chunks)) {
-    const checkpoint = object(await readSnapshot(join(generationDir, 'checkpoint.json')).catch(() => undefined));
+    const checkpoint = object(await readVibeSnapshot(join(generationDir, 'checkpoint.json')).catch(() => undefined));
     const messages = object(checkpoint?.context)?.messages;
     if (Array.isArray(messages)) yield* messages;
     return;
@@ -49,8 +49,8 @@ async function* checkpointEntries(sessionDir: string, generationDir: string, chu
   for (const digest of chunks.slice(0, maxCheckpointChunks)) {
     if (typeof digest !== 'string' || !/^[a-f0-9]{64}$/.test(digest)) return;
     const file = join(sessionDir, 'chunks', digest + '.json');
-    const chunk = await readSnapshot(file + '.gz', true).catch(error =>
-      error?.code === 'ENOENT' ? readSnapshot(file).catch(() => undefined) : undefined);
+    const chunk = await readVibeSnapshot(file + '.gz', true).catch(error =>
+      error?.code === 'ENOENT' ? readVibeSnapshot(file).catch(() => undefined) : undefined);
     if (!Array.isArray(chunk)) return;
     yield* chunk;
   }
@@ -131,7 +131,6 @@ export async function readVibeRecordedStartup(
   sessionDir: string,
   providerSessionId: string,
   maxTextBytes: number,
-  selectedModel?: string,
 ): Promise<VibeRecordedContext | null> {
   const generationsDir = join(sessionDir, 'generations');
   const generations = (await readdir(generationsDir))
@@ -142,17 +141,18 @@ export async function readVibeRecordedStartup(
     if (!generation) continue;
     try {
       const directory = join(generationsDir, generation);
-      const manifest = object(await readSnapshot(join(directory, 'manifest.json')));
+      const manifest = object(await readVibeSnapshot(join(directory, 'manifest.json')));
       if (manifest?.session_id !== providerSessionId) continue;
-      const runtime = object(await readSnapshot(join(directory, 'runtime-state.json')));
+      const runtime = object(await readVibeSnapshot(join(directory, 'runtime-state.json')));
       if (runtime?.session_id !== providerSessionId) continue;
       const { records, conversation } = await readCheckpointMessages(sessionDir, directory, object(manifest.checkpoint)?.chunks, maxTextBytes);
       const report = inspectCodexStartupRecords(records, { maxTextBytes, fingerprint: hash });
       report.provider = 'mistral-vibe';
       report.session.id = providerSessionId;
-      // Vibe's saved active_model can be its CLI default even after ACP selects another model.
-      const model = selectedModel?.replace(/^mistral-vibe:/, '');
-      if (model && model !== 'default') report.session.model = model;
+      // This checkpoint field can still contain the CLI default after ACP
+      // configures the session. Keep it separate from the ACP acknowledgement.
+      const savedModel = object(runtime.session_metadata)?.active_model;
+      if (typeof savedModel === 'string') report.session.model = savedModel;
       const system = runtime.core_system_instructions;
       if (typeof system === 'string' && system) {
         const preview = capRecordedStartupText(system, maxTextBytes);

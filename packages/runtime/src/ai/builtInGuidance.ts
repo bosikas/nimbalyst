@@ -22,7 +22,7 @@ export const BUILT_IN_GUIDANCE = [
 export type BuiltInGuidanceId = typeof BUILT_IN_GUIDANCE[number]['id'];
 export type BuiltInGuidanceSettings = Partial<Record<BuiltInGuidanceId, boolean>>;
 export type BuiltInGuidanceText = Partial<Record<BuiltInGuidanceId, string>>;
-export type AgentSetupProvider = 'claude-code' | 'openai-codex';
+export type AgentSetupProvider = 'claude-code' | 'claude-code-cli' | 'openai-codex' | 'mistral-vibe';
 export interface AgentGuidancePreview {
   provider: AgentSetupProvider;
   role: string;

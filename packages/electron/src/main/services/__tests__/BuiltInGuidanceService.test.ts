@@ -90,6 +90,11 @@ it('resolves saved controls through the provider builders and labels baseline sc
   expect(claude.role).toBe('System prompt append');
   expect(claude.text).toContain('Custom identity.');
   expect(claude.text).not.toContain('## Tracker References');
+  const cli = buildAgentGuidancePreview('claude-code-cli', '/workspace', {}, { identity: 'Custom identity.' }, false);
+  expect(cli).toMatchObject({ role: 'CLI system prompt append', scope: expect.stringContaining('Enterprise policy') });
+  expect(cli.text).toContain('mcp__nimbalyst__AskUserQuestion');
+  const vibe = buildAgentGuidancePreview('mistral-vibe', '/workspace', {}, { identity: 'Custom identity.' }, false);
+  expect(vibe).toMatchObject({ role: 'ACP prompt resource', text: expect.stringContaining('Custom identity.') });
   expect(() => buildAgentGuidancePreview('claude-code', '', {}, {}, false)).toThrow('workspace path');
 });
 

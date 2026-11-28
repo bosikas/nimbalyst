@@ -1,5 +1,5 @@
 import { AISessionsRepository } from '@nimbalyst/runtime/storage/repositories/AISessionsRepository';
-import { readCodexContext, readCodexContextEvidence } from '@nimbalyst/runtime/ai/server/providers/codex/codexContextInspection';
+import { readCodexContext, readCodexContextEvidence, readCodexPreparedGuidance } from '@nimbalyst/runtime/ai/server/providers/codex/codexContextInspection';
 import { readVibePreparedContext } from '@nimbalyst/runtime/ai/server/providers/vibeContextInspection';
 import { homedir } from 'os';
 import { join } from 'path';
@@ -8,6 +8,8 @@ import { sameWorkspaceIdentity } from '../utils/workspaceIdentity';
 import { getToolBudgetSnapshot } from './toolBudgetService';
 import { readClaudeContextInspection } from './claudeContextInspection';
 import { readVibeContextGroups, recordedVibeStartup } from './vibeContextInspection';
+import { getDatabase } from '../database/initialize';
+import { asObject, str } from './claudeContextReport';
 
 const CLAUDE_PROVIDERS = new Set(['claude-code', 'claude-code-cli']);
 
@@ -18,25 +20,42 @@ export async function getSessionContextInspection(
 ) {
   const session = await AISessionsRepository.get(sessionId);
   if (!session?.workspacePath || !sameWorkspaceIdentity(session.workspacePath, workspacePath)) throw new Error('Session is not in this workspace.');
-  const metadata = typeof session.metadata === 'string' ? JSON.parse(session.metadata) : session.metadata;
-  const includeRecordedStartup = audience !== 'agent';
+  const metadata = asObject(session.metadata);
+  const includeRecordedStartup = audience === 'desktop';
+  const selection = {
+    model: session.model ?? null,
+    effort: str(metadata?.effortLevel),
+    thinkingMode: str(metadata?.thinkingMode),
+  };
+  const instructionSnapshot = asObject(metadata?.instructionSnapshot);
+  const instructionSelection = session.provider === 'openai-codex' || session.provider === 'claude-code'
+    ? {
+        fileSelected: !!instructionSnapshot,
+        filePath: includeRecordedStartup ? str(instructionSnapshot?.path) : null,
+        skipDefaultInstructions: metadata?.skipDefaultInstructions === true,
+      }
+    : null;
   const nativeUsage = {
     source: 'Stored provider-reported usage. Current context and cumulative spend are different quantities.',
     value: session.tokenUsage ?? metadata?.tokenUsage ?? null,
   };
   if (session.provider === 'mistral-vibe') {
-    const prepared = readVibePreparedContext(sessionId);
+    const cached = readVibePreparedContext(sessionId);
+    const prepared = cached?.nativeSessionId === session.providerSessionId || !session.providerSessionId ? cached : undefined;
+    const acceptedModel = prepared?.acceptedModel ?? await storedVibeModel(sessionId, session.providerSessionId);
     const recordedStartup = includeRecordedStartup
-      ? await recordedVibeStartup(session.providerSessionId, RECORDED_TEXT_LIMIT, session.model)
+      ? await recordedVibeStartup(session.providerSessionId, RECORDED_TEXT_LIMIT)
       : undefined;
     return {
       sessionId,
       nativeUsage,
+      selection,
       preparedRequest: prepared?.request ?? null,
-      unavailable: recordedStartup?.report ? undefined : 'The latest prepared request is available after a Vibe prompt runs in this app process.',
+      unavailable: 'No prepared Vibe prompt captured in this app process.',
       vibe: {
         groups: await readVibeContextGroups(session.providerSessionId),
         instructions: includeRecordedStartup ? prepared?.instructions : undefined,
+        acceptedModel,
       },
       toolDefinitions: await getToolBudgetSnapshot(session.workspacePath),
       ...(recordedStartup ? { recordedStartup } : {}),
@@ -46,21 +65,45 @@ export async function getSessionContextInspection(
     return {
       sessionId,
       nativeUsage,
+      selection,
+      instructionSelection,
+      localText: includeRecordedStartup,
       // Prompt and appended system prompt text are raw user content; only the local inspector opts in.
-      claude: await readClaudeContextInspection({ id: sessionId, provider: session.provider }, { includeText: audience === 'desktop' }),
-      unavailable: "Claude's built-in system prompt text is never exposed; only its section names and token counts are.",
+      claude: await readClaudeContextInspection({ id: sessionId, provider: session.provider }, {
+        includeText: includeRecordedStartup,
+        live: audience !== 'browser',
+        redactPaths: audience === 'browser',
+      }),
     };
   }
+  const codex = session.provider === 'openai-codex';
   return {
     sessionId,
     nativeUsage,
-    preparedRequest: readCodexContext(sessionId),
-    nativeEvidence: readCodexContextEvidence(sessionId),
-    unavailable: 'No prepared-request snapshot until a Codex turn runs in this app process. Native context categories and active loaded-tool set are unavailable. Original transcript bytes are not current model context.',
+    selection,
+    instructionSelection,
+    preparedRequest: codex ? readCodexContext(sessionId) : null,
+    preparedGuidance: codex && includeRecordedStartup ? readCodexPreparedGuidance(sessionId) : undefined,
+    nativeEvidence: codex ? readCodexContextEvidence(sessionId) : undefined,
+    unavailable: codex
+      ? 'No prepared Codex request captured in this app process. Native context categories and active tool schemas are unavailable.'
+      : 'Context records are unavailable for this provider.',
     toolDefinitions: await getToolBudgetSnapshot(session.workspacePath),
-    // Recorded messages contain raw prompt text. User-facing inspectors opt in to reading it.
+    // Native records are raw conversation and instruction text. Only local desktop IPC can read them.
     ...(includeRecordedStartup ? { recordedStartup: await recordedCodexStartup(session) } : {}),
   };
+}
+
+async function storedVibeModel(sessionId: string, nativeSessionId: string | undefined): Promise<string | null> {
+  if (!nativeSessionId) return null;
+  const { rows } = await getDatabase().query<{ content: string }>(
+    `SELECT content FROM ai_agent_messages
+     WHERE session_id = $1 AND source = 'mistral-vibe'
+       AND direction = 'output' AND content LIKE '{"type":"nimbalyst_vibe_model_ack",%'
+     ORDER BY created_at DESC, id DESC LIMIT 1`, [sessionId],
+  );
+  const acknowledgement = asObject(rows[0]?.content);
+  return acknowledgement?.sessionId === nativeSessionId ? str(acknowledgement.model) : null;
 }
 
 /** Per-message text cap for IPC; byte counts still describe the full recorded text. */

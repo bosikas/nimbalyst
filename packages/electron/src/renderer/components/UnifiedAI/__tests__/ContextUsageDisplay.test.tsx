@@ -41,11 +41,12 @@ it('opens Vibe context inspection with separate native token and character count
       vibe: {
         groups: [{ name: 'Skills', characters: 0 }],
         instructions: 'Nimbalyst prepared instructions.',
+        acceptedModel: 'mistral-vibe:zai-glm-5-3',
       },
       recordedStartup: {
         status: 'Vibe saved startup.',
         report: {
-          provider: 'mistral-vibe', session: { role: 'agent', model: 'zai-glm-5-3' },
+          provider: 'mistral-vibe', session: { role: 'agent', model: 'mistral-large-4-0' },
           messages: [{ line: 1, role: 'user', bytes: 14, text: 'Opening prompt', kinds: ['user.text'] }],
           snapshots: [{ line: 0, name: 'Saved Vibe system instructions', bytes: 12, text: 'System rules' }],
           toolRecords: [], repeatedMessages: [], boundaryLine: 1, recordedMessageBytes: 14,
@@ -67,7 +68,8 @@ it('opens Vibe context inspection with separate native token and character count
   expect(screen.getByText('Nimbalyst prepared instructions.').tagName).toBe('PRE');
   expect(screen.getByText('System rules').tagName).toBe('PRE');
   expect(screen.getByText('Opening prompt').tagName).toBe('PRE');
-  expect(screen.getByText('Mistral Vibe · Selected model: zai-glm-5-3')).toBeTruthy();
+  expect(screen.getByText(/Last model accepted by Vibe ACP: mistral-vibe:zai-glm-5-3/)).toBeTruthy();
+  expect(screen.getByText(/Model saved in Vibe checkpoint metadata: mistral-large-4-0/)).toBeTruthy();
   expect(screen.getByText('Retained conversation (1)')).toBeTruthy();
   expect(screen.getByText('Saved tool output').tagName).toBe('PRE');
 });
@@ -140,7 +142,7 @@ describe('ContextUsageDisplay - context meter opens on click, not hover (#429)',
     const message = container.ownerDocument.querySelector('.context-recorded-message');
     expect(message?.querySelector('summary')?.textContent).toContain('70,000 bytes');
     expect(message?.textContent).toContain('Showing the first 64 KB; the byte count covers the full record.');
-    expect(screen.getByText(/Automatic approval reviewer/).textContent).toContain('model unavailable');
+    expect(screen.getByText(/Automatic approval reviewer/).textContent).toContain('Recorded opening model: unavailable');
     expect(container.ownerDocument.querySelector('.context-recorded-startup')?.textContent).not.toMatch(/delivered/i);
   });
   it('loads Codex evidence only when the dialog opens and closes it on Escape', async () => {
@@ -161,7 +163,7 @@ describe('ContextUsageDisplay - context meter opens on click, not hover (#429)',
   });
 
   it('shows Claude prompt additions, opening input and the recorded context breakdown even before token usage arrives', async () => {
-    const invoke = vi.fn(async () => ({ claude: {
+    const invoke = vi.fn(async () => ({ localText: true, claude: {
       lastRequest: { recordedAt: null, model: 'claude-opus', permissionMode: 'default', thinking: null, settingSources: ['project'], mcpServers: [], allowedTools: [], disallowedTools: [], systemPromptPreset: 'claude_code', attachments: [], prompt: 'Opening question with additions' },
       startup: null,
       contextReport: { source: 'stored', recordedAt: null, model: null, totalTokens: 1, maxTokens: 2, autoCompactThreshold: null, categories: [], memoryFiles: [{ path: '/p/CLAUDE.md', type: 'Project', tokens: 900 }], systemPromptSections: [], systemTools: [], mcpTools: [], mcpInstructions: [], deferredBuiltinTools: [], agents: [], skills: [], messageBreakdown: null, apiUsage: null },
@@ -188,9 +190,9 @@ describe('ContextUsageDisplay - context meter opens on click, not hover (#429)',
     expect(screen.getByRole('dialog', { name: /Context inspector · Claude Agent/ })).toBeDefined();
     expect(screen.getByText('Opening question').tagName).toBe('PRE');
     expect(screen.queryByText('Follow-up')).toBeNull();
-    expect(screen.getByText('<scope>Workspace guidance</scope>').tagName).toBe('PRE');
+    expect((await screen.findByText('<scope>Workspace guidance</scope>')).tagName).toBe('PRE');
     expect(screen.getByText('Active document').tagName).toBe('PRE');
-    expect(screen.getByText(/Claude’s built-in system prompt/).textContent).toMatch(/unavailable/);
+    expect(screen.getByText(/Native Claude system and skill text/).textContent).toMatch(/unavailable/);
     expect((await screen.findByText('/p/CLAUDE.md')).tagName).toBe('CODE');
     expect(screen.getByText('Opening question with additions').tagName).toBe('PRE');
     expect(invoke).toHaveBeenCalledWith('mcp-config:get-context-inspection', sessionId);

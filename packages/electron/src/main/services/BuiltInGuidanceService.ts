@@ -8,6 +8,8 @@ import path from 'path';
 import { readGuidanceMarkdown, writeGuidanceBackup, writeGuidanceVersion, MAX_GUIDANCE_FILE_BYTES } from './GuidanceMarkdownFiles';
 import { buildClaudeCodeSystemPrompt, buildMetaAgentSystemPrompt, buildDevAgentSystemPrompt, buildSystemPrompt } from '@nimbalyst/runtime/ai/prompt';
 import { buildCodexSystemPrompt, CODEX_SESSION_NAMING_REMINDER_PROMPT } from '@nimbalyst/runtime/ai/server/providers/codex/codexSystemPrompt';
+import { buildCompactAgentSystemPrompt } from '@nimbalyst/runtime/ai/server/providers/compactAgentSystemPrompt';
+import { buildClaudeCliSystemPromptAppend } from './ai/claudeCliSpawnConfig';
 import type { DocumentContext } from '@nimbalyst/runtime/ai/server/types';
 import { isInternalMcpServerEnabled } from '@nimbalyst/runtime/ai/server/services/mcpServerConfig';
 
@@ -40,6 +42,10 @@ export function buildBuiltInGuidanceCatalog(
     ...capture('Codex'), isMetaAgent: false, workflowPreset: 'default', hasOutOfBandNaming: false, hasSessionNaming: true,
     documentContext: { worktreePath: '/path/to/assigned-worktree', isVoiceMode: true } as DocumentContext,
   });
+  buildCompactAgentSystemPrompt({
+    ...capture('Mistral Vibe'), provider: 'mistral-vibe', hasOutOfBandNaming: false, hasSessionNaming: true,
+    documentContext: { worktreePath: '/path/to/assigned-worktree', isVoiceMode: true } as DocumentContext,
+  });
   previews.set('session-naming-reminder', [{ provider: 'Codex: optional first-turn reminder', text: CODEX_SESSION_NAMING_REMINDER_PROMPT }]);
   for (const preset of ['default', 'implement-review-test', 'research'] as const) {
     buildMetaAgentSystemPrompt('claude', preset, { ...capture(`Coordinator: ${preset}`), provider: '[configured provider]', model: '[configured model]' });
@@ -60,6 +66,22 @@ export function buildBuiltInGuidanceCatalog(
 export function buildAgentGuidancePreview(provider: AgentSetupProvider, workspacePath: string, settings: BuiltInGuidanceSettings, text: BuiltInGuidanceText, trackersEnabled: boolean, codexBase?: { sourcePath: string; text: string }): AgentGuidancePreview {
   if (!workspacePath?.trim()) throw new Error('A workspace path is required.');
   const guidance = { guidanceSettings: settings, guidanceText: text };
+  if (provider === 'claude-code-cli') {
+    return {
+      provider,
+      role: 'CLI system prompt append',
+      text: buildClaudeCliSystemPromptAppend(),
+      scope: 'Normal launch with app MCP enabled. Enterprise policy uses a separate fallback append. Claude CLI owns project instructions, skills and the base system prompt.',
+    };
+  }
+  if (provider === 'mistral-vibe') {
+    return {
+      provider,
+      role: 'ACP prompt resource',
+      text: buildCompactAgentSystemPrompt({ ...guidance, provider, documentContext: { mcpConfigWorkspacePath: workspacePath }, hasOutOfBandNaming: false }),
+      scope: 'Baseline app guidance for a fresh Vibe session. Vibe owns its system prompt and native discovery of trusted project instructions, skills and tools.',
+    };
+  }
   if (provider !== 'claude-code' && provider !== 'openai-codex') throw new Error('Unsupported preview provider.');
   return {
     provider,

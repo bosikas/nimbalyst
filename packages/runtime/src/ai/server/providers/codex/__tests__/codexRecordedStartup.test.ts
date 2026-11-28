@@ -12,7 +12,7 @@ describe('recorded Codex startup', () => {
       { type: 'session_meta', payload: { id: 'main', cli_version: '0.167.0', base_instructions: { text: baseline } } },
       message(baseline),
       { type: 'world_state', payload: { state: { agents_md: { text: 'rules' } } } },
-      { type: 'turn_context', payload: { model: 'gpt', approvals_reviewer: 'auto_review', cwd: '/p' } },
+      { type: 'turn_context', payload: { model: 'gpt', effort: 'high', approvals_reviewer: 'auto_review', cwd: '/p' } },
       { type: 'event_msg', payload: { type: 'thread_settings_applied', thread_settings: { model: 'gpt' } } },
       task,
       message('after the opening input'),
@@ -20,15 +20,17 @@ describe('recorded Codex startup', () => {
     expect(report.snapshots.map(s => [s.line, s.name])).toEqual([
       [1, 'Session metadata: base instructions'],
       [3, 'Native state snapshot'],
+      [3, 'Native state: AGENTS.md text'],
       [4, 'Turn settings snapshot'],
       [5, 'Thread settings snapshot'],
     ]);
     expect(report.snapshots[0].sameTextAsMessageLine).toBe(2);
+    expect(report.snapshots[2].text).toBe('rules');
     expect(report.messages.map(m => m.line)).toEqual([2, 6]);
     expect(report.recordedMessageBytes).toBe(Buffer.byteLength(baseline + 'Investigate.'));
     expect(report.repeatedMessages).toEqual([]);
     expect(report.boundaryLine).toBe(6);
-    expect(report.session).toMatchObject({ id: 'main', role: 'agent', model: 'gpt', runtimeVersion: '0.167.0' });
+    expect(report.session).toMatchObject({ id: 'main', role: 'agent', model: 'gpt', effort: 'high', runtimeVersion: '0.167.0' });
   });
 
   it('identifies the automatic approval reviewer as its own conversation', () => {

@@ -28,6 +28,7 @@
 
 import { ClaudeCliProxyObservation } from './claudeCliObservation/claudeCliProxyObservation';
 import { buildAssistantRawContent } from './claudeCliObservation/claudeCliTranscriptBridge';
+import { recordObservedClaudeCliRequest } from '../../mcp/claudeCliContextEvidence';
 import { AgentMessagesRepository } from '@nimbalyst/runtime';
 import { broadcastMessageLogged as notifyMessageLogged } from './claudeCliUserPromptLog';
 import { logClaudeCliToolResults, loadSeenToolResultIds } from './claudeCliToolResultLog';
@@ -225,6 +226,7 @@ export async function startClaudeCliProxyObservation(opts: {
     console.warn(`[ClaudeCliObservation] not following non-loopback ANTHROPIC_BASE_URL from Claude settings: ${ignoredClaudeSettingsBaseUrl}`);
   }
 
+  let capturedStartupRequest = false;
   const observation = new ClaudeCliProxyObservation({
     sessionId,
     upstreamUrl: apiUpstreamUrl,
@@ -272,6 +274,10 @@ export async function startClaudeCliProxyObservation(opts: {
         if (!isSubAgentTurnInFlight(sessionId)) {
           void logClaudeCliToolResults({ sessionId, workspacePath, results, seen: seenToolResultIds });
         }
+      }
+      if (!capturedStartupRequest && !isSubAgentTurnInFlight(sessionId)) {
+        capturedStartupRequest = true;
+        recordObservedClaudeCliRequest(sessionId, body);
       }
     },
     onError: (err) => {
