@@ -11,7 +11,7 @@ import { ClaudeContextInspectionDetails } from './ClaudeContextInspectionDetails
 
 export interface ContextInspectionDialogData {
   sessionId: string;
-  provider: 'openai-codex' | 'claude-code' | 'claude-code-cli' | 'mistral-vibe';
+  provider: 'openai-codex' | 'claude-code' | 'claude-code-cli' | 'mistral-vibe' | 'opencode' | 'antigravity-acp';
   currentContext?: { tokens: number; contextWindow: number; categories?: TokenUsageCategory[] };
 }
 
@@ -26,6 +26,8 @@ export function registerContextInspectionDialog() {
 const providerNames = {
   'openai-codex': 'Codex',
   'mistral-vibe': 'Mistral Vibe',
+  opencode: 'OpenCode',
+  'antigravity-acp': 'Antigravity CLI',
   'claude-code': 'Claude Agent',
   'claude-code-cli': 'Claude Code CLI',
 };

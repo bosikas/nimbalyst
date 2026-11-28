@@ -1,6 +1,6 @@
 import { createGuidanceRenderer, type GuidanceRenderOptions } from '../../builtInGuidance';
 import { instructionTemplate } from '../../instructionTemplates';
-import { buildCodexMetadataSections } from '../../prompt';
+import { AGENT_ADDENDUM_VERSION, buildCodexMetadataSections } from '../../prompt';
 import {
   areTrackerToolsEnabled,
   isInternalMcpServerEnabled,
@@ -29,8 +29,9 @@ export function buildCompactAgentSystemPrompt(options: CompactAgentSystemPromptO
       instructionTemplate(isVibe ? 'vibe.interactive-input-continuation' : 'codex.interactive-input-continuation'),
     ])),
     guidance('visual-communication', instructionTemplate('codex.visual-communication')),
-    guidance('file-references', instructionTemplate('codex.file-references')),
+    guidance('file-references', instructionTemplate('agent-addendum.file-references')),
     guidance('context-discovery', instructionTemplate('compact.context-discovery', [
+      instructionTemplate('agent-addendum.context-discovery', ['Available delegation', 'delegation']),
       instructionTemplate(isVibe ? 'vibe.context-discovery' : 'codex.context-discovery'),
     ])),
     guidance('git-commits', instructionTemplate('codex.git-commits')),
@@ -69,5 +70,5 @@ export function buildCompactAgentSystemPrompt(options: CompactAgentSystemPromptO
   }
   if (sessionDirective?.trim()) sections.push(sessionDirective.trim());
   const body = sections.filter(Boolean).join('\n\n');
-  return body ? instructionTemplate(isVibe ? 'vibe.addendum' : 'codex.addendum', [body]) : '';
+  return body ? instructionTemplate(isVibe ? 'vibe.addendum' : 'codex.addendum', [`Nimbalyst addendum version ${AGENT_ADDENDUM_VERSION}\n\n${body}`]) : '';
 }

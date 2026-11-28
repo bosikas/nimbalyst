@@ -492,6 +492,16 @@ async function handleScheduleWakeup(args: {
 /** Tool schemas exposed by the session-context surface. */
 export const SESSION_CONTEXT_TOOL_SCHEMAS = [
   {
+    name: 'read_workflow_skill',
+    description: 'Read a managed workspace workflow skill. Continue at nextOffset until null to record that all pages were returned.',
+    inputSchema: { type: 'object', properties: { skill: { enum: ['coordinate', 'deliver', 'pr-review'] }, offset: { type: 'integer', minimum: 0 } }, required: ['skill'] },
+  },
+  {
+    name: 'record_workflow_checkpoint',
+    description: 'Record whether the current workflow skill was read before you begin this managed step.',
+    inputSchema: { type: 'object', properties: { skill: { enum: ['coordinate', 'deliver', 'pr-review'] } }, required: ['skill'] },
+  },
+  {
     name: 'search_codex_skills',
     description: 'Find enabled Codex skills for this workspace by name or description. Returns native skill names, descriptions and source paths.',
     inputSchema: { type: 'object', properties: { query: { type: 'string', minLength: 1 } }, required: ['query'] },
@@ -695,6 +705,17 @@ export async function dispatchSessionContextTool(
 
   try {
     switch (toolName) {
+      case 'read_workflow_skill': {
+        const { readWorkflowSkill } = await import('./workflowEvidence');
+        const page = await readWorkflowSkill(aiSessionId, workspaceId, args?.skill, args?.offset);
+        const next = page.nextOffset === null ? 'End of skill.' : 'Continue read_workflow_skill with skill ' + page.skill + ' and offset ' + page.nextOffset + '.';
+        return { content: [{ type: 'text', text: page.text + '\n\n' + next }], isError: false };
+      }
+      case 'record_workflow_checkpoint': {
+        const { recordWorkflowCheckpoint } = await import('./workflowEvidence');
+        const fullRead = await recordWorkflowCheckpoint(aiSessionId, workspaceId, args?.skill);
+        return { content: [{ type: 'text', text: fullRead ? 'Current skill read verified.' : 'Load the complete current skill before proceeding.' }], isError: false };
+      }
       case 'search_codex_skills': {
         const query = typeof args?.query === 'string' ? args.query.trim().toLowerCase() : '';
         if (!query) throw new Error('Provide a skill name or search term.');

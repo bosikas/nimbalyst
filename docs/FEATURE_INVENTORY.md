@@ -77,6 +77,7 @@ Built-in provider lanes run independently using keys saved in Nimbalyst or a con
 **Cross-provider behavior**
 
 - The desktop context inspector for Claude SDK, Claude CLI, Codex, and Vibe distinguishes selected settings, app-prepared guidance, and recorded provider evidence. It shows model and effort when the provider records them. Raw startup text stays in the desktop inspector.
+- Desktop context inspection also shows the versioned app addendum, project and worktree instruction sources, repeated sections, managed skill reads and workflow checkpoints, and native AI-Setup hook receipts. OpenCode and Antigravity CLI can access this view.
 
 - Extension-contributed agent providers — an extension can register its own agent lane alongside the built-ins
 - Per-provider file-change fidelity (`providerFileTracking.ts`) — each lane declares how well it can report the files it changed (`structured` / `tool-args` / `none`), and the filesystem watcher is switched off only for lanes that report authoritatively. Lanes with no delete or move tool (Grok Build, Gemini) deliberately keep the watcher on so `rm` inside a shell command still shows up in the files-edited sidebar. Claude Code Bash commands are bracketed by its pre/post tool hooks, so a file a command changes is linked to the session even when the command never names it (python heredocs, codegen); when two sessions' commands overlap the file is left unlinked and the sidebar lists it as withheld

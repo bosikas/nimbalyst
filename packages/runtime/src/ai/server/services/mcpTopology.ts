@@ -121,6 +121,8 @@ export const CORE_ALWAYS_LOAD_TOOLS: readonly string[] = [
  */
 export const HOST_TOOLS: readonly string[] = [
   'search_codex_skills',
+  'read_workflow_skill',
+  'record_workflow_checkpoint',
   'developer_git_commit_proposal',
   'prepare_session_handoff',
   'get_session_context_inspection',

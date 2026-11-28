@@ -1,10 +1,11 @@
+import { WorkflowEvidenceDetails, type WorkflowEvidence } from './WorkflowEvidenceDetails';
 import React, { useEffect, useState } from 'react';
 import { useAtomValue } from 'jotai';
 import type { ClaudeContextInspection, ClaudeContextReport } from '../../../main/mcp/claudeContextInspection';
 import { StartupSelectionDetails, type StartupInstructionSelection, type StartupSelection } from './StartupSelectionDetails';
 import { sessionPromptAdditionsAtom } from '../../store/atoms/sessions';
 
-type Inspection = { claude?: ClaudeContextInspection; selection?: StartupSelection; instructionSelection?: StartupInstructionSelection | null; localText?: boolean };
+type Inspection = { integrationEvidence?: WorkflowEvidence; claude?: ClaudeContextInspection; selection?: StartupSelection; instructionSelection?: StartupInstructionSelection | null; localText?: boolean };
 
 const muted = 'text-[var(--nim-text-muted)]';
 const fmt = (tokens: number) => tokens.toLocaleString();
@@ -109,6 +110,7 @@ export function ClaudeContextInspectionDetails({ sessionId }: { sessionId: strin
       {!inspection && !error && <p role="status">Loading context details…</p>}
     </div>
     <StartupSelectionDetails selection={inspection?.selection} instructions={inspection?.instructionSelection} />
+    {inspection?.integrationEvidence && <WorkflowEvidenceDetails evidence={inspection.integrationEvidence} />}
     {claude && <p>Latest response model: {claude.responseModel ?? 'Unavailable'}.</p>}
     {claude && !cli && inspection?.localText && additions && <section>
       <h3 className="font-semibold">Live Nimbalyst prompt additions</h3>

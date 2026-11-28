@@ -1,3 +1,4 @@
+import { readWorkflowEvidence } from './workflowEvidence';
 import { AISessionsRepository } from '@nimbalyst/runtime/storage/repositories/AISessionsRepository';
 import { readCodexContext, readCodexContextEvidence, readCodexPreparedGuidance } from '@nimbalyst/runtime/ai/server/providers/codex/codexContextInspection';
 import { readVibePreparedContext } from '@nimbalyst/runtime/ai/server/providers/vibeContextInspection';
@@ -39,6 +40,12 @@ export async function getSessionContextInspection(
     source: 'Stored provider-reported usage. Current context and cumulative spend are different quantities.',
     value: session.tokenUsage ?? metadata?.tokenUsage ?? null,
   };
+  const snapshotPath = str(instructionSnapshot?.path);
+  const snapshotContent = str(instructionSnapshot?.content);
+  const integrationEvidence = includeRecordedStartup ? await readWorkflowEvidence(
+    { ...session, id: sessionId }, instructionSelection?.skipDefaultInstructions ?? false,
+    snapshotPath && snapshotContent !== null ? { file: snapshotPath, content: snapshotContent } : undefined,
+  ) : undefined;
   if (session.provider === 'mistral-vibe') {
     const cached = readVibePreparedContext(sessionId);
     const prepared = cached?.nativeSessionId === session.providerSessionId || !session.providerSessionId ? cached : undefined;
@@ -50,6 +57,7 @@ export async function getSessionContextInspection(
       sessionId,
       nativeUsage,
       selection,
+      integrationEvidence,
       preparedRequest: prepared?.request ?? null,
       unavailable: 'No prepared Vibe prompt captured in this app process.',
       vibe: {
@@ -66,6 +74,7 @@ export async function getSessionContextInspection(
       sessionId,
       nativeUsage,
       selection,
+      integrationEvidence,
       instructionSelection,
       localText: includeRecordedStartup,
       // Prompt and appended system prompt text are raw user content; only the local inspector opts in.
@@ -81,6 +90,7 @@ export async function getSessionContextInspection(
     sessionId,
     nativeUsage,
     selection,
+    integrationEvidence,
     instructionSelection,
     preparedRequest: codex ? readCodexContext(sessionId) : null,
     preparedGuidance: codex && includeRecordedStartup ? readCodexPreparedGuidance(sessionId) : undefined,

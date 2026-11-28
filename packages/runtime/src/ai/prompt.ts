@@ -46,6 +46,8 @@ function buildSessionNamingSection(
 /**
  * Options for building agent system prompts (Claude Code, Codex, etc.)
  */
+export const AGENT_ADDENDUM_VERSION = instructionTemplate('agent-addendum.version');
+
 export interface ClaudeCodePromptOptions extends GuidanceRenderOptions {
   hasSessionNaming?: boolean;
   /**
@@ -143,12 +145,12 @@ export function buildClaudeCodeSystemPrompt(options: ClaudeCodePromptOptions): s
   const promptForUserInputTool = formatMcpToolReference(MCP_CORE, 'PromptForUserInput', effectiveToolReferenceStyle);
   const gitCommitProposalTool = formatMcpToolReference('nimbalyst-host', 'developer_git_commit_proposal', effectiveToolReferenceStyle);
 
-  let prompt = instructionTemplate('claude.addendum-open');
+  let prompt = instructionTemplate('claude.addendum-open') + `Nimbalyst addendum version ${AGENT_ADDENDUM_VERSION}\n\n`;
   prompt += guidance('identity', instructionTemplate('claude.identity'));
   prompt += guidance('interactive-input', instructionTemplate('claude.interactive-input', [askUserQuestionTool, promptForUserInputTool, effectiveToolReferenceStyle === 'codex' ? instructionTemplate('claude.interactive-exec-wait') : '']));
   prompt += guidance('visual-communication', instructionTemplate('claude.visual-communication', [displayToUserTool, captureEditorScreenshotTool]));
-  prompt += guidance('file-references', instructionTemplate('claude.file-references'));
-  prompt += guidance('context-discovery', instructionTemplate('claude.context-discovery'));
+  prompt += guidance('file-references', '\n\n## File References\n' + instructionTemplate('agent-addendum.file-references'));
+  prompt += guidance('context-discovery', '\n\n' + instructionTemplate('agent-addendum.context-discovery', ['Delegation', 'delegating']));
 
   // Tracker guidance only makes sense when the workspace has tracker tools.
   if (trackersEnabled) {

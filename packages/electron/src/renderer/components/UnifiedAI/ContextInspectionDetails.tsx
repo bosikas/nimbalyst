@@ -1,3 +1,4 @@
+import { WorkflowEvidenceDetails, type WorkflowEvidence } from './WorkflowEvidenceDetails';
 import React, { useEffect, useState } from 'react';
 import type { CodexContextEvidence } from '@nimbalyst/runtime/ai/server/providers/codex/codexContextInspection';
 import type { PreparedContextRequest } from '@nimbalyst/runtime/ai/server/providers/preparedContextInspection';
@@ -5,6 +6,7 @@ import { RecordedStartupDetails, type RecordedStartup } from './RecordedStartupD
 import { StartupSelectionDetails, type StartupInstructionSelection, type StartupSelection } from './StartupSelectionDetails';
 
 interface Inspection {
+  integrationEvidence?: WorkflowEvidence;
   preparedRequest?: PreparedContextRequest | null;
   preparedGuidance?: string;
   selection?: StartupSelection;
@@ -35,6 +37,7 @@ export function ContextInspectionDetails({ sessionId }: { sessionId: string }) {
     {error && <p role="status">{error}</p>}
     {!inspection && !error && <p role="status">Loading measurements…</p>}
     {inspection && <StartupSelectionDetails selection={inspection.selection} instructions={inspection.instructionSelection} />}
+    {inspection?.integrationEvidence && <WorkflowEvidenceDetails evidence={inspection.integrationEvidence} />}
     {inspection?.vibe && <p className="mt-2">Last model accepted by Vibe ACP: {inspection.vibe.acceptedModel ?? 'Unavailable for this session'} · Accepted thinking effort: unavailable.</p>}
     {inspection?.preparedRequest && <>
       <p className="mt-2">Last prepared request: {new Date(inspection.preparedRequest.measuredAt).toLocaleString()}</p>
