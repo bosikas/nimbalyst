@@ -35,6 +35,11 @@ import {
   type OpenCodePermissionRequest,
 } from '../protocols/openCodePermissions';
 import type { ProtocolSession } from '../protocols/ProtocolInterface';
+import {
+  toAskUserQuestions,
+  type OpenCodeQuestionAnswer,
+  type OpenCodeQuestionHost,
+} from './openCode/OpenCodeQuestions';
 import { ToolPermissionService } from '../permissions/ToolPermissionService';
 import type {
   PermissionPatternChecker,
@@ -66,6 +71,10 @@ export class OpenCodeProvider extends BaseAgentProvider {
   private readonly permissionService: ToolPermissionService | null;
   private readonly mcpConfigService: McpConfigService;
   private readonly liveProtocolSessions = new Map<string, ProtocolSession>();
+  private readonly pendingQuestions = new Map<string, {
+    sessionId: string;
+    resolve: (result: OpenCodeQuestionAnswer) => void;
+  }>();
   private readonly slashCommandsByWorkspace = new Map<string, string[]>();
   private activeWorkspacePath: string | null = null;
 
@@ -357,6 +366,8 @@ export class OpenCodeProvider extends BaseAgentProvider {
         raw: {
           systemPrompt,
           abortSignal: abortController.signal,
+          openCodeVariant: this.config?.effortLevel,
+          openCodeQuestionHost: sessionId ? this.createQuestionHost(sessionId) : undefined,
           permissionsPath: documentContext?.permissionsPath || workspacePath,
           // Session role (an `app.agents` primary agent). Applied per prompt,
           // so changing it takes effect on the next turn of an existing
@@ -425,7 +436,7 @@ export class OpenCodeProvider extends BaseAgentProvider {
         sessionId,
         mode: documentContext?.mode || 'agent',
       })) {
-        if (abortController.signal.aborted) {
+        if (abortController.signal.aborted && !event.metadata?.openCodeQuestionResult) {
           throw new Error('Operation cancelled');
         }
 
@@ -575,6 +586,68 @@ export class OpenCodeProvider extends BaseAgentProvider {
       this.protocol.abortSession(session);
     }
     super.abort();
+  }
+
+  resolveAskUserQuestion(
+    questionId: string,
+    answers: Record<string, string>,
+    sessionId?: string,
+    respondedBy: 'desktop' | 'mobile' = 'desktop',
+  ): boolean {
+    const question = this.pendingQuestions.get(questionId);
+    if (!question || (sessionId && sessionId !== question.sessionId)) return false;
+    question.resolve({ answers, respondedBy });
+    return true;
+  }
+
+  rejectAskUserQuestion(
+    questionId: string,
+    _error: Error,
+    respondedBy: 'desktop' | 'mobile' = 'desktop',
+  ): 'dismissed' | void {
+    const question = this.pendingQuestions.get(questionId);
+    if (!question) return;
+    question.resolve({ respondedBy });
+    return 'dismissed';
+  }
+
+  private createQuestionHost(sessionId: string): OpenCodeQuestionHost {
+    return {
+      ask: (request, signal) => new Promise((resolve) => {
+        if (signal.aborted) {
+          resolve({});
+          return;
+        }
+        const cancel = () => complete({});
+        const complete = (result: OpenCodeQuestionAnswer) => {
+          this.pendingQuestions.delete(request.id);
+          signal.removeEventListener('abort', cancel);
+          resolve(result);
+        };
+        this.pendingQuestions.set(request.id, { sessionId, resolve: complete });
+        signal.addEventListener('abort', cancel, { once: true });
+        this.emit('askUserQuestion:pending', {
+          sessionId,
+          questionId: request.id,
+          questions: toAskUserQuestions(request.questions),
+          timestamp: Date.now(),
+        });
+      }),
+      settle: (questionId, { answers, respondedBy }) => {
+        if (!respondedBy) {
+          this.emit('askUserQuestion:cancelled', { sessionId, questionId });
+          return;
+        }
+        this.emit('askUserQuestion:answered', {
+          sessionId,
+          questionId,
+          answers: answers ?? {},
+          cancelled: !answers,
+          respondedBy,
+          respondedAt: Date.now(),
+        });
+      },
+    };
   }
 
   resolveToolPermission(

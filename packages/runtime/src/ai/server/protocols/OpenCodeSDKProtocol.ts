@@ -19,8 +19,15 @@
 import { ChildProcess, spawn } from 'child_process';
 import { promises as fs } from 'fs';
 import type { Command } from '@opencode-ai/sdk';
+import type { QuestionRequest, SessionPromptData } from '@opencode-ai/sdk/v2/client';
 import type { ChatAttachment } from '../types';
-import { loadOpenCodeSdkClientModule } from '../providers/openCode/OpenCodeSdkClient';
+import { loadOpenCodeQuestionClient, loadOpenCodeSdkClientModule } from '../providers/openCode/OpenCodeSdkClient';
+import {
+  toAskUserQuestions,
+  toNativeQuestionAnswers,
+  type OpenCodeQuestionAnswer,
+  type OpenCodeQuestionHost,
+} from '../providers/openCode/OpenCodeQuestions';
 import {
   AgentProtocol,
   ProtocolSession,
@@ -855,29 +862,45 @@ export class OpenCodeSDKProtocol implements AgentProtocol {
     const client = await this.getClient(baseUrl);
     const sessionId = session.id;
 
-    // Subscribe to SSE events
+    const sessionOptions = session.raw?.options as SessionOptions | undefined;
+    const turnSignal = sessionOptions?.raw?.abortSignal as AbortSignal | undefined;
+    const streamController = new AbortController();
+    const streamSignal = turnSignal
+      ? AbortSignal.any([turnSignal, streamController.signal])
+      : streamController.signal;
     const subscription = await client.event.subscribe({
-      query: { directory: (session.raw?.options as SessionOptions)?.workspacePath },
+      query: { directory: sessionOptions?.workspacePath },
+      signal: streamSignal,
     });
 
     let fullText = '';
     const usageByMessageId = new Map<string, OpenCodeUsageSnapshot>();
     let latestUsage: OpenCodeUsageSnapshot | undefined;
     const handledPermissionIds = new Set<string>();
+    const handledQuestionIds = new Set<string>();
 
     try {
-      const sessionOptions = session.raw?.options as SessionOptions | undefined;
       const modelSelector = parseOpenCodeModelId(sessionOptions?.model);
 
       // Send the prompt (non-blocking -- events arrive via SSE). Omit `model`
       // only for an explicit default signal; malformed ids must not silently
       // fall back to OpenCode's config default (#730).
       const parts = await buildPromptParts(message.content, message.attachments);
-      const promptBody: Record<string, unknown> = {
+      // The v1 SDK forwards the body unchanged. Use the v2 schema from the
+      // same SDK release for fields such as the model-specific variant.
+      const promptBody: NonNullable<SessionPromptData['body']> = {
         parts,
       };
       if (modelSelector) {
         promptBody.model = modelSelector;
+      }
+      const systemPrompt = sessionOptions?.raw?.systemPrompt;
+      if (typeof systemPrompt === 'string' && systemPrompt) {
+        promptBody.system = systemPrompt;
+      }
+      const variant = sessionOptions?.raw?.openCodeVariant;
+      if (typeof variant === 'string' && variant) {
+        promptBody.variant = variant;
       }
       // The session role belongs on the prompt body, not on session creation:
       // `POST /session` accepts only parentID/title, while every prompt carries
@@ -887,10 +910,16 @@ export class OpenCodeSDKProtocol implements AgentProtocol {
       if (agentRole) {
         promptBody.agent = agentRole;
       }
+      let promptFailure: { error: unknown } | undefined;
       const promptPromise = client.session.prompt({
         path: { id: sessionId },
         query: { directory: sessionOptions?.workspacePath },
         body: promptBody,
+        signal: turnSignal,
+        throwOnError: true,
+      }).catch((error: unknown) => {
+        promptFailure = { error };
+        streamController.abort();
       });
 
       // Process SSE events
@@ -920,10 +949,19 @@ export class OpenCodeSDKProtocol implements AgentProtocol {
           metadata: { rawEvent: event },
         };
 
+        if (event.type === 'question.asked' && eventSessionId === sessionId) {
+          const request = event.properties as QuestionRequest | undefined;
+          if (request?.id && Array.isArray(request.questions) && !handledQuestionIds.has(request.id)) {
+            handledQuestionIds.add(request.id);
+            yield* this.handleQuestion(session, request);
+          }
+          continue;
+        }
+
         if (event.type === 'permission.asked' || event.type === 'permission.updated') {
           const permission = normalizeOpenCodePermissionRequest(event.properties ?? {});
           if (!permission) {
-            await this.abortForPermissionFailure(client, session, 'OpenCode sent an invalid permission request.');
+            await this.abortForResponseFailure(client, session, 'OpenCode sent an invalid permission request.');
             continue;
           }
           if (!handledPermissionIds.has(permission.id)) {
@@ -955,7 +993,7 @@ export class OpenCodeSDKProtocol implements AgentProtocol {
               }
             } catch (error) {
               const detail = error instanceof Error ? error.message : String(error);
-              await this.abortForPermissionFailure(client, session, `OpenCode permission reply failed: ${detail}`);
+              await this.abortForResponseFailure(client, session, `OpenCode permission reply failed: ${detail}`);
             }
           }
         }
@@ -988,6 +1026,8 @@ export class OpenCodeSDKProtocol implements AgentProtocol {
 
           // Session idle means the agent is done
           if (protocolEvent.type === 'complete') {
+            await promptPromise;
+            if (promptFailure) throw promptFailure.error;
             const snapshots = usageByMessageId.size > 0
               ? [...usageByMessageId.values()]
               : (latestUsage ? [latestUsage] : []);
@@ -1015,6 +1055,7 @@ export class OpenCodeSDKProtocol implements AgentProtocol {
 
       // Wait for prompt to complete if it hasn't already
       await promptPromise;
+      if (promptFailure) throw promptFailure.error;
 
       // Emit completion event
       const snapshots = usageByMessageId.size > 0
@@ -1036,7 +1077,7 @@ export class OpenCodeSDKProtocol implements AgentProtocol {
       };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      const isAbort = this.aborted.has(sessionId) || /abort|cancel/i.test(errorMessage);
+      const isAbort = turnSignal?.aborted || this.aborted.has(sessionId) || /abort|cancel/i.test(errorMessage);
 
       if (!isAbort) {
         yield {
@@ -1044,10 +1085,86 @@ export class OpenCodeSDKProtocol implements AgentProtocol {
           error: errorMessage,
         };
       }
+    } finally {
+      streamController.abort();
+      this.aborted.delete(sessionId);
     }
   }
 
-  private async abortForPermissionFailure(
+  private async *handleQuestion(
+    session: ProtocolSession,
+    request: QuestionRequest,
+  ): AsyncGenerator<ProtocolEvent> {
+    const options = session.raw?.options as SessionOptions | undefined;
+    const host = options?.raw?.openCodeQuestionHost as OpenCodeQuestionHost | undefined;
+    const signal = (options?.raw?.abortSignal as AbortSignal | undefined) ?? new AbortController().signal;
+    const input = { questions: toAskUserQuestions(request.questions) };
+    const toolEvent = (state: Record<string, unknown>): ProtocolEvent => ({
+      type: 'raw_event',
+      metadata: {
+        openCodeQuestionResult: state.status !== 'running',
+        rawEvent: {
+          type: 'message.part.updated',
+          properties: {
+            part: {
+              type: 'tool',
+              sessionID: session.id,
+              callID: request.id,
+              tool: 'AskUserQuestion',
+              state: { ...state, input },
+            },
+          },
+        },
+      },
+    });
+
+    let result: OpenCodeQuestionAnswer = {};
+    yield toolEvent({ status: 'running' });
+    try {
+      result = (await host?.ask(request, signal)) ?? {};
+      signal.throwIfAborted();
+      const client = await loadOpenCodeQuestionClient(session.raw?.baseUrl as string);
+      const target = { requestID: request.id, directory: options?.workspacePath };
+      const response = result.answers
+        ? await client.reply({ ...target, answers: toNativeQuestionAnswers(request.questions, result.answers) }, { signal })
+        : await client.reject(target, { signal });
+      if (response.data !== true) {
+        throw new Error('OpenCode did not accept the question response');
+      }
+      yield toolEvent({
+        status: 'completed',
+        output: JSON.stringify({ answers: result.answers ?? {}, cancelled: !result.answers }),
+      });
+    } catch (error) {
+      result = {};
+      const message = error instanceof Error ? error.message : String(error);
+      if (signal.aborted) {
+        // OpenCode 1.3.0 aborts generation without removing the pending
+        // native question. Clear it so that the resumed session can proceed.
+        try {
+          const client = await loadOpenCodeQuestionClient(session.raw?.baseUrl as string);
+          await client.reject(
+            { requestID: request.id, directory: options?.workspacePath },
+            { signal: AbortSignal.timeout(2_000) },
+          );
+        } catch {
+          // The native session may already have discarded the request.
+        }
+      }
+      yield toolEvent(signal.aborted
+        ? { status: 'completed', output: JSON.stringify({ answers: {}, cancelled: true }) }
+        : { status: 'error', error: message });
+      if (!signal.aborted) {
+        const client = await this.getClient(session.raw?.baseUrl as string);
+        await this.abortForResponseFailure(client, session, message);
+      }
+      throw error;
+    } finally {
+      host?.settle(request.id, result);
+    }
+  }
+
+  private async abortForResponseFailure(
     client: OpenCodeClientLike,
     session: ProtocolSession,
     message: string,

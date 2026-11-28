@@ -9,6 +9,7 @@ import { OpenCodeSDKProtocol, OpenCodeServerManager, OpenCodeClientLike, OpenCod
 import { OpenCodeProvider } from '../../providers/OpenCodeProvider';
 import { EventEmitter } from 'events';
 import type { ChatAttachment } from '../../types';
+import { createOpencodeClient } from '@opencode-ai/sdk/client';
 
 // Mock child_process.spawn to avoid actually launching opencode
 vi.mock('child_process', () => {
@@ -698,6 +699,169 @@ describe('OpenCodeSDKProtocol', () => {
         },
       })
     );
+  });
+
+  it('serializes the system addendum, model and variant through the actual SDK on resume', async () => {
+    const { loadSdkModule } = createMockSdkModule([
+      { type: 'session.idle', properties: { sessionID: 'oc-session-1' } },
+    ]);
+    const wireFetch = vi.fn(async (_request: Request) => Response.json({}));
+    const protocol = new OpenCodeSDKProtocol(async () => {
+      const { createOpencodeClient: createMockClient } = await loadSdkModule();
+      return {
+        createOpencodeClient: ({ baseUrl }) => {
+          const mockClient = createMockClient();
+          const sdk = createOpencodeClient({ baseUrl, fetch: wireFetch });
+          mockClient.session.prompt = (options) =>
+            sdk.session.prompt(options as Parameters<typeof sdk.session.prompt>[0]);
+          return mockClient;
+        },
+      };
+    });
+    const session = await protocol.resumeSession('oc-session-1', {
+      workspacePath: '/tmp/test',
+      model: 'opencode:anthropic/claude-sonnet-4-6',
+      raw: { systemPrompt: 'Follow the session directive.', openCodeVariant: 'high' },
+    });
+
+    for await (const _event of protocol.sendMessage(session, { content: 'hello world' })) {
+      // drain
+    }
+
+    const [[request]] = wireFetch.mock.calls;
+    expect(new URL(request.url).pathname).toBe('/session/oc-session-1/message');
+    expect(new URL(request.url).searchParams.get('directory')).toBe('/tmp/test');
+    await expect(request.json()).resolves.toEqual({
+      model: { providerID: 'anthropic', modelID: 'claude-sonnet-4-6' },
+      system: 'Follow the session directive.',
+      variant: 'high',
+      parts: [{ type: 'text', text: 'hello world' }],
+    });
+  });
+
+  it.each(['reply', 'reject', 'interrupt'] as const)(
+    'routes native question %s through the correct workspace and persists a terminal tool result',
+    async (action) => {
+      const request = {
+        id: 'que-native-1',
+        sessionID: 'oc-session-1',
+        questions: [{
+          question: 'Which actions?',
+          header: 'Actions',
+          multiple: true,
+          options: [{ label: 'Build, then test', description: 'Run both tasks' }],
+        }],
+      };
+      const { loadSdkModule, mockClient, subscribeFn } = createMockSdkModule([
+        { type: 'question.asked', properties: { ...request, sessionID: 'other-session' } },
+        { type: 'question.asked', properties: request },
+        { type: 'question.asked', properties: request },
+        { type: 'session.idle', properties: { sessionID: 'oc-session-1' } },
+      ]);
+      const protocol = new OpenCodeSDKProtocol(loadSdkModule);
+      const controller = new AbortController();
+      const answers = { 'Which actions?': 'Build, then test, inspect logs, too' };
+      const ask = vi.fn(async () => {
+        if (action === 'interrupt') {
+          protocol.abortSession(session);
+          controller.abort();
+        }
+        return action === 'reply' ? { answers } : {};
+      });
+      const settle = vi.fn();
+      const session = await protocol.resumeSession('oc-session-1', {
+        workspacePath: '/tmp/test',
+        raw: { abortSignal: controller.signal, openCodeQuestionHost: { ask, settle } },
+      });
+      const wireFetch = vi.fn(async (_request: Request) => Response.json(true));
+      vi.stubGlobal('fetch', wireFetch);
+      try {
+        const events = [];
+        for await (const event of protocol.sendMessage(session, { content: 'Ask for an action' })) {
+          events.push(event);
+        }
+        expect(ask).toHaveBeenCalledExactlyOnceWith(request, controller.signal);
+        expect(settle).toHaveBeenCalledTimes(1);
+        expect(events.map((event) => event.metadata?.rawEvent)).toContainEqual(expect.objectContaining({
+          type: 'message.part.updated',
+          properties: { part: expect.objectContaining({
+            callID: request.id,
+            tool: 'AskUserQuestion',
+            state: expect.objectContaining({
+              status: 'completed',
+              output: JSON.stringify({ answers: action === 'reply' ? answers : {}, cancelled: action !== 'reply' }),
+            }),
+          }) },
+        }));
+        if (action === 'interrupt') {
+          expect(mockClient.session.abort).toHaveBeenCalledWith({
+            path: { id: 'oc-session-1' },
+            query: { directory: '/tmp/test' },
+          });
+          subscribeFn.mockResolvedValueOnce({ stream: createAsyncEventStream([
+            { type: 'session.idle', properties: { sessionID: 'oc-session-1' } },
+          ]) });
+          const resumed = await protocol.resumeSession(session.id, { workspacePath: '/tmp/test' });
+          const resumedEvents = [];
+          for await (const event of protocol.sendMessage(resumed, { content: 'Continue' })) {
+            resumedEvents.push(event);
+          }
+          expect(resumedEvents.at(-1)?.type).toBe('complete');
+        }
+        const [[wireRequest]] = wireFetch.mock.calls;
+        const url = new URL(wireRequest.url);
+        expect(url.pathname).toBe(`/question/${request.id}/${action === 'reply' ? 'reply' : 'reject'}`);
+        expect(url.searchParams.get('directory')).toBe('/tmp/test');
+        if (action === 'reply') {
+          await expect(wireRequest.json()).resolves.toEqual({ answers: [['Build, then test', 'inspect logs, too']] });
+        }
+      } finally {
+        vi.stubGlobal('fetch', mockFetch);
+      }
+    },
+  );
+
+  it('routes the shared question actions to the matching OpenCode provider session', async () => {
+    const request = {
+      id: 'que-native-provider',
+      sessionID: 'oc-session-1',
+      questions: [{
+        question: 'Which color?',
+        header: 'Color',
+        options: [{ label: 'Blue', description: 'Select blue' }],
+      }],
+    };
+    const { loadSdkModule } = createMockSdkModule([
+      { type: 'question.asked', properties: request },
+      { type: 'session.idle', properties: { sessionID: 'oc-session-1' } },
+    ]);
+    const provider = new OpenCodeProvider({ protocol: new OpenCodeSDKProtocol(loadSdkModule) });
+    const sessionId = 'nimbalyst-session-native-question';
+    const answers = { 'Which color?': 'Blue' };
+    const decisions: boolean[] = [];
+    const answered = vi.fn();
+    provider.on('askUserQuestion:pending', ({ questionId }) => {
+      decisions.push(provider.resolveAskUserQuestion(questionId, answers, 'unrelated-session'));
+      decisions.push(provider.resolveAskUserQuestion(questionId, answers, sessionId));
+      decisions.push(provider.resolveAskUserQuestion(questionId, answers, sessionId));
+    });
+    provider.on('askUserQuestion:answered', answered);
+    vi.stubGlobal('fetch', async () => Response.json(true));
+    try {
+      for await (const _chunk of provider.sendMessage('Ask for a color', undefined, sessionId, undefined, tmpdir())) {
+        // drain
+      }
+      expect(decisions).toEqual([false, true, false]);
+      expect(answered).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({
+        questionId: request.id,
+        sessionId,
+        answers,
+        cancelled: false,
+      }));
+    } finally {
+      provider.destroy();
+      vi.stubGlobal('fetch', mockFetch);
+    }
   });
 
   it('sends the session role on the prompt body, never on session creation', async () => {

@@ -1,7 +1,16 @@
 import type { createOpencodeClient } from '@opencode-ai/sdk/client';
+import type { createOpencodeClient as createOpencodeV2Client } from '@opencode-ai/sdk/v2/client';
 
 export interface OpenCodeSdkClientModule {
   createOpencodeClient: typeof createOpencodeClient;
+}
+
+export async function loadOpenCodeQuestionClient(baseUrl: string) {
+  const moduleName = '@opencode-ai/sdk/v2/client';
+  const { createOpencodeClient } = (await import(
+    /* webpackIgnore: true */ moduleName
+  )) as { createOpencodeClient: typeof createOpencodeV2Client };
+  return createOpencodeClient({ baseUrl }).question;
 }
 
 /** Load the ESM-only OpenCode client through the single packaged-app boundary. */
