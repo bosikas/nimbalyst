@@ -9,6 +9,9 @@ import { OpenCodeSDKProtocol, OpenCodeServerManager, OpenCodeClientLike, OpenCod
 import { OpenCodeProvider } from '../../providers/OpenCodeProvider';
 import { EventEmitter } from 'events';
 import type { ChatAttachment } from '../../types';
+import { partitionUnansweredQuestions } from '../../interactivePromptTools';
+import { TranscriptRuntime } from '../../transcript/TranscriptRuntime';
+import type { RawMessage } from '../../transcript/TranscriptTransformer';
 import { createOpencodeClient } from '@opencode-ai/sdk/client';
 
 // Mock child_process.spawn to avoid actually launching opencode
@@ -761,7 +764,19 @@ describe('OpenCodeSDKProtocol', () => {
       const protocol = new OpenCodeSDKProtocol(loadSdkModule);
       const controller = new AbortController();
       const answers = { 'Which actions?': 'Build, then test, inspect logs, too' };
+      const replaySessionId = 'nimbalyst-replay-session';
+      const rows: RawMessage[] = [];
+      const readOpenQuestions = async () => {
+        // The browser reconstructs its pending cards from transcript history
+        // on reconnect, with no access to the protocol's live question map.
+        const replay = new TranscriptRuntime({
+          getMessages: async (id, afterId = 0) => rows.filter((row) => row.sessionId === id && row.id > afterId),
+        });
+        return partitionUnansweredQuestions(await replay.getViewMessages(replaySessionId, 'opencode')).open;
+      };
+      let questionsOnReconnect: Awaited<ReturnType<typeof readOpenQuestions>> | undefined;
       const ask = vi.fn(async () => {
+        questionsOnReconnect = await readOpenQuestions();
         if (action === 'interrupt') {
           protocol.abortSession(session);
           controller.abort();
@@ -779,9 +794,25 @@ describe('OpenCodeSDKProtocol', () => {
         const events = [];
         for await (const event of protocol.sendMessage(session, { content: 'Ask for an action' })) {
           events.push(event);
+          if (event.type === 'raw_event') {
+            rows.push({
+              id: rows.length + 1,
+              sessionId: replaySessionId,
+              source: 'opencode',
+              direction: 'output',
+              content: JSON.stringify(event.metadata?.rawEvent),
+              createdAt: new Date(),
+              hidden: true,
+            });
+          }
         }
         expect(ask).toHaveBeenCalledExactlyOnceWith(request, controller.signal);
         expect(settle).toHaveBeenCalledTimes(1);
+        expect(questionsOnReconnect).toEqual([expect.objectContaining({
+          id: request.id,
+          toolName: 'AskUserQuestion',
+        })]);
+        await expect(readOpenQuestions()).resolves.toEqual([]);
         expect(events.map((event) => event.metadata?.rawEvent)).toContainEqual(expect.objectContaining({
           type: 'message.part.updated',
           properties: { part: expect.objectContaining({
