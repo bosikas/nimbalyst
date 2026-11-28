@@ -2184,7 +2184,9 @@ const SessionHistoryComponent: React.FC<{ browser?: SessionHistoryBrowserActions
       // Skip blitz sessions - they're rendered via BlitzGroup, not as individual items
       if (session.sessionType === 'blitz') continue;
 
-      if (!session.worktreeId) {
+      // Read worktree membership from the same registry as the worktree groups.
+      // A stale filtered row otherwise produces two list entries with the same key.
+      if (!(sessionRegistry.get(session.id) ?? session).worktreeId) {
         // A tree row: it has children, or it is a workstream container (even empty).
         const isWorkstream = rendersAsSessionTree(session);
         if (isWorkstream) {
@@ -2255,7 +2257,7 @@ const SessionHistoryComponent: React.FC<{ browser?: SessionHistoryBrowserActions
     // Also pick up blitz children that have no worktreeId (e.g., analysis sessions)
     for (const session of sessions) {
       if (session.sessionType === 'blitz') continue; // Skip blitz parent
-      if (session.worktreeId) continue; // Already handled via worktreeGroupsData
+      if ((sessionRegistry.get(session.id) ?? session).worktreeId) continue; // Already handled via worktreeGroupsData
       if (!session.parentSessionId) continue;
       if (!blitzCache.has(session.parentSessionId)) continue;
 
@@ -2397,7 +2399,7 @@ const SessionHistoryComponent: React.FC<{ browser?: SessionHistoryBrowserActions
     }
 
     return result as Record<TimeGroupKey | 'Pinned' | 'Meta Agent', UnifiedListItem[]>;
-  }, [sessions, worktreeGroupsData, sortBy, worktreeCache, workstreamChildrenCache, sessionTreeIndex, blitzCache, superLoops, showArchived, isMetaAgentEnabled, getDisplayedOrderRank, getDisplayedOrderTimestamp, compareSessionOrder, compareUnifiedItems]);
+  }, [sessions, sessionRegistry, worktreeGroupsData, sortBy, worktreeCache, workstreamChildrenCache, sessionTreeIndex, blitzCache, superLoops, showArchived, isMetaAgentEnabled, getDisplayedOrderRank, getDisplayedOrderTimestamp, compareSessionOrder, compareUnifiedItems]);
 
   const groupKeys = useMemo(
     () => Object.keys(groupedItems) as (TimeGroupKey | 'Pinned' | 'Meta Agent')[],
