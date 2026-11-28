@@ -11,7 +11,7 @@
 import { database as databaseWorker } from '../database/PGLiteDatabaseWorker';
 
 /** Controllable "max parallel" limit: children currently running. */
-const MAX_IN_FLIGHT = 4;
+const MAX_IN_FLIGHT = 8;
 /** Non-controllable ceiling on children ever created by one parent. */
 const LIFETIME_BACKSTOP = 50;
 

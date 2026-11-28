@@ -472,9 +472,8 @@ describe('MetaAgentService spawn gates', () => {
     const service = MetaAgentService.getInstance();
     (service as any).aiService = { queuePromptForSession: vi.fn() };
     vi.mocked(AISessionsRepository.get).mockResolvedValue(CLAUDE_PARENT as any);
-    // 4 children currently running/waiting (>= MAX_IN_FLIGHT). total is well
-    // under the lifetime backstop, proving this gate fires on parallelism alone.
-    vi.mocked(databaseWorker.query).mockResolvedValue({ rows: [{ in_flight: '4', total: '4' }] } as any);
+    // Eight active children are still well below the lifetime backstop.
+    vi.mocked(databaseWorker.query).mockResolvedValue({ rows: [{ in_flight: '8', total: '8' }] } as any);
 
     await expect(
       (service as any).createChildSessionInternal('parent-claude-session', '/workspace/path', {})
