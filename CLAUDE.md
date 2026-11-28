@@ -87,7 +87,7 @@ Transcripts: `ai_agent_messages` is the only persisted source of truth; canonica
 
 ### Commands
 
-- Install: `corepack enable` once, then `pnpm install`. All pnpm settings (overrides, patches, `allowBuilds`, the 72-hour `minimumReleaseAge`) live in `pnpm-workspace.yaml`. Add a dependency with `pnpm --filter <pkg> add <dep>`; a new dependency with a build script must be listed in `allowBuilds`.
+- Install: `corepack enable` once, then `python3 scripts/install-worktree-deps.py` on macOS or Linux (`pnpm install` on Windows). Only install in a new worktree when the task needs Node dependencies. All pnpm settings (overrides, patches, `allowBuilds`, the 72-hour `minimumReleaseAge`) live in `pnpm-workspace.yaml`. Add a dependency with `pnpm --filter <pkg> add <dep>`; a new dependency with a build script must be listed in `allowBuilds`.
 - Dev: the user runs `cd packages/electron && pnpm run dev`. A second instance for collab testing is `pnpm run dev:user2`.
 - Unit tests: `pnpm run test:unit`. Last failures: `pnpm run test:last`. Typecheck: `pnpm typecheck`.
 - Release: `/release-alpha [patch|minor|major]`; see [RELEASING.md](./RELEASING.md). Marketing captures: [MARKETING_SCREENSHOTS.md](./docs/MARKETING_SCREENSHOTS.md).
