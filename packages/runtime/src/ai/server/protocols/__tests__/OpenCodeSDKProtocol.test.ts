@@ -763,7 +763,8 @@ describe('OpenCodeSDKProtocol', () => {
       ]);
       const protocol = new OpenCodeSDKProtocol(loadSdkModule);
       const controller = new AbortController();
-      const answers = { 'Which actions?': 'Build, then test, inspect logs, too' };
+      const selections = ['Build, then test', 'inspect logs, too'];
+      const answers = { 'Which actions?': JSON.stringify(selections) };
       const replaySessionId = 'nimbalyst-replay-session';
       const rows: RawMessage[] = [];
       const readOpenQuestions = async () => {
@@ -781,7 +782,9 @@ describe('OpenCodeSDKProtocol', () => {
           protocol.abortSession(session);
           controller.abort();
         }
-        return action === 'reply' ? { answers } : {};
+        return action === 'reply'
+          ? { answers, respondedBy: 'desktop' }
+          : action === 'reject' ? { respondedBy: 'desktop' } : {};
       });
       const settle = vi.fn();
       const session = await protocol.resumeSession('oc-session-1', {
@@ -807,7 +810,9 @@ describe('OpenCodeSDKProtocol', () => {
           }
         }
         expect(ask).toHaveBeenCalledExactlyOnceWith(request, controller.signal);
-        expect(settle).toHaveBeenCalledTimes(1);
+        expect(settle).toHaveBeenCalledExactlyOnceWith(request.id, action === 'reply'
+          ? { answers, respondedBy: 'desktop' }
+          : action === 'reject' ? { respondedBy: 'desktop' } : {});
         expect(questionsOnReconnect).toEqual([expect.objectContaining({
           id: request.id,
           toolName: 'AskUserQuestion',
@@ -840,11 +845,14 @@ describe('OpenCodeSDKProtocol', () => {
           expect(resumedEvents.at(-1)?.type).toBe('complete');
         }
         const [[wireRequest]] = wireFetch.mock.calls;
+        expect(wireRequest.method).toBe('POST');
         const url = new URL(wireRequest.url);
         expect(url.pathname).toBe(`/question/${request.id}/${action === 'reply' ? 'reply' : 'reject'}`);
         expect(url.searchParams.get('directory')).toBe('/tmp/test');
         if (action === 'reply') {
-          await expect(wireRequest.json()).resolves.toEqual({ answers: [['Build, then test', 'inspect logs, too']] });
+          await expect(wireRequest.json()).resolves.toEqual({ answers: [selections] });
+        } else {
+          expect(wireRequest.body).toBeNull();
         }
       } finally {
         vi.stubGlobal('fetch', mockFetch);
@@ -868,7 +876,7 @@ describe('OpenCodeSDKProtocol', () => {
     ]);
     const provider = new OpenCodeProvider({ protocol: new OpenCodeSDKProtocol(loadSdkModule) });
     const sessionId = 'nimbalyst-session-native-question';
-    const answers = { 'Which color?': 'Blue' };
+    const answers = { 'Which color?': JSON.stringify(['Blue']) };
     const decisions: boolean[] = [];
     const answered = vi.fn();
     provider.on('askUserQuestion:pending', ({ questionId }) => {

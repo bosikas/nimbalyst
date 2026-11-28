@@ -30,6 +30,7 @@ import {
   WidgetStatusPill,
 } from './shared/InteractiveWidgetChrome';
 import { erroredQuestionOutcome, parseAnswers, parseCancelledResult } from './askUserQuestionResult';
+import { parseQuestionAnswerArray, type AskUserQuestionPrompt } from '../../../../ai/server/providers/shared/askUserQuestionTypes';
 
 // Shared with the feedback surfaces via InteractiveWidgetChrome; the glyph
 // itself stays local because it is this widget's identity.
@@ -45,16 +46,12 @@ const QuestionMarkIcon: React.FC = () => (
 // Types
 // ============================================================
 
-interface QuestionOption {
-  label: string;
-  description: string;
-}
+type Question = AskUserQuestionPrompt;
 
-interface Question {
-  question: string;
-  header: string;
-  options: QuestionOption[];
-  multiSelect: boolean;
+function readSelections(question: Question, answer: string | undefined): string[] {
+  if (question.answerFormat === 'json-array') return parseQuestionAnswerArray(answer) ?? [];
+  if (!answer) return [];
+  return question.multiSelect ? answer.split(', ').filter((selection) => selection.trim()) : [answer];
 }
 
 // ============================================================
@@ -80,7 +77,7 @@ function parseQuestions(args: any): Question[] {
     if (!Array.isArray(q.options) || q.options.length === 0) continue;
     // Each rendered option reads `.label`/`.description`; drop entries that aren't
     // objects with a string label so the option map can't throw either.
-    const options: QuestionOption[] = q.options
+    const options: Question['options'] = q.options
       .filter((o: any) => o && typeof o === 'object' && typeof o.label === 'string')
       .map((o: any) => ({ label: o.label, description: typeof o.description === 'string' ? o.description : '' }));
     if (options.length === 0) continue;
@@ -89,6 +86,8 @@ function parseQuestions(args: any): Question[] {
       header: q.header,
       options,
       multiSelect: q.multiSelect === true,
+      allowOther: q.allowOther !== false,
+      answerFormat: q.answerFormat === 'json-array' ? 'json-array' : undefined,
     });
   }
   if (valid.length !== args.questions.length) {
@@ -178,17 +177,9 @@ export const AskUserQuestionWidget: React.FC<CustomToolWidgetProps> = ({
       primedRef.current = true;
       return;
     }
-    const initialSelections: Record<string, string[]> = {};
-    for (const q of questions) {
-      const answer = parsedAnswers[q.question];
-      if (answer) {
-        initialSelections[q.question] = q.multiSelect
-          ? answer.split(', ').filter(a => a.trim())
-          : [answer];
-      } else {
-        initialSelections[q.question] = [];
-      }
-    }
+    const initialSelections = Object.fromEntries(questions.map((question) => [
+      question.question, readSelections(question, parsedAnswers[question.question]),
+    ]));
     setDraft(prev => ({ ...prev, selections: initialSelections }));
     primedRef.current = true;
   }, [questions, parsedAnswers, draft, setDraft]);
@@ -263,21 +254,13 @@ export const AskUserQuestionWidget: React.FC<CustomToolWidgetProps> = ({
     const answers: Record<string, string> = {};
     for (const q of questions) {
       const questionKey = q.question;
-      if (otherSelected[questionKey] && otherText[questionKey]?.trim()) {
-        // "Other" is selected with text — use the custom text
-        const customAnswer = otherText[questionKey].trim();
-        const selected = selections[questionKey] || [];
-        if (q.multiSelect && selected.length > 0) {
-          answers[questionKey] = [...selected, customAnswer].join(', ');
-        } else {
-          answers[questionKey] = customAnswer;
-        }
-      } else {
-        const selected = selections[questionKey] || [];
-        if (selected.length > 0) {
-          answers[questionKey] = q.multiSelect ? selected.join(', ') : selected[0];
-        }
-      }
+      const customAnswer = q.allowOther && otherSelected[questionKey] && otherText[questionKey]?.trim();
+      const selected = selections[questionKey] || [];
+      const values = customAnswer ? [...(q.multiSelect ? selected : []), customAnswer] : selected;
+      if (!values.length) continue;
+      answers[questionKey] = q.answerFormat === 'json-array'
+        ? JSON.stringify(values)
+        : q.multiSelect ? values.join(', ') : values[0];
     }
 
     // Validate all questions have answers
@@ -376,7 +359,7 @@ export const AskUserQuestionWidget: React.FC<CustomToolWidgetProps> = ({
   // Check if all questions have selections (for enabling submit button)
   const allAnswered = questions.every(q => {
     const hasSelection = (selections[q.question] || []).length > 0;
-    const hasOther = otherSelected[q.question] && otherText[q.question]?.trim();
+    const hasOther = q.allowOther && otherSelected[q.question] && otherText[q.question]?.trim();
     return hasSelection || hasOther;
   });
 
@@ -426,7 +409,7 @@ export const AskUserQuestionWidget: React.FC<CustomToolWidgetProps> = ({
             </WidgetNoteRow>
           )}
           {questions.map((question, qIndex) => {
-            const answer = displayAnswers[question.question];
+            const selected = readSelections(question, displayAnswers[question.question]);
 
             return (
               <WidgetBlock
@@ -437,9 +420,7 @@ export const AskUserQuestionWidget: React.FC<CustomToolWidgetProps> = ({
               >
                 <WidgetOptionList>
                   {question.options.map((option, oIndex) => {
-                    const isSelected = question.multiSelect
-                      ? (answer?.split(', ') || []).includes(option.label)
-                      : answer === option.label;
+                    const isSelected = selected.includes(option.label);
 
                     return (
                       <WidgetOptionRow
@@ -451,9 +432,9 @@ export const AskUserQuestionWidget: React.FC<CustomToolWidgetProps> = ({
                     );
                   })}
                 </WidgetOptionList>
-                {answer && (
+                {selected.length > 0 && (
                   <div className="mt-2 pt-2 border-t border-nim text-xs text-nim-muted italic">
-                    Selected: {answer}
+                    Selected: {selected.join(', ')}
                   </div>
                 )}
               </WidgetBlock>
@@ -519,8 +500,7 @@ export const AskUserQuestionWidget: React.FC<CustomToolWidgetProps> = ({
                     />
                   );
                 })}
-                {/* "Other" option with inline text input */}
-                <div
+                {question.allowOther && <div
                   data-testid="ask-user-question-other"
                   data-selected={otherSelected[question.question] || false}
                   className={`rounded border transition-all duration-150 ${
@@ -568,7 +548,7 @@ export const AskUserQuestionWidget: React.FC<CustomToolWidgetProps> = ({
                       />
                     </div>
                   )}
-                </div>
+                </div>}
               </WidgetOptionList>
             </WidgetBlock>
           );

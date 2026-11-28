@@ -19,9 +19,20 @@ import { clearRequestUserInputDraft } from '../../../../../store/atoms/requestUs
 import { AskUserQuestionWidget } from '../AskUserQuestionWidget';
 import { RequestUserInputWidget } from '../RequestUserInputWidget';
 import type { InteractiveWidgetHost } from '../InteractiveWidgetHost';
+import { toAskUserQuestions } from '../../../../../ai/server/providers/openCode/OpenCodeQuestions';
 
 const SESSION_ID = 'session-1577';
 const DENIAL = 'Hook PreToolUse denied: too long';
+
+const NATIVE_ASK_ARGS = {
+  questions: toAskUserQuestions([{
+    question: 'Which actions?',
+    header: 'Actions',
+    multiple: true,
+    custom: false,
+    options: ['Build', 'Test', 'Build, Test'].map((label) => ({ label, description: '' })),
+  }]),
+};
 
 const ASK_ARGS = {
   questions: [
@@ -53,11 +64,11 @@ function toolMessage(id: string, args: unknown, result: unknown, isError: boolea
   } as any;
 }
 
-async function renderAsk(id: string, result: unknown, isError: boolean) {
+async function renderAsk(id: string, result: unknown, isError: boolean, args: unknown = ASK_ARGS) {
   clearAskUserQuestionDraft(id);
   render(
     <JotaiProvider store={store}>
-      <AskUserQuestionWidget message={toolMessage(id, ASK_ARGS, result, isError)} sessionId={SESSION_ID} isExpanded onToggle={() => {}} />
+      <AskUserQuestionWidget message={toolMessage(id, args, result, isError)} sessionId={SESSION_ID} isExpanded onToggle={() => {}} />
     </JotaiProvider>,
   );
   await act(async () => {});
@@ -104,6 +115,7 @@ describe('question widgets with a hook-denied (errored) result', () => {
       .mockResolvedValueOnce(undefined);
     setInteractiveWidgetHost(SESSION_ID, { askUserQuestionSubmit: submit } as unknown as InteractiveWidgetHost);
     await renderAsk('ask-retry', undefined, false);
+    expect(screen.getByTestId('ask-user-question-other').textContent).toContain('Other');
     fireEvent.click(screen.getByText('Blue'));
     await act(async () => fireEvent.click(screen.getByTestId('ask-user-question-submit')));
     expect(screen.getByRole('alert').textContent).toContain('Could not reach the session');
@@ -113,6 +125,39 @@ describe('question widgets with a hook-denied (errored) result', () => {
       ['ask-retry', { 'Which color?': 'Blue' }],
     ]);
     expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it.each([
+    { options: ['Build', 'Test'] },
+    { options: ['Build, Test'] },
+  ])('submits exact native OpenCode selections $options and hides Other', async ({ options }) => {
+    const submit = vi.fn().mockResolvedValue(undefined);
+    setInteractiveWidgetHost(SESSION_ID, { askUserQuestionSubmit: submit } as unknown as InteractiveWidgetHost);
+    await renderAsk('ask-opencode-submit', undefined, false, NATIVE_ASK_ARGS);
+
+    expect(screen.queryByTestId('ask-user-question-other')).toBeNull();
+    for (const option of options) fireEvent.click(screen.getByText(option));
+    await act(async () => fireEvent.click(screen.getByTestId('ask-user-question-submit')));
+
+    expect(submit).toHaveBeenCalledExactlyOnceWith('ask-opencode-submit', {
+      'Which actions?': JSON.stringify(options),
+    });
+  });
+
+  it('cancels a native OpenCode question through the shared widget host', async () => {
+    const cancel = vi.fn().mockResolvedValue(undefined);
+    const submit = vi.fn();
+    setInteractiveWidgetHost(SESSION_ID, {
+      askUserQuestionCancel: cancel,
+      askUserQuestionSubmit: submit,
+    } as unknown as InteractiveWidgetHost);
+    await renderAsk('ask-opencode-cancel', undefined, false, NATIVE_ASK_ARGS);
+    fireEvent.click(screen.getByText('Build, Test'));
+    await act(async () => fireEvent.click(screen.getByTestId('ask-user-question-cancel')));
+
+    expect(cancel).toHaveBeenCalledExactlyOnceWith('ask-opencode-cancel');
+    expect(submit).not.toHaveBeenCalled();
+    expect(screen.queryByTestId('ask-user-question-submit')).toBeNull();
   });
 
   it('PromptForUserInput: a denied call is blocked, not submitted, and offers no submit', async () => {

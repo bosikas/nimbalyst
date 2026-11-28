@@ -1,4 +1,5 @@
 import type { QuestionInfo, QuestionRequest } from '@opencode-ai/sdk/v2/client';
+import { parseQuestionAnswerArray, type AskUserQuestionPrompt } from '../shared/askUserQuestionTypes';
 
 export interface OpenCodeQuestionAnswer {
   answers?: Record<string, string>;
@@ -10,12 +11,14 @@ export interface OpenCodeQuestionHost {
   settle(requestId: string, result: OpenCodeQuestionAnswer): void;
 }
 
-export function toAskUserQuestions(questions: QuestionInfo[]) {
-  return questions.map(({ question, header, options, multiple }) => ({
+export function toAskUserQuestions(questions: QuestionInfo[]): AskUserQuestionPrompt[] {
+  return questions.map(({ question, header, options, multiple, custom }) => ({
     question,
     header,
     options,
     multiSelect: multiple === true,
+    allowOther: custom !== false,
+    answerFormat: 'json-array',
   }));
 }
 
@@ -23,25 +26,13 @@ export function toNativeQuestionAnswers(
   questions: QuestionInfo[],
   answers: Record<string, string>,
 ): string[][] {
-  return questions.map(({ question, multiple, options }) => {
+  return questions.map(({ question, multiple, options, custom }) => {
     const value = Object.hasOwn(answers, question) ? answers[question] : undefined;
-    if (!value) return [];
-    if (!multiple) return [value];
-
-    // The AskUserQuestion widget joins selected labels with ", " and appends
-    // any custom text last. Match complete labels before preserving that text.
-    const labels = options.map(({ label }) => label).filter(Boolean).sort((a, b) => b.length - a.length);
-    const selected: string[] = [];
-    let remaining = value;
-    while (remaining) {
-      const label = labels.find((option) => remaining === option || remaining.startsWith(option + ', '));
-      if (!label) {
-        selected.push(remaining);
-        break;
-      }
-      selected.push(label);
-      remaining = remaining.slice(label.length + 2);
+    const selections = parseQuestionAnswerArray(value);
+    if (!selections?.length || (!multiple && selections.length > 1) ||
+        (custom === false && selections.some((selection) => !options.some(({ label }) => label === selection)))) {
+      throw new Error('Invalid OpenCode question answer');
     }
-    return selected;
+    return selections;
   });
 }
