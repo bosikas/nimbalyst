@@ -51,6 +51,7 @@ const PROVIDER_API_KEY_SOURCE: Readonly<Record<AIProviderType, string | null>> =
   'mistral-vibe': null,
   'cursor-agent': null,
   'antigravity-gemini-agent': null,
+  'antigravity-acp': 'antigravity-acp',
 });
 
 export class ModelRegistry {
@@ -213,6 +214,9 @@ export class ModelRegistry {
       case 'antigravity-gemini-agent':
         const { GeminiAntigravityProvider } = await import('./providers/GeminiAntigravityProvider');
         return GeminiAntigravityProvider.getModels();
+      case 'antigravity-acp':
+        const { AntigravityACPProvider } = await import('./providers/AntigravityACPProvider');
+        return AntigravityACPProvider.getModels(apiKey, workspacePath);
       default:
         return assertExhaustiveProvider(provider);
     }
@@ -317,6 +321,8 @@ export class ModelRegistry {
         return CLP.getDefaultModel();
       case 'mistral-vibe':
         return DEFAULT_MODELS['mistral-vibe'];
+      case 'antigravity-acp':
+        return DEFAULT_MODELS['antigravity-acp'];
       case 'grok-build':
         const { GrokBuildProvider: GBP } = await import('./providers/GrokBuildProvider');
         return GBP.getDefaultModel();

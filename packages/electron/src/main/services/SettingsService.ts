@@ -46,7 +46,7 @@ import { isProviderCredentialKey, SAVED_CREDENTIAL } from '../../shared/provider
 // Catalogs discovered from the CLI at runtime rather than curated in
 // modelConstants -- `grok models` and `cursor-agent --list-models` both reflect
 // the signed-in account, so a static list would be wrong for most users.
-const DYNAMIC_MODEL_PROVIDERS = new Set(['openai-codex', 'copilot-cli', 'grok-build', 'cursor-agent']);
+const DYNAMIC_MODEL_PROVIDERS = new Set(['openai-codex', 'copilot-cli', 'grok-build', 'cursor-agent', 'antigravity-acp']);
 
 /**
  * Strip fields that must never reach disk from a provider config:

@@ -16,8 +16,7 @@ import { truncateContentForSync } from '../../../../sync/syncContentTruncator';
 
 const SESSION_ID = 'test-session';
 
-it('keeps Vibe text and thoughts around their tool calls without replaying the full answer', async () => {
-  const source = 'mistral-vibe';
+it.each(['mistral-vibe', 'antigravity-acp'])('keeps %s text and thoughts around tool calls without replaying the full answer', async (source) => {
   const metadata = { streamedAssistantText: true };
   const update = (id: number, fields: Record<string, unknown>) => raw({
     id, source, metadata,

@@ -593,6 +593,7 @@ export const DEFAULT_MODELS = {
   // list is what hid newly released models in NIM-1486. These are only the
   // fallbacks used when the CLI cannot be reached.
   'mistral-vibe': 'mistral-vibe:default',
+  'antigravity-acp': 'antigravity-acp:default',
   'grok-build': 'grok-build:grok-4.6',
   'cursor-agent': 'cursor-agent:auto',
 };

@@ -52,6 +52,8 @@ export function resolveProviderAuthRequirement(
       return { requiresApiKey: true, missingKeyMessage: 'Anthropic API key not configured' };
     case 'openai':
       return { requiresApiKey: true, missingKeyMessage: 'OpenAI API key not configured' };
+    case 'antigravity-acp':
+      return { requiresApiKey: true, missingKeyMessage: 'Save a Gemini API key in Antigravity CLI settings.' };
 
     // Claude Code (SDK and genuine CLI) sign in through their own OAuth /
     // subscription login; a key is optional.

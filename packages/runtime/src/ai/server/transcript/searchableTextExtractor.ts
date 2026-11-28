@@ -450,6 +450,7 @@ const AGENT_SOURCES = new Set([
   'mistral-vibe',
   'cursor-agent',
   'antigravity-gemini-agent',
+  'antigravity-acp',
 ]);
 
 /**
@@ -465,6 +466,7 @@ const CODEX_SHAPED_OUTPUT_SOURCES = new Set([
   'grok-build',
   'mistral-vibe',
   'cursor-agent',
+  'antigravity-acp',
 ]);
 
 export function extractSearchable(input: ExtractorInput): ExtractedSearchable {

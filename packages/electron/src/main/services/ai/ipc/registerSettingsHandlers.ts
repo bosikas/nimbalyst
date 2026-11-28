@@ -1,4 +1,5 @@
 import { SAVED_CREDENTIAL } from '../../../../shared/providerCredentials';
+import { AntigravityACPProvider } from '@nimbalyst/runtime/ai/server/providers/AntigravityACPProvider';
 import { getProviderCredentials } from '../../credentials/providerCredentials';
 import { safeHandle } from '../../../utils/ipcRegistry';
 import { logger } from '../../../utils/logger';
@@ -146,6 +147,7 @@ export function registerSettingsHandlers(ctx: AIServiceContext): void {
       writeApiKey('claude-code', settings.apiKeys['claude-code']);
       writeApiKey('openai', settings.apiKeys.openai);
       writeApiKey('openai-codex', settings.apiKeys['openai-codex']);
+      writeApiKey('antigravity-acp', settings.apiKeys['antigravity-acp']);
       if (settings.apiKeys.lmstudio_url !== undefined) {
         // lmstudio_url is a regular setting -- no masking, just write it.
         safeSet('ai.apiKey.lmstudio_url', settings.apiKeys.lmstudio_url);
@@ -216,6 +218,14 @@ export function registerSettingsHandlers(ctx: AIServiceContext): void {
   // Test connection
   safeHandle('ai:testConnection', async (event, provider: string, workspacePath?: string) => {
     const resolvedApiKey = ctx.getApiKeyForProvider(provider, workspacePath);
+    if (provider === 'antigravity-acp') {
+      try {
+        await AntigravityACPProvider.checkSetup(resolvedApiKey, workspacePath);
+        return { success: true, provider };
+      } catch (error) {
+        return { success: false, error: error instanceof Error ? error.message : String(error) };
+      }
+    }
 
     // Get the appropriate API key based on provider.
     // Extension-agent providers (aiAgentProviders contributions) handle their

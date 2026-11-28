@@ -21,6 +21,7 @@ export type ApplicationSettingsCategory =
   | 'grok-build'
   | 'cursor-agent'
   | 'antigravity-gemini-agent'
+  | 'antigravity-acp'
   | 'lmstudio'
   | 'marketplace'
   | 'installed-extensions'
@@ -166,6 +167,7 @@ const builtinSettingsRouteDefinitions: readonly Omit<BuiltinSettingsRoute, 'sour
   { id: 'grok-build', scope: 'application', group: 'Agent Providers', label: 'Grok Build', icon: 'terminal', isAlpha: true },
   { id: 'cursor-agent', scope: 'application', group: 'Agent Providers', label: 'Cursor Agent', icon: 'terminal', isAlpha: true },
   { id: 'antigravity-gemini-agent', scope: 'application', group: 'Agent Providers', label: 'Gemini', icon: 'smart_toy', isAlpha: true },
+  { id: 'antigravity-acp', scope: 'application', group: 'Agent Providers', label: 'Antigravity CLI', icon: 'terminal', isAlpha: true },
   { id: 'claude', scope: 'application', group: 'Chat Providers', label: 'Claude Chat', icon: 'chat', isAvailable: directChatProvidersVisible },
   { id: 'openai', scope: 'application', group: 'Chat Providers', label: 'OpenAI', icon: 'chat', isAvailable: directChatProvidersVisible },
   { id: 'lmstudio', scope: 'application', group: 'Chat Providers', label: 'LM Studio', icon: 'memory', isAvailable: directChatProvidersVisible },

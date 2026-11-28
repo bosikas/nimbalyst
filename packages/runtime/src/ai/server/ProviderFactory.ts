@@ -16,6 +16,7 @@ import { MistralVibeProvider } from './providers/MistralVibeProvider';
 import { GrokBuildProvider } from './providers/GrokBuildProvider';
 import { CursorAgentProvider } from './providers/CursorAgentProvider';
 import { GeminiAntigravityProvider } from './providers/GeminiAntigravityProvider';
+import { AntigravityACPProvider } from './providers/AntigravityACPProvider';
 import { ExtensionAgentProvider } from './providers/ExtensionAgentProvider';
 import { ProviderConfig, AIProviderType, assertExhaustiveProvider } from './types';
 
@@ -97,6 +98,9 @@ export class ProviderFactory {
         break;
       case 'antigravity-gemini-agent':
         provider = new GeminiAntigravityProvider();
+        break;
+      case 'antigravity-acp':
+        provider = new AntigravityACPProvider();
         break;
       default:
         assertExhaustiveProvider(type);

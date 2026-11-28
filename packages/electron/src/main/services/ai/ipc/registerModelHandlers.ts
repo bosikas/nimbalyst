@@ -42,6 +42,9 @@ export function registerModelHandlers(ctx: AIServiceContext): void {
     if (providerSettings['openai']?.enabled === true && !!apiKeys['openai']) enabledSet.add('openai');
     if (providerSettings['openai-codex']?.enabled === true) enabledSet.add('openai-codex');
     if (providerSettings['mistral-vibe']?.enabled === true) enabledSet.add('mistral-vibe');
+    if (providerSettings['antigravity-acp']?.enabled === true && apiKeys['antigravity-acp']) {
+      enabledSet.add('antigravity-acp');
+    }
     if (providerSettings['opencode']?.enabled === true) enabledSet.add('opencode');
     // Without these the model picker stays empty for an enabled provider:
     // the catalog is only fetched for ids in this set. Both default to
@@ -233,6 +236,11 @@ export function registerModelHandlers(ctx: AIServiceContext): void {
         enabled: providerSettings['mistral-vibe']?.enabled === true,
         models: providerSettings['mistral-vibe']?.models,
         hiddenModels: providerSettings['mistral-vibe']?.hiddenModels
+      },
+      'antigravity-acp': {
+        enabled: providerSettings['antigravity-acp']?.enabled === true && !!apiKeys['antigravity-acp'],
+        models: providerSettings['antigravity-acp']?.models,
+        hiddenModels: providerSettings['antigravity-acp']?.hiddenModels,
       },
       'grok-build': {
         enabled: resolveProviderEnabled('grok-build', providerSettings['grok-build']),

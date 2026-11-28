@@ -203,7 +203,7 @@ export interface Message {
  * Add new providers here -- the type, runtime array, and exhaustiveness
  * checks all derive from this one definition.
  */
-export const AI_PROVIDER_TYPES = ['claude', 'claude-code', 'claude-code-cli', 'openai', 'openai-codex', 'openai-codex-acp', 'lmstudio', 'opencode', 'copilot-cli', 'grok-build', 'mistral-vibe', 'cursor-agent', 'antigravity-gemini-agent'] as const;
+export const AI_PROVIDER_TYPES = ['claude', 'claude-code', 'claude-code-cli', 'openai', 'openai-codex', 'openai-codex-acp', 'lmstudio', 'opencode', 'copilot-cli', 'grok-build', 'mistral-vibe', 'cursor-agent', 'antigravity-acp', 'antigravity-gemini-agent'] as const;
 
 export type AIProviderType = typeof AI_PROVIDER_TYPES[number];
 
@@ -232,6 +232,7 @@ export type AgentProviderType =
   | 'grok-build'
   | 'mistral-vibe'
   | 'cursor-agent'
+  | 'antigravity-acp'
   // Keeps its original contribution id from the years it shipped as an
   // extension: the id is persisted on every existing Gemini session row, and
   // re-keying it would orphan that history for a cosmetic gain.
@@ -247,6 +248,7 @@ const AGENT_PROVIDER_TYPES: ReadonlySet<string> = new Set<AgentProviderType>([
   'grok-build',
   'mistral-vibe',
   'cursor-agent',
+  'antigravity-acp',
   'antigravity-gemini-agent',
 ]);
 

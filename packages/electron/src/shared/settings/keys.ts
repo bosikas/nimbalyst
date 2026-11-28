@@ -152,6 +152,11 @@ export const SETTINGS_REGISTRY = {
     { store: 'ai-settings', path: 'providerSettings.cursor-agent' },
     { enabled: false, testStatus: 'idle', installStatus: 'not-installed' },
   ),
+  'ai.provider.antigravity-acp': setting(
+    ProviderConfigSchema,
+    { store: 'ai-settings', path: 'providerSettings.antigravity-acp' },
+    { enabled: false, testStatus: 'idle', installStatus: 'not-installed' },
+  ),
   'ai.provider.lmstudio': setting(
     ProviderConfigSchema,
     { store: 'ai-settings', path: 'providerSettings.lmstudio' },

@@ -35,6 +35,7 @@ import { MistralVibePanel } from '../GlobalSettings/panels/MistralVibePanel';
 import { GrokBuildPanel } from '../GlobalSettings/panels/GrokBuildPanel';
 import { CursorAgentPanel } from '../GlobalSettings/panels/CursorAgentPanel';
 import { GeminiPanel } from '../GlobalSettings/panels/GeminiPanel';
+import { AntigravityACPPanel } from '../GlobalSettings/panels/AntigravityACPPanel';
 import { LMStudioPanel } from '../GlobalSettings/panels/LMStudioPanel';
 import { AdvancedPanel } from '../GlobalSettings/panels/AdvancedPanel';
 import { DatabasePanel } from '../GlobalSettings/panels/DatabasePanel';
@@ -96,6 +97,7 @@ const CLI_CATALOG_PROVIDERS = new Set<string>([
   'mistral-vibe',
   'grok-build',
   'cursor-agent',
+  'antigravity-acp',
 ]);
 
 // Re-export ProviderConfig for backward compatibility
@@ -952,6 +954,8 @@ export function SettingsView({
           'Gemini',
           <GeminiPanel config={commonProps.config} onToggle={commonProps.onToggle} />,
         );
+      case 'antigravity-acp':
+        return wrapWithOverride('antigravity-acp', 'Antigravity CLI', <AntigravityACPPanel {...commonProps} />);
       case 'lmstudio':
         return wrapWithOverride('lmstudio', 'LM Studio', <LMStudioPanel {...commonProps} />);
       case 'advanced':

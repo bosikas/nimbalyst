@@ -52,6 +52,7 @@ const DETECTED_DEFAULT_PROVIDERS: ReadonlySet<string> = new Set([
   // sign-in probe; `headlessAgentAvailability.ts` explains why sign-in cannot
   // be asked for cheaply. The `??` above still means an explicit toggle wins.
   'antigravity-gemini-agent',
+  'antigravity-acp',
 ]);
 
 /**
@@ -93,7 +94,7 @@ export function isModelEnabled(
   // Gemini uses dynamic model discovery and GeminiPanel exposes no per-model
   // allowlist checkboxes. Ignore any stale `models` allowlist from older
   // `ai-settings.json` files so retired Flash IDs cannot hide the live catalog.
-  if (model.provider === 'antigravity-gemini-agent') return true;
+  if (model.provider === 'antigravity-gemini-agent' || model.provider === 'antigravity-acp') return true;
 
   const list = entry.models;
   if (list && list.length > 0) {

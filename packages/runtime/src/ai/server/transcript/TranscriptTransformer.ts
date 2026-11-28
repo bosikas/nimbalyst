@@ -559,7 +559,7 @@ export class TranscriptTransformer {
     if (provider === 'opencode') {
       return new OpenCodeRawParser();
     }
-    if (provider === 'grok-build' || provider === 'cursor-agent' || provider === 'mistral-vibe') {
+    if (provider === 'grok-build' || provider === 'cursor-agent' || provider === 'mistral-vibe' || provider === 'antigravity-acp') {
       return new HeadlessAgentRawParser(provider);
     }
     if (provider === 'antigravity-gemini-agent') {

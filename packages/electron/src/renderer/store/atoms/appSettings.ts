@@ -1234,6 +1234,7 @@ const defaultProviders: Record<string, ProviderConfig> = {
   'grok-build': { enabled: false, testStatus: 'idle', installStatus: 'not-installed' },
   'cursor-agent': { enabled: false, testStatus: 'idle', installStatus: 'not-installed' },
   'antigravity-gemini-agent': { enabled: false, testStatus: 'idle', installStatus: 'not-installed' },
+  'antigravity-acp': { enabled: false, testStatus: 'idle', installStatus: 'not-installed' },
   lmstudio: { enabled: false, baseUrl: 'http://127.0.0.1:8234', testStatus: 'idle' },
 };
 

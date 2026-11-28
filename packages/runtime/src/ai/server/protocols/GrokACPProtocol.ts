@@ -128,6 +128,8 @@ interface AcpAgentBehavior {
   configureSession?(connection: ACPClientConnection, sessionId: string, options: SessionOptions, config: SessionConfigOption[]): Promise<string | undefined>;
   onPromptPrepared?(session: ProtocolSession, message: ProtocolMessage, systemPrompt: string | undefined, attachmentCount: number): void;
   resolveLaunch?(command: string, args: string[]): { command: string; args: string[] };
+  authentication?(): { methodId: string; env: NodeJS.ProcessEnv };
+  resumeWithoutReplay?: boolean;
   supportsFork?: boolean;
   supportsAttachments?: boolean;
   supportsSseMcp?: boolean;
@@ -289,11 +291,10 @@ export class AcpStdioAgentProtocol implements AgentProtocol {
       const mcpServers = convertGrokMcpServers(options.mcpServers, this.agent.supportsSseMcp);
       let result;
       try {
-        result = await connection.loadSession({
-          sessionId,
-          cwd,
-          mcpServers,
-        });
+        const request = { sessionId, cwd, mcpServers };
+        result = this.agent.resumeWithoutReplay
+          ? await connection.resumeSession(request)
+          : await connection.loadSession(request);
       } catch (error) {
         // Never mint a replacement here. The caller persisted this provider id,
         // and silently replacing it would orphan the existing Grok history.
@@ -536,9 +537,13 @@ export class AcpStdioAgentProtocol implements AgentProtocol {
     // `grok agent stdio`. See CLAUDE.md's "never use environment variables as
     // implicit API key sources".
     const launch = this.agent.resolveLaunch?.(this.command, this.args) ?? { command: this.command, args: this.args };
+    const authentication = this.agent.authentication?.();
     const child = this.spawnProcess(launch.command, launch.args, {
       stdio: ['pipe', 'pipe', 'pipe'],
-      env: scrubProviderApiKeys({ ...process.env, ...this.extraEnv }),
+      env: {
+        ...scrubProviderApiKeys({ ...process.env, ...this.extraEnv }),
+        ...authentication?.env,
+      },
       cwd: this.initialCwd ?? process.cwd(),
     });
     this.childProcess = child;
@@ -604,6 +609,7 @@ export class AcpStdioAgentProtocol implements AgentProtocol {
         clientCapabilities: {},
       });
       this.initializeMeta = response._meta ?? null;
+      if (authentication) await connection.authenticate({ methodId: authentication.methodId });
     } catch (error) {
       const detail = this.formatError(this.processExitError ?? error);
       this.destroy();

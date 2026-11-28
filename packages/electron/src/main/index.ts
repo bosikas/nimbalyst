@@ -354,6 +354,7 @@ import { registerLinuxAppImageProtocolHandler } from './services/LinuxProtocolRe
 import { installWindowOpenGuard } from './window/windowOpenGuard';
 import { openConsoleDeepLink } from './services/consoleLinks/consoleLinkHandlers';
 import { resolveClaudeConfigDir } from '@nimbalyst/runtime/ai/server/providers/claudeCode/claudeConfigDir';
+import { AntigravityACPProvider } from '@nimbalyst/runtime/ai/server/providers/AntigravityACPProvider';
 import { parseConversationDeepLink } from '../shared/conversationDeepLinks';
 import {
     FEEDBACK_REQUEST_DEEP_LINK_HOST,
@@ -2206,6 +2207,12 @@ app.whenReady().then(ownerOnly('app initialisation', async () => {
         enhancedPathLoader: () => getEnhancedPath(),
         executablePathLoader: null,
     });
+    AntigravityACPProvider.configureLoaders({
+        mcpConfigLoader: null,
+        shellEnvironmentLoader: () => getShellEnvironment(),
+        enhancedPathLoader: () => getEnhancedPath(),
+        executablePathLoader: null,
+    });
     GrokBuildProvider.setEnhancedPathLoader(() => getEnhancedPath());
     CursorAgentProvider.setEnhancedPathLoader(() => getEnhancedPath());
 
@@ -2891,6 +2898,9 @@ app.whenReady().then(ownerOnly('app initialisation', async () => {
             executor: async ({ sessionId, workspacePath, prompt }) => {
                 if (!aiSvcRef) {
                     return { triggered: false };
+                }
+                if ((await AISessionsRepository.get(sessionId))?.provider === 'antigravity-acp') {
+                    throw new Error('Scheduled wakeups are unavailable for Google Antigravity CLI sessions.');
                 }
                 await aiSvcRef.queuePromptForSession(sessionId, prompt, undefined, {
                   promptOrigin: 'wakeup_resume',

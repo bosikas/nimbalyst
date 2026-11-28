@@ -76,16 +76,16 @@ export function AIInputControls({
   onActionInsert,
 }: AIInputControlsProps) {
   const [activeMenu, setActiveMenu] = useState<MenuName | null>(null);
-  const [vibeModels, setVibeModels] = useState<AIModel[]>([]);
+  const [reasoningModels, setReasoningModels] = useState<AIModel[]>([]);
   const handleModelCatalog = useCallback((grouped: Record<string, AIModel[]>) => {
-    setVibeModels(grouped['mistral-vibe'] ?? []);
+    setReasoningModels([...(grouped['mistral-vibe'] ?? []), ...(grouped['antigravity-acp'] ?? [])]);
   }, []);
-  const isVibeModel = currentModel?.startsWith('mistral-vibe:');
-  const vibeModel = isVibeModel ? vibeModels.find((model) => model.id === currentModel) : undefined;
-  const showEffort = isVibeModel ? (vibeModel?.effortLevels?.length ?? 0) > 1 : showEffortLevel;
-  const showThinking = isVibeModel ? vibeModel?.supportsThinkingOff : showThinkingToggle;
-  const vibeThinkingOff = Boolean(vibeModel?.supportsThinkingOff && thinkingMode === 'disabled');
-  const effortDisabled = reasoningControlsDisabled || vibeThinkingOff;
+  const usesCatalogReasoning = currentModel?.startsWith('mistral-vibe:') || currentModel?.startsWith('antigravity-acp:');
+  const reasoningModel = usesCatalogReasoning ? reasoningModels.find((model) => model.id === currentModel) : undefined;
+  const showEffort = usesCatalogReasoning ? (reasoningModel?.effortLevels?.length ?? 0) > 1 : showEffortLevel;
+  const showThinking = usesCatalogReasoning ? reasoningModel?.supportsThinkingOff : showThinkingToggle;
+  const thinkingOff = Boolean(reasoningModel?.supportsThinkingOff && thinkingMode === 'disabled');
+  const effortDisabled = reasoningControlsDisabled || thinkingOff;
   const menus: MenuName[] = [];
   if (onModelChange && !readOnlyModel && currentProvider !== 'openai-realtime')
     menus.push('model');
@@ -185,9 +185,9 @@ export function AIInputControls({
             focusInput();
           }}
           disabled={effortDisabled}
-          disabledTitle={vibeThinkingOff ? 'Enable thinking to adjust effort' : reasoningControlsDisabledTitle}
+          disabledTitle={thinkingOff ? 'Enable thinking to adjust effort' : reasoningControlsDisabledTitle}
           modelId={currentModel}
-          supportedLevels={vibeModel?.effortLevels}
+          supportedLevels={reasoningModel?.effortLevels}
         />
       )}
       {showThinking && onThinkingModeChange && thinkingMode && (

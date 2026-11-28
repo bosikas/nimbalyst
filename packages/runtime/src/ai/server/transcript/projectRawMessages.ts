@@ -29,6 +29,7 @@ import type { TranscriptEvent } from './types';
 import { processDescriptor, selectRawParser, stampPromptSource } from './processDescriptor';
 
 function createParser(provider: string): IRawMessageParser {
+  if (provider === 'antigravity-acp') return new HeadlessAgentRawParser(provider);
   const kind = selectRawParser(provider);
   // Codex has two transports (SDK / app-server) with different output shapes;
   // route per-message via the same dispatcher the server-side transformer uses,

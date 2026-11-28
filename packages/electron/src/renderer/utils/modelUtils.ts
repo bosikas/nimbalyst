@@ -204,6 +204,7 @@ export function getProviderDisplayName(provider: string): string {
     case 'grok-build': return 'Grok Build';
     case 'cursor-agent': return 'Cursor Agent';
     case 'antigravity-gemini-agent': return 'Gemini';
+    case 'antigravity-acp': return 'Google Antigravity CLI';
     default: return provider;
   }
 }

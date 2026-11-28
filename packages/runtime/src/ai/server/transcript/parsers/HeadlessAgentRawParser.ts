@@ -39,7 +39,7 @@ import { mapCursorRecord } from '../../protocols/headless/CursorAgentRecordMappe
 
 import { mapVibeSessionUpdate } from '../../protocols/headless/MistralVibeRecordMapper';
 
-export type HeadlessAgentKind = 'grok-build' | 'cursor-agent' | 'mistral-vibe';
+export type HeadlessAgentKind = 'grok-build' | 'cursor-agent' | 'mistral-vibe' | 'antigravity-acp';
 
 export type NonRenderingHeadlessAgentRecord =
   | 'textDelta'
@@ -71,7 +71,7 @@ export function classifyNonRenderingHeadlessAgentRecord(
   record: Record<string, unknown>,
   kind: HeadlessAgentKind,
 ): NonRenderingHeadlessAgentRecord | null {
-  if (kind === 'grok-build') {
+  if (kind === 'grok-build' || kind === 'antigravity-acp') {
     const acpUpdate = readGrokACPUpdateEnvelope(record);
     if (acpUpdate?.sessionUpdate === 'agent_message_chunk') return 'grokAcpTextDelta';
     if (acpUpdate?.sessionUpdate === 'agent_thought_chunk') return 'grokAcpReasoningDelta';
@@ -146,10 +146,13 @@ export class HeadlessAgentRawParser implements IRawMessageParser {
     // New Grok rows are raw ACP JSON-RPC envelopes. Historical Grok rows are
     // flat streaming-json records under the same source, so dispatch from the
     // frame's own structure and keep both paths permanently.
-    if (this.kind === 'mistral-vibe') {
+    if (this.kind === 'mistral-vibe' || this.kind === 'antigravity-acp') {
       const update = readGrokACPUpdateEnvelope(record);
       if (update) {
-        return mapVibeSessionUpdate(update).flatMap((event): CanonicalEventDescriptor[] => {
+        const events = this.kind === 'mistral-vibe'
+          ? mapVibeSessionUpdate(update)
+          : mapGrokAcpSessionUpdate(update, '');
+        return events.flatMap((event): CanonicalEventDescriptor[] => {
           if (event.type === 'text' && event.content && msg.metadata?.streamedAssistantText) {
             return [{ type: 'assistant_message', text: event.content, streamChunk: true, createdAt: msg.createdAt }];
           }
@@ -173,7 +176,7 @@ export class HeadlessAgentRawParser implements IRawMessageParser {
     // per-chunk: this one message carries the whole response.
     if (record.type === 'item.completed') {
       // Keep the full answer indexed for search and retain the fallback for older turns.
-      if (this.kind === 'mistral-vibe' && msg.metadata?.streamedAssistantText) return [];
+      if ((this.kind === 'mistral-vibe' || this.kind === 'antigravity-acp') && msg.metadata?.streamedAssistantText) return [];
       return parseItemCompleted(record.item, msg);
     }
 

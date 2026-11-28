@@ -197,6 +197,12 @@ export const BUILTIN_AGENT_CAPABILITIES: Readonly<Record<AIProviderType, AgentCa
     compaction: 'unsupported',
     contextReporting: 'none',
   },
+  'antigravity-acp': {
+    slashCommands: false,
+    skills: false,
+    compaction: 'unsupported',
+    contextReporting: 'token-counts',
+  },
 });
 
 /**
@@ -237,6 +243,7 @@ const BUILTIN_SESSION_DIRECTIVE_SUPPORT: Readonly<Record<AIProviderType, boolean
   'mistral-vibe': true,
   'cursor-agent': true,
   'antigravity-gemini-agent': true,
+  'antigravity-acp': false,
 });
 
 /** Unknown ids (extension-contributed agents) fail closed, like `agentCapabilitiesForProviderType`. */

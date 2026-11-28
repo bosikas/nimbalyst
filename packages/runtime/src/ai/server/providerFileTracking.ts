@@ -124,6 +124,7 @@ export const BUILTIN_FILE_CHANGE_FIDELITY: Readonly<Record<AIProviderType, FileC
     // the watcher off would make deleted files disappear from the sidebar.
     'grok-build': 'tool-args',
     'mistral-vibe': 'tool-args',
+    'antigravity-acp': 'tool-args',
 
     // `editToolCall.result.success` carries `path`, a unified `diffString`,
     // and `beforeFullFileContent`/`afterFullFileContent` — an authoritative
@@ -188,6 +189,7 @@ export const PROVIDER_EDIT_TOOL_NAMES: Readonly<Record<AIProviderType, readonly 
     // inside its write path, which is strictly better and would collide with a
     // tag written from here for the same toolUseId.
     'antigravity-gemini-agent': Object.freeze([]),
+    'antigravity-acp': Object.freeze([]),
   });
 
 /**
