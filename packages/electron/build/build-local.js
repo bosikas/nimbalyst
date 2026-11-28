@@ -6,10 +6,11 @@ const os = require('node:os');
 const crypto = require('node:crypto');
 const { spawnSync, execFileSync } = require('node:child_process');
 const { affectsComponent, runCachedStep } = require('./local-build-cache');
+const ensureWorktreeDeps = require('../../../scripts/ensure-worktree-deps.cjs');
 
 const electronRoot = path.resolve(__dirname, '..');
 const root = path.resolve(electronRoot, '../..');
-const cacheDir = path.join(electronRoot, 'node_modules/.cache/nimbalyst-local-build');
+const cacheDir = path.join(root, '.cache/nimbalyst-local-build');
 const args = process.argv.slice(2);
 const packageApp = args.includes('--package');
 const force = args.includes('--force');
@@ -27,6 +28,7 @@ if (only && packageApp) throw new Error('--only cannot be combined with --packag
 if (packageApp && process.platform !== 'darwin') throw new Error('--package is a host-architecture macOS build');
 if (process.env.OFFICIAL_BUILD === 'true') throw new Error('Use the regular build for official releases');
 
+ensureWorktreeDeps();
 fs.mkdirSync(path.join(cacheDir, 'logs'), { recursive: true });
 const lock = path.join(cacheDir, 'build.lock');
 // Never run two builds into the same out/ tree. Interrupted builds leave no

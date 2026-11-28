@@ -214,9 +214,13 @@ interface WorktreeSingleProps {
 
 ### Installing Node dependencies
 
-When a Nimbalyst worktree needs dependencies on macOS or Linux, run `python3 scripts/install-worktree-deps.py` from its root. The installer uses pnpm's frozen lockfile and prefers the local store. New worktrees reuse the primary checkout's writable pnpm store. If the sandbox restricts that store, the installer asks pnpm for its fallback from the primary checkout so the fallback is shared too. Existing dependency trees keep their recorded store. Set `NIMBALYST_PNPM_STORE_DIR` to an absolute shared store path for fresh installs when agents have a designated writable cache. Windows uses `pnpm install`.
+The root and Electron build commands check dependencies in linked worktrees on macOS and Linux. Use your normal build command. If pnpm finds missing or stale dependencies, the build installs them first with the frozen lockfile. CI and official builds continue to use their explicit setup.
+
+To install dependencies directly, run `python3 scripts/install-worktree-deps.py` from the worktree root. New worktrees reuse the primary checkout's writable pnpm store. If the sandbox restricts that store, the installer asks pnpm for its fallback from the primary checkout so the fallback is shared too. Existing dependency trees keep their recorded store. Set `NIMBALYST_PNPM_STORE_DIR` to an absolute shared store path for fresh installs when agents have a designated writable cache. Windows uses `pnpm install`.
 
 Each worktree has its own `node_modules` and build output. pnpm imports from the shared store and can use copy-on-write clones on APFS. This also keeps each worktree's workspace links and Electron's generated native modules local. Concurrent installs in separate worktrees can proceed. A second managed install in the same worktree returns exit code 75.
+
+The lightweight Electron builder records its inputs, output hashes and logs in `.cache/nimbalyst-local-build/` at the worktree root. Dependency reinstalls leave that cache available. Each build step still checks its inputs and outputs before reuse.
 
 ### Default base branch
 

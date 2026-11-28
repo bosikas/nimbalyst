@@ -16,7 +16,7 @@
     "dev:loop": "./scripts/dev-loop.sh",
     "licenses:generate": "node build/generate-third-party-licenses.js",
     "licenses:check": "node build/generate-third-party-licenses.js --check",
-    "build": "pnpm run licenses:generate && cross-env NODE_OPTIONS='--max-old-space-size=8192' electron-vite build && pnpm run build:worker && pnpm run build:cloudflare-sandbox",
+    "build": "node ../../scripts/ensure-worktree-deps.cjs && pnpm run licenses:generate && cross-env NODE_OPTIONS='--max-old-space-size=8192' electron-vite build && pnpm run build:worker && pnpm run build:cloudflare-sandbox",
     "build:light": "node build/build-local.js",
     "build:mac:light": "node build/build-local.js --package",
     "build:cloudflare-sandbox": "pnpm --filter @nimbalyst/cloudflare-sandbox run build",

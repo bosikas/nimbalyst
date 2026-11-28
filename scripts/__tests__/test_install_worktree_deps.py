@@ -9,6 +9,7 @@ import unittest
 
 
 SCRIPT = Path(__file__).resolve().parents[1] / "install-worktree-deps.py"
+BUILD_CHECK = SCRIPT.with_name("ensure-worktree-deps.cjs")
 
 
 @unittest.skipUnless(sys.platform in ("darwin", "linux"), "requires POSIX file locks")
@@ -23,6 +24,7 @@ class WorktreeDepsTests(unittest.TestCase):
         scripts = self.main / "scripts"
         scripts.mkdir()
         shutil.copyfile(SCRIPT, scripts / SCRIPT.name)
+        shutil.copyfile(BUILD_CHECK, scripts / BUILD_CHECK.name)
         self.git("init", "-q")
         self.git("add", "scripts")
         self.git("-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid",
@@ -36,6 +38,10 @@ class WorktreeDepsTests(unittest.TestCase):
             "from pathlib import Path\n"
             "if sys.argv[1:3] == ['store', 'path']:\n"
             "    print(Path.cwd() / '.pnpm-store' / 'v11')\n"
+            "elif sys.argv[1] == '--config.verify-deps-before-run=error':\n"
+            "    if 'pnpm_config_verify_deps_before_run' not in os.environ:\n"
+            "        if reason := os.environ.get('PROBE_ERROR'):\n"
+            "            sys.exit(reason)\n"
             "elif os.environ.get('HOLD_INSTALL'):\n"
             "    sys.stdin.readline()\n"
             "else:\n"
@@ -43,7 +49,8 @@ class WorktreeDepsTests(unittest.TestCase):
         )
         pnpm.chmod(0o755)
         self.env = os.environ | {"PATH": f"{root}{os.pathsep}{os.environ['PATH']}"}
-        self.env.pop("NIMBALYST_PNPM_STORE_DIR", None)
+        for key in ("NIMBALYST_PNPM_STORE_DIR", "CI", "OFFICIAL_BUILD"):
+            self.env.pop(key, None)
 
     def git(self, *args):
         subprocess.run(["git", "-c", "core.hooksPath=/dev/null", *args],
@@ -55,6 +62,33 @@ class WorktreeDepsTests(unittest.TestCase):
     def install(self, checkout, **env):
         return subprocess.run(self.command(checkout), cwd=checkout, env=self.env | env,
                               capture_output=True, text=True, timeout=10)
+
+    def build_check(self, checkout, **env):
+        return subprocess.run(["node", str(checkout / "scripts" / BUILD_CHECK.name)],
+                              cwd=checkout, env=self.env | env, capture_output=True,
+                              text=True, timeout=10)
+
+    @unittest.skipUnless(shutil.which("node"), "requires Node")
+    def test_build_checks_install_only_when_dependencies_are_stale(self):
+        warm = self.build_check(self.other)
+        self.assertEqual(warm.returncode, 0, warm.stderr)
+        self.assertEqual(warm.stdout, "")
+        stale = self.build_check(self.other, PROBE_ERROR="ERR_PNPM_VERIFY_DEPS_BEFORE_RUN",
+                                 pnpm_config_verify_deps_before_run="false")
+        self.assertEqual(stale.returncode, 0, stale.stderr)
+        self.assertIn("pnpm package store:", stale.stdout)
+        failed = self.build_check(self.other, PROBE_ERROR="pnpm failed to start")
+        self.assertEqual(failed.returncode, 1)
+        self.assertIn("pnpm failed to start", failed.stderr)
+        self.assertEqual(failed.stdout, "")
+
+    @unittest.skipUnless(shutil.which("node"), "requires Node")
+    def test_build_checks_leave_explicit_setup_entrypoints_alone(self):
+        for checkout, env in ((self.main, {}), (self.other, {"CI": "true"}),
+                              (self.other, {"OFFICIAL_BUILD": "true"})):
+            result = self.build_check(checkout, PROBE_ERROR="ERR_PNPM_VERIFY_DEPS_BEFORE_RUN", **env)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout, "")
 
     def test_new_worktrees_share_the_primary_store(self):
         store = str(self.main / ".pnpm-store" / "v11")

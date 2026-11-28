@@ -789,15 +789,16 @@ if (localComponent && !['main', 'preload', 'renderer'].includes(localComponent))
   throw new Error(`Unknown local build component: ${localComponent}`);
 }
 if (lightweightLocalBuild) {
+  const cacheDirectory = resolve(__dirname, '../../.cache/nimbalyst-local-build');
   for (const component of ['main', 'preload', 'renderer'] as const) {
     const target = config[component] as { plugins?: PluginOption[] };
     target.plugins = [
       ...(target.plugins || []),
-      localBuildInputsPlugin(component, resolve(__dirname, 'node_modules/.cache/nimbalyst-local-build')),
+      localBuildInputsPlugin(component, cacheDirectory),
       // Opt-in phase and per-plugin hook timings; off by default so a normal
       // local build runs the unwrapped hooks.
       process.env.NIMBALYST_LOCAL_BUILD_TIMINGS === '1'
-        && localBuildTimingsPlugin(component, resolve(__dirname, 'node_modules/.cache/nimbalyst-local-build')),
+        && localBuildTimingsPlugin(component, cacheDirectory),
     ].filter(Boolean);
   }
 }

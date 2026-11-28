@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Install dependencies for this checkout using pnpm's shared package store."""
 
+import argparse
 import fcntl
 import json
 import os
@@ -39,8 +40,6 @@ def installed_store(checkout):
 
 
 def store_for(checkout):
-    if (checkout / "node_modules").is_symlink():
-        raise ValueError("node_modules is a symlink. Use a worktree-local dependency tree.")
     existing = installed_store(checkout)
     if existing is not None:
         return existing
@@ -61,18 +60,44 @@ def store_for(checkout):
     return store
 
 
+def dependencies_ready(checkout):
+    env = os.environ.copy()
+    # pnpm disables nested verification in the environment of package scripts.
+    env.pop("pnpm_config_verify_deps_before_run", None)
+    result = subprocess.run(
+        ["pnpm", "--config.verify-deps-before-run=error", "exec", "node", "--version"],
+        cwd=checkout,
+        capture_output=True,
+        text=True,
+        env=env,
+    )
+    if result.returncode == 0:
+        return True
+    output = (result.stdout + result.stderr).strip()
+    if "ERR_PNPM_VERIFY_DEPS_BEFORE_RUN" in output:
+        return False
+    raise ValueError(output or f"pnpm dependency verification exited {result.returncode}")
+
+
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--ensure", action="store_true", help="Install only if pnpm reports missing or stale dependencies.")
+    args = parser.parse_args()
     checkout = Path(__file__).resolve().parents[1]
     lock_path = checkout / ".cache" / "pnpm-install.lock"
     try:
         lock_path.parent.mkdir(exist_ok=True)
         with lock_path.open("ab") as lock:
             try:
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                fcntl.flock(lock, fcntl.LOCK_EX if args.ensure else fcntl.LOCK_EX | fcntl.LOCK_NB)
             except BlockingIOError:
                 print("A dependency install is active in this worktree.", file=sys.stderr)
                 return os.EX_TEMPFAIL
 
+            if (checkout / "node_modules").is_symlink():
+                raise ValueError("node_modules is a symlink. Use a worktree-local dependency tree.")
+            if args.ensure and dependencies_ready(checkout):
+                return 0
             store = store_for(checkout)
             print(f"pnpm package store: {store}", flush=True)
             result = subprocess.run(

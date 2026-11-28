@@ -17,7 +17,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 ELECTRON = ROOT / 'packages/electron'
-CACHE = ELECTRON / 'node_modules/.cache/nimbalyst-local-build'
+CACHE = ROOT / '.cache/nimbalyst-local-build'
 APP = ELECTRON / 'release/marilyst-light/mac-arm64/Marilyst.app'
 BUNDLE_ID = 'com.nimbalyst.marilyst'
 # Builds before the bundle id split; accepted only for the bundle being replaced.
