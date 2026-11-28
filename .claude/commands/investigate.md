@@ -150,6 +150,6 @@ Then call `AskUserQuestion`.
 - **If the user picks "Design it", invoke `/design` yourself immediately.** Do not output a summary telling the user to run `/design` -- run it directly with the relevant context (problem statement, constraints, open questions, areas of the codebase involved).
 - **Do not commit.** Per global rules, never commit unless explicitly asked.
 - **Cite file:line locations** when referencing code so the user can navigate directly.
-- **If the problem is a bug**, check for or create a tracker bug item per the bug tracking rules in `CLAUDE.md` before fixing.
+- **If the user asks to track the bug**, follow the tracker workflow in `docs/TRACKER_WORKFLOWS.md`.
 - **Respect the "fail fast" philosophy** in `CLAUDE.md` - do not suggest fixes that mask failures with default values or log-and-continue patterns.
 - **Keep the report tight.** The user reads the summary to decide how to proceed - long diagnostic dumps make that harder, not easier.

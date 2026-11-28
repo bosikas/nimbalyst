@@ -278,7 +278,7 @@ Use `get_session_summary` / `get_workstream_overview` rather than re-reading fil
 
 ## Step 5 — Report and ask
 
-Create a tracker bug item for the problem (per `docs/TRACKER_WORKFLOWS.md`) and link this session before proposing code changes.
+Report the findings in this session. If the user asks to track the problem, follow `docs/TRACKER_WORKFLOWS.md`.
 
 Report format — compact, numbers first:
 

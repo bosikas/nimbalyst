@@ -60,8 +60,8 @@ Guidance for agents working in this repository. Each rule is one line; the linke
 ### Product records
 
 - When a notable capability is added, expanded, or removed, update [FEATURE_INVENTORY.md](./docs/FEATURE_INVENTORY.md) during implementation and report "Feature inventory updated" or "No inventory impact" before handoff. In a parallel batch the integrator owns it. Polish and fixes need no entry.
-- Record a decision where it is read. In a project with a Wiki, follow its "How we write this wiki" page. A bug fix needs a bug tracker item before the fix. See [TRACKER_WORKFLOWS.md](./docs/TRACKER_WORKFLOWS.md).
-- Finished work is `in-review` and the session is `validating` until the user commits. A commit is their approval; put `Fixes NIM-123` in the message and the item closes itself.
+- Record a decision where it is read. In a project with a Wiki, follow its "How we write this wiki" page.
+- Finished work stays in `validating` until the user commits. For work tracked by an existing item, move it to `in-review` and close it through a `Fixes NIM-123` commit trailer.
 - Shortcut changes update `KeyboardShortcutsDialog.tsx`. PostHog event changes update [POSTHOG_EVENTS.md](./docs/POSTHOG_EVENTS.md).
 - Default to no architecture diagram. See [ARCHITECTURE_DIAGRAMS.md](./docs/ARCHITECTURE_DIAGRAMS.md) for the bar.
 

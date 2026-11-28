@@ -346,7 +346,7 @@ This is what enables hand-offs across days, weeks, or contributors. A new sessio
 
 Tracker items are typed records that capture different kinds of intent. The default types:
 
-- `bug` — defects, log them as you find them, **before** writing fix code (the rule: a bug tracker item exists for every bug fix). Lifecycle: `backlog` → `in-progress` → `in-review` → `done`.
+- `bug` — defects the user asks to track. Lifecycle: `backlog` → `in-progress` → `in-review` → `done`.
 - `feature` — feature ideas captured the moment you have them, without derailing current work. Feeds `/roadmap`.
 - `decision` — architectural decisions, library choices, "we considered X and chose Y" with rationale. Searchable later when a future agent asks "why is this the way it is?". The rule: when choosing between alternatives, log a decision tracker.
 - `plan` — multi-step plans for work in flight. Linked to a `nimbalyst-local/plans/*.md` doc that `/design` produces and `/implement` executes against.
@@ -369,13 +369,13 @@ For body-heavy items (plans, decisions, incident reports), the body is a real co
 
 ### Tracker workflows
 
-- **As-you-go bug logging:** see a bug, file it (`/track` or `tracker_create`) with a one-line title and the reproduction steps, set status `backlog`. Don't context-switch out of your current work to fix it — the tracker captures it for later.
+- **Bug logging on request:** file a bug (`/track` or `tracker_create`) with a one-line title and the reproduction steps. Use `backlog` when the work is queued.
 - **Feature ideas:** same pattern. `/track` with type `feature`. They aggregate into the roadmap.
 - **Decisions in flight:** when you're about to commit to library X over library Y, write a decision tracker with the alternatives and the rationale. Future you and future contributors will thank you.
 - **Plans:** `/design` produces both a plan doc and a linked plan tracker. `/implement` executes against it and updates progress.
 - **Incident postmortems:** during or after an outage, file an incident tracker. Link the sessions that diagnosed and fixed it.
 
-See [TRACKER_WORKFLOWS.md](./../docs/TRACKER_WORKFLOWS.md) for the exact rule about bug trackers existing before fix code, and decision trackers on architectural choices.
+See [TRACKER_WORKFLOWS.md](./../docs/TRACKER_WORKFLOWS.md) for when to use a tracker and how to record architectural decisions.
 
 ### Use cases this layer unlocks
 
