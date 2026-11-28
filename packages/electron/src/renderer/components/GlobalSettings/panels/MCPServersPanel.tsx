@@ -56,14 +56,16 @@ const MCP_PROVIDER_IDS = {
   CLAUDE_AGENT: 'claude-agent',
   CODEX: 'codex',
   MISTRAL_VIBE: 'mistral-vibe',
+  ANTIGRAVITY_ACP: 'antigravity-acp',
 } as const;
 
-const ALL_MCP_PROVIDER_IDS = [MCP_PROVIDER_IDS.CLAUDE_AGENT, MCP_PROVIDER_IDS.CODEX, MCP_PROVIDER_IDS.MISTRAL_VIBE] as const;
+const ALL_MCP_PROVIDER_IDS = [MCP_PROVIDER_IDS.CLAUDE_AGENT, MCP_PROVIDER_IDS.CODEX, MCP_PROVIDER_IDS.MISTRAL_VIBE, MCP_PROVIDER_IDS.ANTIGRAVITY_ACP] as const;
 
 const PROVIDER_LABELS: Record<string, string> = {
   'claude-agent': 'Claude',
   'codex': 'Codex',
   'mistral-vibe': 'Mistral Vibe',
+  'antigravity-acp': 'Antigravity CLI',
 };
 
 /** Maps MCP provider IDs to app settings provider IDs */
@@ -71,6 +73,7 @@ const MCP_TO_APP_PROVIDER: Record<string, string> = {
   'claude-agent': 'claude-code',
   'codex': 'openai-codex',
   'mistral-vibe': 'mistral-vibe',
+  'antigravity-acp': 'antigravity-acp',
 };
 
 function getEffectiveProviders(config: MCPServerConfig): string[] {

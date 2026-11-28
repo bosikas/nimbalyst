@@ -60,7 +60,7 @@ export class AntigravityACPProtocol extends AcpStdioAgentProtocol {
       platform: ANTIGRAVITY_PROVIDER,
       displayName: 'Google Antigravity CLI',
       command: ANTIGRAVITY_EXECUTABLE,
-      args: ['acp'],
+      args: ['acp', '--process-per-session'],
       supportsAttachments: true,
       supportsSseMcp: true,
       resumeWithoutReplay: true,

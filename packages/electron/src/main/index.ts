@@ -355,6 +355,7 @@ import { installWindowOpenGuard } from './window/windowOpenGuard';
 import { openConsoleDeepLink } from './services/consoleLinks/consoleLinkHandlers';
 import { resolveClaudeConfigDir } from '@nimbalyst/runtime/ai/server/providers/claudeCode/claudeConfigDir';
 import { AntigravityACPProvider } from '@nimbalyst/runtime/ai/server/providers/AntigravityACPProvider';
+import { presentAntigravityElicitation } from './services/ai/antigravityElicitationHandler';
 import { parseConversationDeepLink } from '../shared/conversationDeepLinks';
 import {
     FEEDBACK_REQUEST_DEEP_LINK_HOST,
@@ -2208,11 +2209,13 @@ app.whenReady().then(ownerOnly('app initialisation', async () => {
         executablePathLoader: null,
     });
     AntigravityACPProvider.configureLoaders({
-        mcpConfigLoader: null,
+        mcpConfigLoader: (workspacePath) =>
+            loadEnabledMcpServersFor(MCP_PROVIDER_IDS.ANTIGRAVITY_ACP, 'Antigravity CLI', workspacePath),
         shellEnvironmentLoader: () => getShellEnvironment(),
         enhancedPathLoader: () => getEnhancedPath(),
         executablePathLoader: null,
     });
+    AntigravityACPProvider.setFormElicitationHandler(presentAntigravityElicitation);
     GrokBuildProvider.setEnhancedPathLoader(() => getEnhancedPath());
     CursorAgentProvider.setEnhancedPathLoader(() => getEnhancedPath());
 

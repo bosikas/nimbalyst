@@ -1,4 +1,5 @@
 import { createInterface } from 'node:readline';
+import { isDeepStrictEqual } from 'node:util';
 
 const send = (message) => process.stdout.write(JSON.stringify({ jsonrpc: '2.0', ...message }) + '\n');
 const reply = (id, result) => send({ id, result });
@@ -10,6 +11,8 @@ let mode = 'auto';
 let model = 'flash';
 let effort = 'low';
 let pending;
+let form;
+let formSupported = false;
 
 function configOptions() {
   const select = (id, category, currentValue, options) => ({
@@ -38,6 +41,7 @@ const finish = (id, stopReason) => reply(id, {
 for await (const line of createInterface({ input: process.stdin })) {
   const { id, method, params, result } = JSON.parse(line);
   if (method === 'initialize') {
+    formSupported = !!params.clientCapabilities?.elicitation?.form && !params.clientCapabilities?.elicitation?.url;
     reply(id, {
       protocolVersion: 1,
       agentCapabilities: { loadSession: true },
@@ -51,6 +55,20 @@ for await (const line of createInterface({ input: process.stdin })) {
   } else if (method?.startsWith('session/') && !signedIn) {
     fail(id, -32000, 'Authentication required');
   } else if (method === 'session/new') {
+    if (process.argv.includes('check-mcp')) {
+      const expected = [
+        {
+          name: 'playwright', command: 'npx',
+          args: ['-y', '@playwright/mcp@0.0.82', '--headless', '--isolated'], env: [],
+        },
+        { type: 'http', name: 'aifredas-http', url: 'http://127.0.0.1:4040/mcp', headers: [] },
+      ];
+      if (!process.argv.includes('--process-per-session')
+        || !isDeepStrictEqual(params.mcpServers, expected)) {
+        fail(id, -32602, 'Incorrect Aifredas MCP connection payload or ACP launch flags');
+        continue;
+      }
+    }
     reply(id, { sessionId: 'agy-fixture-session', configOptions: configOptions() });
   } else if (method === 'session/resume') {
     if (params.sessionId !== 'agy-fixture-session') {
@@ -68,6 +86,25 @@ for await (const line of createInterface({ input: process.stdin })) {
     const { sessionId, prompt } = params;
     if (mode !== 'default') {
       fail(id, -32602, 'Approval mode was not configured');
+      continue;
+    }
+    const text = prompt.find((block) => block.type === 'text')?.text;
+    if (['ask fixture form', 'ask fixture request form', 'ask fixture stale form'].includes(text)) {
+      if (!formSupported) {
+        fail(id, -32602, 'Client did not advertise form elicitation');
+        continue;
+      }
+      form = { id, sessionId, cancelled: false };
+      send({
+        id: 'fixture-form', method: 'elicitation/create',
+        params: {
+          mode: 'form', message: 'Choose a release',
+          ...(text === 'ask fixture form' ? { sessionId } : {
+            requestId: text === 'ask fixture stale form' ? 'retired-request' : id,
+          }),
+          requestedSchema: { type: 'object', properties: { release: { type: 'string', enum: ['stable', 'beta'] } }, required: ['release'] },
+        },
+      });
       continue;
     }
     if (prompt.some((block) => block.type === 'text' && block.text.includes('cancel fixture turn'))) {
@@ -88,9 +125,19 @@ for await (const line of createInterface({ input: process.stdin })) {
         ],
       },
     });
+  } else if (method === 'session/cancel' && form) {
+    form.cancelled = true;
   } else if (method === 'session/cancel' && pending) {
     finish(pending.id, 'cancelled');
     pending = undefined;
+  } else if (!method && id === 'fixture-form' && form) {
+    if (!result) {
+      fail(form.id, -32602, 'Client did not answer the form');
+    } else {
+      update(form.sessionId, 'agent_message_chunk', { content: { type: 'text', text: JSON.stringify(result) } });
+      finish(form.id, form.cancelled ? 'cancelled' : 'end_turn');
+    }
+    form = undefined;
   } else if (!method && id === 'permission-1' && pending) {
     const { sessionId } = pending;
     update(sessionId, 'agent_message_chunk', { content: { type: 'text', text: result.outcome.optionId } });

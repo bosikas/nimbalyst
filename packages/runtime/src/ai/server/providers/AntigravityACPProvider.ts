@@ -8,6 +8,7 @@ import {
   AntigravityACPProtocol,
 } from '../protocols/AntigravityACPProtocol';
 import type { AIModel } from '../types';
+import type { AcpFormElicitationHandler } from '../protocols/GrokACPProtocol';
 import {
   HeadlessCliAgentProvider,
   type HeadlessCliAgentDescriptor,
@@ -15,6 +16,7 @@ import {
 } from './HeadlessCliAgentProvider';
 
 export class AntigravityACPProvider extends HeadlessCliAgentProvider {
+  private static formElicitationHandler?: AcpFormElicitationHandler;
   private static loaders: HeadlessCliEnvironmentLoaders = {
     mcpConfigLoader: null,
     shellEnvironmentLoader: null,
@@ -24,6 +26,10 @@ export class AntigravityACPProvider extends HeadlessCliAgentProvider {
 
   static configureLoaders(loaders: HeadlessCliEnvironmentLoaders): void {
     this.loaders = loaders;
+  }
+
+  static setFormElicitationHandler(handler: AcpFormElicitationHandler): void {
+    this.formElicitationHandler = handler;
   }
 
   static async getModels(apiKey?: string, workspacePath = process.cwd()): Promise<AIModel[]> {
@@ -64,6 +70,7 @@ export class AntigravityACPProvider extends HeadlessCliAgentProvider {
 
   protected readonly protocol = new AntigravityACPProtocol({
     onPermissionRequest: (request) => this.handleProtocolPermissionRequest(request),
+    onFormElicitation: AntigravityACPProvider.formElicitationHandler,
   });
 
   constructor() {

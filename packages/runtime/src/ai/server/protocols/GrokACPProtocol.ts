@@ -19,9 +19,12 @@ import {
 import type {
   CancelNotification,
   ContentBlock,
+  CreateElicitationRequest,
+  CreateElicitationResponse,
   McpServer,
   PermissionOption,
   PromptResponse,
+  RequestId,
   RequestPermissionRequest,
   RequestPermissionResponse,
   SessionConfigOption,
@@ -116,6 +119,11 @@ export type GrokAskUserQuestionHandler = (
   request: GrokAskUserQuestionRequest,
 ) => Promise<GrokAskUserQuestionResponse>;
 
+export type AcpFormElicitationHandler = (
+  request: Extract<CreateElicitationRequest, { mode: 'form' }>,
+  context: { sessionId: string; workspacePath: string; signal: AbortSignal },
+) => Promise<CreateElicitationResponse>;
+
 interface AcpAgentBehavior {
   platform: string;
   displayName: string;
@@ -145,6 +153,7 @@ export interface GrokACPProtocolDeps {
     request: GrokACPPermissionRequest,
   ) => Promise<GrokACPPermissionDecision>;
   onAskUserQuestion?: GrokAskUserQuestionHandler;
+  onFormElicitation?: AcpFormElicitationHandler;
 }
 
 interface GrokSessionRaw extends Record<string, unknown> {
@@ -174,6 +183,8 @@ interface ActiveTurnState {
   workspacePath: string;
   permissionsPath?: string;
   signal: AbortSignal;
+  finished: AbortController;
+  requestId?: RequestId;
   queue: AsyncEventQueue<ProtocolEvent>;
   checkInterruption?: (event: ProtocolEvent) => string | undefined;
   interruptionError?: string;
@@ -224,6 +235,7 @@ export class AcpStdioAgentProtocol implements AgentProtocol {
   private extraEnv: Record<string, string>;
   private readonly onPermissionRequest?: GrokACPProtocolDeps['onPermissionRequest'];
   private onAskUserQuestion?: GrokAskUserQuestionHandler;
+  private readonly onFormElicitation?: AcpFormElicitationHandler;
 
   private childProcess: ChildProcessWithoutNullStreams | null = null;
   private connection: ACPClientConnection | null = null;
@@ -244,6 +256,7 @@ export class AcpStdioAgentProtocol implements AgentProtocol {
     this.extraEnv = deps?.env ?? {};
     this.onPermissionRequest = deps?.onPermissionRequest;
     this.onAskUserQuestion = deps?.onAskUserQuestion;
+    this.onFormElicitation = deps?.onFormElicitation;
   }
 
   setExecutablePath(executablePath: string): void {
@@ -405,6 +418,7 @@ export class AcpStdioAgentProtocol implements AgentProtocol {
         ? raw.options.raw.permissionsPath
         : undefined,
       signal,
+      finished: new AbortController(),
       queue,
       checkInterruption: this.agent.createTurnGuard?.(),
     };
@@ -454,6 +468,7 @@ export class AcpStdioAgentProtocol implements AgentProtocol {
           queue.push({ type: 'error', error: this.formatError(error) });
         }
       } finally {
+        turn.finished.abort();
         signal.removeEventListener('abort', abortHandler);
         this.activeTurns.delete(session.id);
         queue.finish();
@@ -485,7 +500,10 @@ export class AcpStdioAgentProtocol implements AgentProtocol {
 
   destroy(): void {
     this.destroying = true;
-    for (const turn of this.activeTurns.values()) turn.queue.finish();
+    for (const turn of this.activeTurns.values()) {
+      turn.finished.abort();
+      turn.queue.finish();
+    }
     this.activeTurns.clear();
     this.sessionStates.clear();
     this.childProcess?.kill();
@@ -587,6 +605,9 @@ export class AcpStdioAgentProtocol implements AgentProtocol {
       () => ({
         requestPermission: (params: RequestPermissionRequest) =>
           this.handlePermissionRequest(params),
+        ...(this.onFormElicitation && {
+          unstable_createElicitation: (params: CreateElicitationRequest) => this.handleElicitation(params),
+        }),
         sessionUpdate: (params: SessionNotification) => {
           this.handleSessionUpdate(params);
           return Promise.resolve();
@@ -598,7 +619,7 @@ export class AcpStdioAgentProtocol implements AgentProtocol {
           return Promise.resolve();
         },
       }),
-      stream,
+      this.onFormElicitation ? this.observePromptRequestIds(stream) : stream,
     );
     this.connection = connection;
 
@@ -606,7 +627,7 @@ export class AcpStdioAgentProtocol implements AgentProtocol {
       const response = await connection.initialize({
         protocolVersion: 1,
         clientInfo: { name: 'nimbalyst', version: '1.0.0' },
-        clientCapabilities: {},
+        clientCapabilities: this.onFormElicitation ? { elicitation: { form: {} } } : {},
       });
       this.initializeMeta = response._meta ?? null;
       if (authentication) await connection.authenticate({ methodId: authentication.methodId });
@@ -615,6 +636,42 @@ export class AcpStdioAgentProtocol implements AgentProtocol {
       this.destroy();
       throw new Error(`Failed to initialize ${this.agent.displayName} ACP agent "${this.command}": ${detail}`);
     }
+  }
+
+  private observePromptRequestIds(stream: ReturnType<typeof ndJsonStream>): ReturnType<typeof ndJsonStream> {
+    const writer = stream.writable.getWriter();
+    return {
+      readable: stream.readable,
+      writable: new WritableStream({
+        write: (message) => {
+          if ('method' in message && message.method === 'session/prompt' && 'id' in message) {
+            const params = message.params;
+            const sessionId = params && typeof params === 'object' && 'sessionId' in params ? params.sessionId : undefined;
+            const turn = typeof sessionId === 'string' ? this.activeTurns.get(sessionId) : undefined;
+            if (turn) turn.requestId = message.id;
+          }
+          return writer.write(message);
+        },
+        close: () => writer.close(),
+        abort: (reason) => writer.abort(reason),
+      }),
+    };
+  }
+
+  private async handleElicitation(request: CreateElicitationRequest): Promise<CreateElicitationResponse> {
+    if (request.mode !== 'form' || !this.onFormElicitation) return { action: 'decline' };
+    const turn = 'sessionId' in request
+      ? this.activeTurns.get(request.sessionId)
+      : [...this.activeTurns.values()].find((active) => active.requestId === request.requestId);
+    if (!turn?.nimbalystSessionId) return { action: 'cancel' };
+    const signal = AbortSignal.any([turn.signal, turn.finished.signal]);
+    if (signal.aborted) return { action: 'cancel' };
+    const response = await this.onFormElicitation(request, {
+      sessionId: turn.nimbalystSessionId,
+      workspacePath: turn.workspacePath,
+      signal,
+    });
+    return signal.aborted ? { action: 'cancel' } : response;
   }
 
   private handleSessionUpdate(params: SessionNotification): void {
