@@ -51,7 +51,7 @@ Maintain this when notable capabilities are added, significantly expanded, or re
 
 ## AI Providers
 
-Twelve built-in provider lanes, plus any agent an extension contributes. Every lane runs on keys the user entered in Nimbalyst settings or on a CLI the user already logged into — no provider is read from the environment, and no lane is required for another to work.
+Built-in provider lanes run independently using keys saved in Nimbalyst or a configured local CLI. Extensions can contribute additional agents.
 
 **Chat**
 
@@ -71,9 +71,12 @@ Twelve built-in provider lanes, plus any agent an extension contributes. Every l
 - Mistral Vibe (ACP, with CLI subscription sign-in, workspace model discovery, per-model thinking and effort controls, live context and session tokens, a context inspector with the selected model, prepared-request measurements, saved startup instructions, and retained conversation including tool calls and results, context compaction, workspace MCP tools, and permission prompts)
 - Cursor Agent
 - Gemini via Google Antigravity (Connect-RPC over the user's Antigravity login; reports no usage numbers, so context and cost display as unavailable rather than guessed)
-- OpenCode, with slash commands, Compact, agent roles, and a model picker populated from the user's connected accounts
+- Google Antigravity CLI over ACP uses the official `agy acp` process with a Gemini API key. It exposes workspace models, thinking levels, streaming, permission requests, structured questions, workspace MCP servers, cancellation, and native resume. Existing Antigravity sessions keep the Connect-RPC transport.
+- OpenCode, with slash commands, Compact, agent roles, a model and effort picker populated from the user's connected providers, and the Nimbalyst instructions in the native prompt. Native questions use the shared widget and can be answered or cancelled in desktop and browser sessions.
 
 **Cross-provider behavior**
+
+- The desktop context inspector for Claude SDK, Claude CLI, Codex, and Vibe distinguishes selected settings, app-prepared guidance, and recorded provider evidence. It shows model and effort when the provider records them. Raw startup text stays in the desktop inspector.
 
 - Extension-contributed agent providers — an extension can register its own agent lane alongside the built-ins
 - Per-provider file-change fidelity (`providerFileTracking.ts`) — each lane declares how well it can report the files it changed (`structured` / `tool-args` / `none`), and the filesystem watcher is switched off only for lanes that report authoritatively. Lanes with no delete or move tool (Grok Build, Gemini) deliberately keep the watcher on so `rm` inside a shell command still shows up in the files-edited sidebar. Claude Code Bash commands are bracketed by its pre/post tool hooks, so a file a command changes is linked to the session even when the command never names it (python heredocs, codegen); when two sessions' commands overlap the file is left unlinked and the sidebar lists it as withheld
