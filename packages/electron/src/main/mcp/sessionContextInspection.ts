@@ -26,17 +26,20 @@ export async function getSessionContextInspection(
   };
   if (session.provider === 'mistral-vibe') {
     const prepared = readVibePreparedContext(sessionId);
+    const recordedStartup = includeRecordedStartup
+      ? await recordedVibeStartup(session.providerSessionId, RECORDED_TEXT_LIMIT, session.model)
+      : undefined;
     return {
       sessionId,
       nativeUsage,
       preparedRequest: prepared?.request ?? null,
-      unavailable: 'The latest prepared request is available after a Vibe prompt runs in this app process.',
+      unavailable: recordedStartup?.report ? undefined : 'The latest prepared request is available after a Vibe prompt runs in this app process.',
       vibe: {
         groups: await readVibeContextGroups(session.providerSessionId),
         instructions: includeRecordedStartup ? prepared?.instructions : undefined,
       },
       toolDefinitions: await getToolBudgetSnapshot(session.workspacePath),
-      ...(includeRecordedStartup ? { recordedStartup: await recordedVibeStartup(session.providerSessionId, RECORDED_TEXT_LIMIT) } : {}),
+      ...(recordedStartup ? { recordedStartup } : {}),
     };
   }
   if (session.provider && CLAUDE_PROVIDERS.has(session.provider)) {

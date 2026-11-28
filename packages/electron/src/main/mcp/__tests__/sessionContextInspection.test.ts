@@ -22,7 +22,7 @@ beforeEach(() => {
 describe('context inspection boundary', () => {
   it.each(['plain', 'gzip', 'inline'])('returns Vibe context and scopes recorded text to the inspector (%s checkpoint)', async (format) => {
     const providerSessionId = 'c9187458-2f50-619d-9659-3e378bc79028';
-    state.session = { ...state.session, provider: 'mistral-vibe', providerSessionId };
+    state.session = { ...state.session, provider: 'mistral-vibe', providerSessionId, model: 'mistral-vibe:zai-glm-5-3' };
     const vibeHome = mkdtempSync(join(tmpdir(), 'vibe-context-'));
     vi.stubEnv('VIBE_HOME', vibeHome);
     recordVibePreparedContext({ id: providerSessionId, platform: 'mistral-vibe-acp', deliveredMcpServerCount: 2 },
@@ -43,6 +43,7 @@ describe('context inspection boundary', () => {
       }));
       writeFileSync(join(generation, 'runtime-state.json'), JSON.stringify({
         session_id: providerSessionId, core_system_instructions: 'Vibe defaults\nAGENTS.md: keep é as written.',
+        session_metadata: { active_model: 'mistral-large-4-0' },
       }));
       const messages = [
         { turn_index: 0, source: 'instructions', message: { role: 'developer',
@@ -51,6 +52,12 @@ describe('context inspection boundary', () => {
           { type: 'text', text: 'Find easy GP tasks' },
           { type: 'resource', resource: { uri: 'nimbalyst://system-instructions', text: 'Original Nimbalyst instructions\n' } },
         ] } },
+        { turn_index: 0, source: 'history', message: { role: 'assistant', content: [
+          { type: 'text', text: 'Checking the project' },
+          { type: 'tool_call', name: 'read_file', arguments: { raw: '{"path":"AGENTS.md"}' } },
+        ] } },
+        { turn_index: 0, source: 'history', message: { role: 'tool', name: 'read_file',
+          content: [{ type: 'text', text: 'Recorded tool result' }] } },
         { turn_index: 1, source: 'history', message: { role: 'user',
           content: [{ type: 'text', text: 'Later prompt' }] } },
       ];
@@ -80,6 +87,7 @@ describe('context inspection boundary', () => {
         },
         recordedStartup: { report: {
           provider: 'mistral-vibe',
+          session: { model: 'zai-glm-5-3' },
           boundaryLine: 2,
           messages: [
             { role: 'developer', text: 'Recorded project instructions\n' },
@@ -87,9 +95,16 @@ describe('context inspection boundary', () => {
               kinds: ['user.text', 'Nimbalyst instructions (ACP resource)'] },
           ],
           snapshots: [{ name: 'Saved Vibe system instructions', text: 'Vibe defaults\nAGENTS.md: keep é as written.' }],
-        } },
+        }, conversation: { messages: [
+          { role: 'assistant', text: 'Checking the project\nread_file({"path":"AGENTS.md"})' },
+          { role: 'tool', text: 'Recorded tool result', kinds: ['read_file', 'text'] },
+          { role: 'user', text: 'Later prompt' },
+        ] } },
       });
       await expect(getSessionContextInspection('vibe', '/project', { audience: 'browser' })).resolves.toEqual(local);
+      await expect(getSessionContextInspection('restored-vibe', '/project', { audience: 'browser' })).resolves.toMatchObject({
+        preparedRequest: null, recordedStartup: 'recordedStartup' in local && local.recordedStartup,
+      });
       const agentReport = await getSessionContextInspection('vibe', '/project');
       expect(agentReport).not.toHaveProperty('recordedStartup');
       expect(JSON.stringify(agentReport)).not.toContain('Private prompt instructions');

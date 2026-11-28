@@ -22,15 +22,16 @@ function vibeSessionDirectory(
   return join(vibeHome, 'logs', 'session', 'unified', providerSessionId);
 }
 
-export async function recordedVibeStartup(providerSessionId: string | undefined, maxTextBytes: number) {
+export async function recordedVibeStartup(providerSessionId: string | undefined, maxTextBytes: number, selectedModel?: string) {
   const directory = vibeSessionDirectory(providerSessionId);
-  const report = directory && providerSessionId
-    ? await readVibeRecordedStartup(directory, providerSessionId, maxTextBytes).catch(() => null)
+  const recorded = directory && providerSessionId
+    ? await readVibeRecordedStartup(directory, providerSessionId, maxTextBytes, selectedModel).catch(() => null)
     : null;
   return {
-    report,
-    status: report
-      ? 'Saved Vibe context and ACP messages from the retained session snapshots.'
+    report: recorded?.report ?? null,
+    conversation: recorded?.conversation,
+    status: recorded
+      ? 'From Vibe’s saved session checkpoints.'
       : 'Vibe has no saved startup records available for this session.',
   };
 }

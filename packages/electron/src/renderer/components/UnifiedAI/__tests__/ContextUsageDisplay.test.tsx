@@ -45,10 +45,14 @@ it('opens Vibe context inspection with separate native token and character count
       recordedStartup: {
         status: 'Vibe saved startup.',
         report: {
-          provider: 'mistral-vibe', session: { role: 'agent' },
+          provider: 'mistral-vibe', session: { role: 'agent', model: 'zai-glm-5-3' },
           messages: [{ line: 1, role: 'user', bytes: 14, text: 'Opening prompt', kinds: ['user.text'] }],
           snapshots: [{ line: 0, name: 'Saved Vibe system instructions', bytes: 12, text: 'System rules' }],
           toolRecords: [], repeatedMessages: [], boundaryLine: 1, recordedMessageBytes: 14,
+        },
+        conversation: {
+          limited: false,
+          messages: [{ line: 2, role: 'tool', bytes: 16, text: 'Saved tool output', kinds: ['read_file', 'text'] }],
         },
       },
     })),
@@ -63,6 +67,9 @@ it('opens Vibe context inspection with separate native token and character count
   expect(screen.getByText('Nimbalyst prepared instructions.').tagName).toBe('PRE');
   expect(screen.getByText('System rules').tagName).toBe('PRE');
   expect(screen.getByText('Opening prompt').tagName).toBe('PRE');
+  expect(screen.getByText('Mistral Vibe · Selected model: zai-glm-5-3')).toBeTruthy();
+  expect(screen.getByText('Retained conversation (1)')).toBeTruthy();
+  expect(screen.getByText('Saved tool output').tagName).toBe('PRE');
 });
 
 function renderMeter(element: React.ReactElement, store = createStore()) {

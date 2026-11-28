@@ -7,12 +7,15 @@ import { gunzip } from 'node:zlib';
 import {
   capRecordedStartupText,
   inspectCodexStartupRecords,
+  type CodexRecordedMessage,
   type CodexRecordedStartup,
   type CodexRolloutRecord,
 } from '@nimbalyst/runtime/ai/server/providers/codex/codexRecordedStartup';
 
 const maxFileBytes = 1024 * 1024;
-const maxOpeningChunks = 4;
+const maxCheckpointChunks = 4;
+const maxCheckpointRecords = 128;
+const maxConversationTextBytes = 256 * 1024;
 const decompress = promisify(gunzip);
 const hash = (text: string) => createHash('sha256').update(text).digest('hex');
 const object = (value: unknown): Record<string, unknown> | undefined =>
@@ -43,7 +46,7 @@ async function* checkpointEntries(sessionDir: string, generationDir: string, chu
     if (Array.isArray(messages)) yield* messages;
     return;
   }
-  for (const digest of chunks.slice(0, maxOpeningChunks)) {
+  for (const digest of chunks.slice(0, maxCheckpointChunks)) {
     if (typeof digest !== 'string' || !/^[a-f0-9]{64}$/.test(digest)) return;
     const file = join(sessionDir, 'chunks', digest + '.json');
     const chunk = await readSnapshot(file + '.gz', true).catch(error =>
@@ -53,35 +56,73 @@ async function* checkpointEntries(sessionDir: string, generationDir: string, chu
   }
 }
 
-async function openingRecords(sessionDir: string, generationDir: string, manifest: Record<string, unknown>): Promise<CodexRolloutRecord[]> {
+interface VibeConversation {
+  messages: CodexRecordedMessage[];
+  limited: boolean;
+}
+
+interface VibeRecordedContext {
+  report: CodexRecordedStartup;
+  conversation: VibeConversation;
+}
+
+function contentText(block: Record<string, unknown> | undefined): string | undefined {
+  const text = block?.text ?? object(block?.resource)?.text;
+  if (typeof text === 'string') return text;
+  if (block?.type === 'tool_call' && typeof block.name === 'string') {
+    const args = object(block.arguments)?.raw;
+    return typeof args === 'string' ? `${block.name}(${args})` : block.name;
+  }
+  if (block?.type === 'reasoning' && Array.isArray(block.content)) {
+    const text = block.content.map(part => object(part)?.text).filter(part => typeof part === 'string').join('\n');
+    return text || undefined;
+  }
+  return undefined;
+}
+
+async function readCheckpointMessages(sessionDir: string, generationDir: string, chunks: unknown, maxTextBytes: number) {
   const records: CodexRolloutRecord[] = [];
-  // Checkpoint entries are in message order. Stop before any later turns.
-  for await (const item of checkpointEntries(sessionDir, generationDir, object(manifest.checkpoint)?.chunks)) {
+  const conversation: VibeConversation = { messages: [], limited: Array.isArray(chunks) && chunks.length > maxCheckpointChunks };
+  let remaining = maxConversationTextBytes;
+  let startup = true;
+  let line = 0;
+  for await (const item of checkpointEntries(sessionDir, generationDir, chunks)) {
+    line++;
     const entry = object(item);
     const message = object(entry?.message);
     const role = message?.role;
-    if (!entry || !message || !Array.isArray(message.content)) continue;
-    if (typeof entry.turn_index === 'number' && entry.turn_index > 0) return records;
-    if (role !== 'system' && role !== 'developer' && role !== 'user') continue;
-    const opening = role === 'user' && message.context !== true && entry.source === 'history' && entry.turn_index === 0;
-    const kinds: string[] = [];
+    if (!entry || !message || typeof role !== 'string' || !Array.isArray(message.content)) continue;
+    if ((typeof entry.turn_index === 'number' && entry.turn_index > 0) || role === 'assistant' || role === 'tool') startup = false;
+    if (records.length + conversation.messages.length === maxCheckpointRecords || remaining <= 0) {
+      conversation.limited = true;
+      break;
+    }
+    const opening = startup && role === 'user' && message.context !== true && entry.source === 'history' && entry.turn_index === 0;
+    const kinds: string[] = typeof message.name === 'string' ? [message.name] : [];
     const content = message.content.flatMap((part: unknown) => {
       const block = object(part);
       const resource = object(block?.resource);
-      const text = block?.text ?? resource?.text;
-      if (typeof text !== 'string') return [];
+      if (!block) return [];
       const kind = resource?.uri === 'nimbalyst://system-instructions'
         ? 'Nimbalyst instructions (ACP resource)'
         : opening && block?.type === 'text' ? 'user.text' : String(block?.type ?? 'text');
       kinds.push(kind);
-      return [{ type: block?.type, text }];
+      const text = contentText(block);
+      return text === undefined ? [] : [{ type: block.type, text }];
     });
-    records.push({ type: 'response_item', payload: {
-      type: 'message', role, content, internal_chat_message_metadata_passthrough: { content_item_kinds: kinds },
-    } });
-    if (opening) return records;
+    if (startup) {
+      records.push({ type: 'response_item', payload: {
+        type: 'message', role, content, internal_chat_message_metadata_passthrough: { content_item_kinds: kinds },
+      } });
+      if (opening) startup = false;
+    } else {
+      const text = content.map(block => block.text).join('\n');
+      const preview = capRecordedStartupText(text, Math.min(remaining, maxTextBytes));
+      conversation.messages.push({ line, role, kinds, bytes: Buffer.byteLength(text), text: preview.text, textTruncated: preview.truncated });
+      remaining -= Buffer.byteLength(preview.text);
+    }
   }
-  return records;
+  return { records, conversation };
 }
 
 /** Vibe's unified store persists the system instruction snapshot separately
@@ -90,25 +131,28 @@ export async function readVibeRecordedStartup(
   sessionDir: string,
   providerSessionId: string,
   maxTextBytes: number,
-): Promise<CodexRecordedStartup | null> {
+  selectedModel?: string,
+): Promise<VibeRecordedContext | null> {
   const generationsDir = join(sessionDir, 'generations');
   const generations = (await readdir(generationsDir))
     .filter(name => /^\d{16}$/.test(name))
-    .sort().slice(0, 2);
-  let partial: CodexRecordedStartup | null = null;
-  for (const generation of generations) {
+    .sort();
+  let partial: VibeRecordedContext | null = null;
+  for (const generation of new Set([generations.at(-1), ...generations.slice(0, 2)])) {
+    if (!generation) continue;
     try {
       const directory = join(generationsDir, generation);
       const manifest = object(await readSnapshot(join(directory, 'manifest.json')));
       if (manifest?.session_id !== providerSessionId) continue;
       const runtime = object(await readSnapshot(join(directory, 'runtime-state.json')));
       if (runtime?.session_id !== providerSessionId) continue;
-      const records = await openingRecords(sessionDir, directory, manifest);
+      const { records, conversation } = await readCheckpointMessages(sessionDir, directory, object(manifest.checkpoint)?.chunks, maxTextBytes);
       const report = inspectCodexStartupRecords(records, { maxTextBytes, fingerprint: hash });
       report.provider = 'mistral-vibe';
       report.session.id = providerSessionId;
-      const model = object(runtime.session_metadata)?.active_model;
-      if (typeof model === 'string') report.session.model = model;
+      // Vibe's saved active_model can be its CLI default even after ACP selects another model.
+      const model = selectedModel?.replace(/^mistral-vibe:/, '');
+      if (model && model !== 'default') report.session.model = model;
       const system = runtime.core_system_instructions;
       if (typeof system === 'string' && system) {
         const preview = capRecordedStartupText(system, maxTextBytes);
@@ -121,8 +165,12 @@ export async function readVibeRecordedStartup(
           textTruncated: preview.truncated,
         });
       }
-      if (report.boundaryLine) return report;
-      if (report.messages.length || report.snapshots.length) partial ??= report;
+      const evidence: VibeRecordedContext = {
+        report,
+        conversation: partial?.conversation.messages.length ? partial.conversation : conversation,
+      };
+      if (report.boundaryLine) return evidence;
+      if (report.messages.length || report.snapshots.length || conversation.messages.length) partial ??= evidence;
     } catch {
       // Vibe can replace retained generations while this inspection runs.
     }

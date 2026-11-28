@@ -24,7 +24,7 @@ The Effective setup tab previews the selected custom Codex base separately from 
 
 In the token meter, choose **Inspect context** to open the dialog. **Recorded native startup: messages and audit snapshots** reads the local Codex startup log for the session's native thread and keeps recorded evidence separate from the prepared request and provider-reported usage. Missing files, unsupported older thread identifiers and read errors remain explicit. The lookup checks the UUIDv7 creation-day directory and its adjacent days. Archived or moved rollouts may be unavailable.
 
-Mistral Vibe uses the same inspector for the latest ACP request measurements and the startup messages and instructions retained in Vibe's session files. The authenticated browser inspector can read these records for the connected workspace. Agent tools receive measurements without raw startup text.
+Mistral Vibe uses the same inspector for ACP request measurements, saved startup instructions, and a bounded view of retained conversation, including tool call arguments and results. The model label follows the Nimbalyst session selection. Saved checkpoints keep these records available after app restarts, while measurements of the latest ACP request come from the current process. The authenticated browser inspector can read the records for the connected workspace. Agent tools receive measurements without the raw text.
 
 For **Claude Agent** and **Claude Code CLI**, the same dialog shows the first user message in the available transcript and provider-reported context categories when present. Claude Agent also shows the last turn's Nimbalyst prompt additions captured in the current app window. Claude’s built-in system prompt and native instruction text are unavailable in the inspector.
 
